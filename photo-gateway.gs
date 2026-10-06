@@ -1,11 +1,12 @@
 /**
- * THE FAMILY ZONE → 사진·목소리 창구 (Apps Script 웹앱, v1)
+ * THE FAMILY ZONE → 사진·목소리 창구 (Apps Script 웹앱, v2)
  *   가족 앱이 보낸 사진과 음성을 "내 구글 드라이브"의 가족 폴더에 넣어 준다.
  *   가족 암호가 맞는 요청만 받는다 (Supabase 의 is_family 로 확인).
  *
  *   - 사진: 링크가 있는 사람만 볼 수 있게 공유하고, 앱에 보여 줄 주소를 돌려준다
  *   - 목소리: 공유하지 않는다. 앱이 가족 암호로 이 창구를 통해서만 꺼내 듣는다
  *   - 지우기: 드라이브 휴지통으로 옮긴다 (30일 안에는 드라이브에서 되살릴 수 있음)
+ *   - 백업(v2): 가족 글 전체를 "THE FAMILY ZONE/백업" 폴더에 날짜별 파일로 쌓는다 (같은 날은 덮어씀, 지난 날 파일은 지우지 않음)
  *
  * 설치 (한 번만):
  *  1. https://script.google.com 에서 "새 프로젝트" → 이 파일 내용을 전부 붙여넣고 저장 (프로젝트 이름: 패밀리 존 사진 창구)
@@ -27,7 +28,7 @@
 const SUPABASE_URL = 'https://ijpbmlphaanmqnsixckt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_lZIA-d3DTswNZOKdhEn4iw_W8k7BDQl';   // 공개용 키 (앱 코드에도 들어 있음)
 const ROOT_NAME = 'THE FAMILY ZONE';
-const VERSION = 1;
+const VERSION = 2;
 
 /* 연결 확인용. 암호 없이도 살아 있는지만 알려 준다 */
 function doGet() {
@@ -42,6 +43,8 @@ function doPost(e) {
     if (p.action === 'upload') return json_(upload_(p));
     if (p.action === 'get') return json_(getFile_(p.id));
     if (p.action === 'delete') return json_(trash_(p.id));
+    if (p.action === 'backup') return json_(backup_(p));
+    if (p.action === 'bkinfo') return json_(backupInfo_());
     if (p.action === 'ping') return json_({ ok: true, v: VERSION, folder: root_().getUrl() });
     return json_({ ok: false, error: '모르는 요청입니다: ' + p.action });
   } catch (err) {
@@ -89,6 +92,33 @@ function getFile_(id) {
 function trash_(id) {
   inFamily_(id).setTrashed(true);
   return { ok: true };
+}
+
+/* ---------- 백업 (v2) ---------- */
+
+/* p: { day: 'YYYY-MM-DD', data: JSON 글자 }  → 백업/가족기록_YYYY-MM-DD.json */
+function backup_(p) {
+  const day = String(p.day || '').match(/^\d{4}-\d{2}-\d{2}$/) ? p.day : Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const text = String(p.data || '');
+  if (!text || text.charAt(0) !== '{') throw new Error('백업 내용이 비어 있습니다');
+  const folder = sub_('백업');
+  const name = '가족기록_' + day + '.json';
+  const old = folder.getFilesByName(name);
+  while (old.hasNext()) old.next().setTrashed(true);
+  const file = folder.createFile(Utilities.newBlob(text, 'application/json', name));
+  return { ok: true, id: file.getId(), name: name, folder: folder.getUrl() };
+}
+
+/* 마지막 백업 날짜와 쌓인 개수 */
+function backupInfo_() {
+  const it = sub_('백업').getFiles();
+  let count = 0, last = '';
+  while (it.hasNext()) {
+    const n = it.next().getName();
+    const m = n.match(/(\d{4}-\d{2}-\d{2})/);
+    if (m) { count++; if (m[1] > last) last = m[1]; }
+  }
+  return { ok: true, count: count, last: last, folder: sub_('백업').getUrl() };
 }
 
 /* ---------- 내부 ---------- */
