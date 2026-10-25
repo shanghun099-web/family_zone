@@ -339,8 +339,18 @@ async function sb(path, opt = {}) {
   if (!res.ok) throw new Error((data && data.message) || `서버 오류 (${res.status})`);
   return data;
 }
+/* 서버는 한 번에 1000줄까지만 준다 → 1000줄씩 받아서 끝날 때까지 이어 붙인다 (순서는 order 로 고정) */
+const PAGE = 1000;
+async function listAll(t, q) {
+  const out = [];
+  for (let off = 0; ; off += PAGE) {
+    const rows = await sb(`${t}?${q}&limit=${PAGE}&offset=${off}`);
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
 const db = {
-  list:   (t, q = 'select=*') => sb(`${t}?${q}`),
+  list:   (t, q = 'select=*&order=id') => listAll(t, q),
   add:    (t, row) => sb(t, { method: 'POST', body: row, prefer: 'return=representation' }),
   addOnce:(t, row, conflict) => sb(`${t}?on_conflict=${conflict}`, { method: 'POST', body: row, prefer: 'resolution=ignore-duplicates,return=representation' }),
   patch:  (t, id, patch) => sb(`${t}?id=eq.${id}`, { method: 'PATCH', body: patch, prefer: 'return=representation' }),
@@ -1043,6 +1053,12 @@ function StoryViewer({ items, onClose }) {
 function HomeTab() {
   const C = useC(); const today = ymd();
   const feed = C.posts.filter(p => p.kind !== 'daily');
+  const [shown, setShown] = useState(15); const endRef = useRef(null);
+  useEffect(() => {
+    const el = endRef.current; if (!el || !window.IntersectionObserver) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) setShown(n => n + 15); }, { rootMargin: '800px' });
+    io.observe(el); return () => io.disconnect();
+  }, [shown, feed.length]);
   const order = [C.me, ...C.members.map(m => m.id).filter(id => id !== C.me)];
   const stories = order.map(id => C.getM(id)).sort((x, y) => {
     if (x.id === C.me) return -1; if (y.id === C.me) return 1;
@@ -1106,8 +1122,10 @@ function HomeTab() {
       )}
       <div style={{ height: 4 }}/>
       {!feed.length && <div className="empty">아직 소식이 없어요.<br/>오른쪽 위 <b>＋</b>를 눌러 첫 소식을 올려 보세요.</div>}
-      {feed.map(p => <PostCard key={p.id} p={p}/>)}
-      {feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
+      {feed.slice(0, shown).map(p => <PostCard key={p.id} p={p}/>)}
+      {shown < feed.length
+        ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
+        : feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
     </>
   );
 }
@@ -1839,15 +1857,15 @@ function App() {
   const loadAll = async () => {
     try {
       const [ms, ps, rs, cs, ns, es, ls, qs, as] = await Promise.all([
-        db.list('members', 'select=*&order=sort,created_at'),
-        db.list('posts', 'select=*&order=happened_on.desc,created_at.desc&limit=1000'),
-        db.list('reactions', 'select=post_id,member_id,emoji,created_at'),
-        db.list('comments', 'select=*&order=created_at'),
-        db.list('notes', 'select=*&order=created_at'),
-        db.list('events', 'select=*&order=event_date'),
-        db.list('letters', 'select=*&order=created_at.desc'),
-        db.list('questions', 'select=*&order=week_start.desc'),
-        db.list('answers', 'select=*&order=created_at')
+        db.list('members', 'select=*&order=sort,created_at,id'),
+        db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
+        db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
+        db.list('comments', 'select=*&order=created_at,id'),
+        db.list('notes', 'select=*&order=created_at,id'),
+        db.list('events', 'select=*&order=event_date,id'),
+        db.list('letters', 'select=*&order=created_at.desc,id'),
+        db.list('questions', 'select=*&order=week_start.desc,id'),
+        db.list('answers', 'select=*&order=created_at,id')
       ]);
       if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
       setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as });
@@ -1875,7 +1893,7 @@ function App() {
     try {
       if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
       const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'memories', 'wishes', 'event_tasks'];
-      const all = await Promise.all(tables.map(t => db.list(t).catch(() => [])));
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : undefined).catch(() => [])));
       const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
       tables.forEach((t, i) => data[t] = all[i]);
       await gw('backup', { day: ymd(), data: JSON.stringify(data) });
