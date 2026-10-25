@@ -359,6 +359,7 @@ const db = {
   list:   (t, q = 'select=*&order=id') => listAll(t, q),
   add:    (t, row) => sb(t, { method: 'POST', body: row, prefer: 'return=representation' }),
   addOnce:(t, row, conflict) => sb(`${t}?on_conflict=${conflict}`, { method: 'POST', body: row, prefer: 'resolution=ignore-duplicates,return=representation' }),
+  upsert: (t, row, conflict) => sb(`${t}?on_conflict=${conflict}`, { method: 'POST', body: row, prefer: 'resolution=merge-duplicates,return=representation' }),
   patch:  (t, id, patch) => sb(`${t}?id=eq.${id}`, { method: 'PATCH', body: patch, prefer: 'return=representation' }),
   del:    (t, filter) => sb(`${t}?${filter}`, { method: 'DELETE' }),
   rpc:    (fn, args = {}) => sb(`rpc/${fn}`, { method: 'POST', body: args })
@@ -654,6 +655,104 @@ function InstallCard({ inSettings }) {
       </div>
     </div>
   );
+}
+
+/* ── 폰 알림 (Web Push) ──
+   "알림 받기"를 누르면 이 폰의 알림 주소를 push_subs 표에 적는다. 식구가 무언가 올리면
+   Supabase 의 notify 함수가 그 주소로 알림을 보내고, sw.js 가 폰 알림으로 띄운다.
+   밤 10시~아침 8시 것은 서버가 모아 두었다가 아침에 보낸다. */
+const VAPID_PUB = 'BCXSOfWZ11rtXk2VdgjbGEs_-sR8G4lKgN9w7Rqkd0VPSsF2WYaPEHfy7MYPVIRDTVkvd3cm23Pa_FDVG0r3RLY';
+const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const swReady = PUSH_OK ? navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).catch(() => null) : Promise.resolve(null);
+const b64u = s => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+const pushSub = async () => { const reg = await swReady; return reg ? reg.pushManager.getSubscription() : null; };
+const PUSH_PREFS = [['post', '새 소식 · 오늘의 한 장'], ['react', '내 소식에 달린 댓글 · 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+function usePush() {
+  const C = useC();
+  const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
+  const load = async () => {
+    if (!PUSH_OK) { setSt(x => ({ ...x, ready: true })); return; }
+    const sub = await pushSub(); let row = null;
+    if (sub) { try { row = (await db.list('push_subs', `select=*&endpoint=eq.${encodeURIComponent(sub.endpoint)}&order=id`))[0] || null; } catch (e) {} }
+    setSt(x => ({ ...x, ready: true, perm: Notification.permission, row }));
+  };
+  useEffect(() => { load(); const f = () => load(); addEventListener('fz-push', f); return () => removeEventListener('fz-push', f); }, []);
+  const on = async () => {
+    setSt(x => ({ ...x, busy: true }));
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { C.toast(perm === 'denied' ? '알림이 막혀 있어요. 폰 설정 → 애플리케이션 → Familygram(또는 크롬) → 알림을 켜 주세요' : '알림을 허락해야 받을 수 있어요'); return; }
+      const reg = await swReady; if (!reg) throw new Error('이 폰은 알림을 지원하지 않아요');
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
+      const j = sub.toJSON();
+      await db.upsert('push_subs', { member_id: C.me, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, ua: navigator.userAgent.slice(0, 160) }, 'endpoint');
+      C.toast('알림을 켰어요 🔔 식구가 소식을 올리면 알려 드릴게요');
+    } catch (e) { C.toast('알림을 켜지 못했어요: ' + e.message); }
+    finally { setSt(x => ({ ...x, busy: false })); dispatchEvent(new Event('fz-push')); }
+  };
+  const off = async () => {
+    const sub = await pushSub();
+    if (sub) { try { await db.del('push_subs', `endpoint=eq.${encodeURIComponent(sub.endpoint)}`); } catch (e) {} await sub.unsubscribe().catch(() => {}); }
+    C.toast('이 폰의 알림을 껐어요'); dispatchEvent(new Event('fz-push'));
+  };
+  const setPref = async (k, v) => {
+    const row = st.row; if (!row) return;
+    const prefs = { ...row.prefs, [k]: v }; setSt(x => ({ ...x, row: { ...row, prefs } }));
+    try { await db.patch('push_subs', row.id, { prefs }); } catch (e) { C.toast('저장하지 못했어요'); }
+  };
+  const sample = async () => { const reg = await swReady; if (reg) reg.showNotification('할머니가 새 소식을 올렸어요', { body: '알림은 이렇게 와요 👍 (시험)', icon: 'icon-192.png?v=2', badge: 'badge-96.png', tag: 'sample' }); };
+  return { ...st, supported: PUSH_OK, needsInstall: IS_IOS && !isStandalone(), on, off, setPref, sample };
+}
+/* 홈 위쪽 "알림 받기" 카드 (앱 설치 카드가 먼저 보일 땐 숨김) */
+function PushCard() {
+  const P = usePush(); const I = useInstall();
+  const [hide, setHide] = useState(() => store.get('fz_push_hide') > ymd());
+  if (!P.ready || !P.supported || P.needsInstall || P.row || P.perm === 'denied' || hide || I.can) return null;
+  return (
+    <div className="banner" style={{ alignItems: 'flex-start' }}>
+      <div className="bic" style={{ background: '#FFEDEE', color: '#ED4956' }}><LIcon name="bell-ring"/></div>
+      <div className="grow">
+        <b>새 소식 알림 받기</b>
+        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>식구가 소식·댓글·편지를 남기면 폰에 알려 드려요. 앱 아이콘에 숫자도 떠요.</span>
+        <div className="row gap">
+          <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}알림 받기</button>
+          <button className="btn sm soft" onClick={() => { store.set('fz_push_hide', ymd(addDays(new Date(), 14))); setHide(true); }}>나중에</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+/* 설정 안의 알림 칸 */
+function PushSettings() {
+  const P = usePush();
+  const box = { background: '#f6f6f6', borderRadius: 14, padding: 12, fontSize: '.95rem' };
+  if (!P.ready) return <div style={box}><div className="row gap"><span className="spin dark"/>확인하는 중…</div></div>;
+  if (!P.supported) return <div style={box}>이 폰(브라우저)은 알림을 지원하지 않아요. 크롬이나 사파리에서 열어 주세요.</div>;
+  if (P.needsInstall) return <div style={box}>아이폰은 먼저 사파리 <b>공유 → 홈 화면에 추가</b>를 하고, 홈 화면의 Familygram 아이콘으로 연 다음에 알림을 켤 수 있어요.</div>;
+  if (P.perm === 'denied') return <div style={box}>알림이 막혀 있어요. 폰 <b>설정 → 애플리케이션 → Familygram</b>(또는 크롬) <b>→ 알림</b>을 켠 뒤 다시 와 주세요.</div>;
+  if (!P.row) return (
+    <div style={box}>
+      <div style={{ marginBottom: 10 }}>식구가 소식·댓글·편지를 남기면 이 폰에 알려 드려요.</div>
+      <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}알림 받기</button>
+    </div>
+  );
+  return (
+    <div style={box}>
+      <div className="row gap" style={{ marginBottom: 4 }}><LIcon name="bell-ring" size={18}/><b className="grow">이 폰은 알림을 받고 있어요</b></div>
+      {PUSH_PREFS.map(([k, l]) => <Toggle key={k} on={P.row.prefs[k] !== false} onChange={v => P.setPref(k, v)} label={l}/>)}
+      <div className="row gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+        <button className="btn sm soft" onClick={P.sample}><LIcon name="bell" size={16}/>알림 모양 보기</button>
+        <button className="btn sm soft danger" onClick={P.off}>이 폰 알림 끄기</button>
+      </div>
+      {!IS_IOS && <p className="small muted" style={{ margin: '8px 0 0' }}>갤럭시에서 아이콘에 점 대신 숫자로 보려면: 폰 설정 → 알림 → 고급 설정 → 앱 아이콘 배지 → 숫자</p>}
+    </div>
+  );
+}
+/* 앱을 열면 아이콘 숫자·쌓인 알림을 지운다 */
+function clearBadge() {
+  if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  swReady.then(reg => reg && reg.getNotifications().then(ns => ns.forEach(n => n.close()))).catch(() => {});
+  pushSub().then(sub => sub && db.rpc('push_seen', { p_endpoint: sub.endpoint })).catch(() => {});
 }
 
 const Ctx = createContext(null);
@@ -1147,6 +1246,7 @@ function HomeTab() {
         })}
       </div>
       <InstallCard/>
+      <PushCard/>
       {askedMe.length > 0 && (
         <button className="banner" onClick={() => C.openComments(askedMe[0])}>
           <Avatar m={C.getM(askedMe[0].author_id)} size={42}/>
@@ -1734,6 +1834,7 @@ function SettingsSheet({ open, onClose }) {
   return (
     <Sheet open={open} onClose={onClose} full title="설정">
       {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
+      <div className="field"><label>🔔 새 소식 알림</label><PushSettings/></div>
       <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
       <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
       <div className="field">
@@ -1897,6 +1998,9 @@ function App() {
   const [composer, setComposer] = useState(null); const [cmtPost, setCmtPost] = useState(null); const [cmtMode, setCmtMode] = useState('');
   const [profile, setProfile] = useState(null); const [story, setStory] = useState(null); const [letterCfg, setLetterCfg] = useState(null);
   const [letterView, setLetterView] = useState(null); const [question, setQuestion] = useState(null); const [book, setBook] = useState(null);
+  const [postView, setPostView] = useState(null);
+  /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
+  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story)=/.test(location.search) ? location.search : '');
   const [settings, setSettings] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
   const toastTimer = useRef(null);
   const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
@@ -1962,6 +2066,7 @@ function App() {
   }, [hasKey]);
   useEffect(() => {
     const onVis = () => {
+      if (document.visibilityState === 'visible' && familyKey) clearBadge();
       if (document.visibilityState === 'hidden') { store.set('fz_seen', new Date().toISOString()); if (window.speechSynthesis) window.speechSynthesis.cancel(); }
       if (document.visibilityState === 'visible' && familyKey) { setPrevSeen(store.get('fz_seen') || prevSeen); loadAll(); }
     };
@@ -2068,6 +2173,29 @@ function App() {
     openLetters: () => setLettersOpen(true), openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
   };
 
+  /* 알림: 앱을 열면 숫자 지우기 / 이 폰 주인이 바뀌면 알림 주소의 식구도 바꾸기 / 알림 눌러 열기 */
+  useEffect(() => {
+    if (!loaded || !me) return;
+    clearBadge();
+    pushSub().then(sub => { if (!sub) return; const j = sub.toJSON(); return db.upsert('push_subs', { member_id: me, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, 'endpoint'); }).catch(() => {});
+  }, [loaded, me]);
+  useEffect(() => {
+    if (!PUSH_OK) return;
+    const f = e => { if (e.data && e.data.type === 'fz-open') loadAll().then(() => setLinkReq(new URL(e.data.url).search)); };
+    navigator.serviceWorker.addEventListener('message', f);
+    return () => navigator.serviceWorker.removeEventListener('message', f);
+  }, []);
+  useEffect(() => {
+    if (!loaded || !linkReq || !D.members.some(m => m.id === me)) return;
+    const q = new URLSearchParams(linkReq); setLinkReq('');
+    history.replaceState(history.state, '', location.pathname);
+    const post = q.get('post') && posts.find(p => p.id === q.get('post'));
+    if (post) { if (q.get('c')) { setCmtMode(''); setCmtPost(post); } else setPostView(post.id); }
+    const l = q.get('letter') && D.letters.find(x => x.id === q.get('letter')); if (l) setLetterView(l);
+    const qq = q.get('q') && D.questions.find(x => x.id === q.get('q')); if (qq) setQuestion(qq);
+    const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
+  }, [loaded, linkReq, me, D]);
+
   if (!hasKey) return <Gate onEnter={() => setHasKey(true)}/>;
   if (!loaded) return <div className="gate"><div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div><p className="muted"><span className="spin dark"/> 가족 소식을 펼치는 중…</p></div>;
   if (!D.members.some(m => m.id === me)) return <PickMe members={D.members} onPick={id => setMe(id)} onLeave={() => leave()}/>;
@@ -2101,6 +2229,7 @@ function App() {
       <SettingsSheet open={settings} onClose={() => setSettings(false)}/>
       <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
       <TagPage tag={tagView} onClose={() => setTagView(null)}/>
+      <Page open={!!postView} onClose={() => setPostView(null)} title="소식">{postView && (posts.find(p => p.id === postView) ? <PostCard p={posts.find(p => p.id === postView)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
       <StoryViewer items={story} onClose={() => setStory(null)}/>
       <BookView year={book} onClose={() => setBook(null)}/>
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
