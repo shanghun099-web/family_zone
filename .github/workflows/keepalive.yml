@@ -1,0 +1,55 @@
+# Supabase 무료 프로젝트는 7일 동안 아무 요청이 없으면 잠든다(일시 정지).
+# 1주에 두 번(월·목) 패밀리 존과 자비스 서버에 작은 요청을 보내 깨워 둔다.
+# 딱 7일 간격이면 GitHub 예약 실행이 몇 시간 늦을 때 놓칠 수 있어 두 번으로 했다.
+# 아래 키는 앱 화면 코드에도 들어 있는 공개용 키라 여기 있어도 괜찮다.
+name: Supabase 깨우기
+
+on:
+  schedule:
+    - cron: '17 0 * * 1,4'   # 월·목 오전 9시 17분 (한국 시간)
+  workflow_dispatch:          # Actions 화면에서 손으로도 돌릴 수 있게
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 패밀리 존 깨우기
+        run: |
+          code=$(curl -s -o /tmp/fz.txt -w '%{http_code}' -X POST \
+            'https://ijpbmlphaanmqnsixckt.supabase.co/rest/v1/rpc/family_ready' \
+            -H 'apikey: sb_publishable_lZIA-d3DTswNZOKdhEn4iw_W8k7BDQl' \
+            -H 'Content-Type: application/json' -d '{}')
+          echo "패밀리 존: $code $(cat /tmp/fz.txt)"
+          test "$code" = 200
+
+      - name: 자비스 깨우기
+        if: always()
+        run: |
+          code=$(curl -s -o /tmp/jv.txt -w '%{http_code}' \
+            'https://dptgyxiqcvnbizuvsdmm.supabase.co/rest/v1/entries?select=id&limit=1' \
+            -H 'apikey: sb_publishable_qMG1bWQGYEpFvWkAh9WFwA_-tixvOmn')
+          echo "자비스: $code $(cat /tmp/jv.txt)"
+          test "$code" = 200
+
+      # GitHub 는 60일 동안 저장소에 변화가 없으면 예약 실행을 꺼 버린다.
+      # 화면(main)과 상관없는 keepalive 가지에 날짜 한 줄을 남겨 저장소도 깨워 둔다.
+      - uses: actions/checkout@v4
+        if: always()
+      - name: 저장소 깨우기 (keepalive 가지)
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git fetch origin keepalive 2>/dev/null; then
+            git checkout -B keepalive origin/keepalive
+          else
+            git checkout --orphan keepalive
+            git rm -rf --quiet .
+          fi
+          date -u '+%Y-%m-%d %H:%M UTC' > last-ping.txt
+          git add last-ping.txt
+          git commit -m "깨우기 $(date -u +%F)"
+          git push origin keepalive
