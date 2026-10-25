@@ -3,43 +3,50 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-<title>우리 가족 · THE FAMILY ZONE</title>
-<meta name="theme-color" content="#ffffff"/>
+<title>Familygram · 우리 가족</title>
+<meta name="theme-color" content="#F7F6F3"/>
 <link rel="manifest" href="manifest.json?v=2"/>
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=2"/>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2"/>
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=2"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-<meta name="apple-mobile-web-app-title" content="우리 가족"/>
+<meta name="apple-mobile-web-app-title" content="Familygram"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Nanum+Pen+Script&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Dancing+Script:wght@700&family=Nanum+Pen+Script&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 <style>
-  :root{--ink:#1a1a1a;--sub:#737373;--line:#ececec;--soft:#f5f3ef;--accent:#F0603A;--blue:#2F7BF6;--purple:#6a3fc8;--red:#ED4956;
-    --ring:linear-gradient(45deg,#FFB547,#F0603A 55%,#D9407A);--bday:conic-gradient(#FFD34D,#7FD1AE,#6BA9FF,#C38BFF,#FF8FA3,#FFD34D)}
+  :root{--ink:#1a1a1a;--sub:#737373;--line:#ececec;--soft:#f5f3ef;--accent:#F0603A;--blue:#2F7BF6;--purple:#6a3fc8;--red:#ED4956;--tag:#1F6FD1;
+    --bg:#F7F6F3;--card-sh:0 1px 2px rgba(0,0,0,.04),0 6px 22px rgba(60,40,20,.06);
+    --ring:linear-gradient(45deg,#FFC24B,#FA6E3C 35%,#E1306C 65%,#B03BC9);--bday:conic-gradient(#FFD34D,#7FD1AE,#6BA9FF,#C38BFF,#FF8FA3,#FFD34D)}
   html{font-size:16px}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#ECE9E4;color:var(--ink);font-family:'Noto Sans KR',system-ui,sans-serif;line-height:1.5;word-break:keep-all;overflow-wrap:anywhere}
   button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
   input,textarea,select{font:inherit;color:inherit}
   img{display:block}
-  .app{max-width:480px;margin:0 auto;min-height:100vh;background:#fff;position:relative;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
-  .topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:space-between;padding:6px 8px 6px 14px;min-height:56px}
+  .app{max-width:480px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(247,246,243,.94);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:space-between;padding:6px 8px 6px 14px;min-height:56px}
+  .page .topbar{background:rgba(255,255,255,.96)}
   .logo{font-family:'Nanum Pen Script',cursive;font-size:2.2rem;line-height:1}
+  .brand{font-family:'Dancing Script',cursive;font-weight:700;font-size:2.15rem;line-height:1;letter-spacing:-.3px;display:inline-flex;align-items:flex-start;gap:3px;color:#151515}
+  .brand-hd{padding:12px 8px 4px 18px;align-items:flex-start}
+  .brand-sub{display:block;font-size:.86rem;color:#8a8580;margin-top:6px;letter-spacing:-.2px}
+  .gate .brand{font-size:3.2rem}
   .h1{font-size:1.35rem;font-weight:900}
   .pt{font-size:1.1rem;font-weight:700;flex:1;text-align:center}
   .iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;position:relative;flex-shrink:0}
   .iconbtn:active{background:#f0f0f0}
   .cnt{position:absolute;top:3px;right:1px;background:#F0403A;color:#fff;border-radius:10px;font-size:.7rem;font-weight:700;min-width:19px;height:19px;padding:0 5px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;line-height:1}
-  .tabbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid var(--line);display:flex;align-items:stretch;height:calc(64px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);z-index:30}
-  .tabbar>button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:.78rem;color:#9a9a9a;position:relative}
+  .tabbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #efedea;border-radius:20px 20px 0 0;box-shadow:0 -4px 18px rgba(60,40,20,.05);display:flex;align-items:stretch;height:calc(66px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);z-index:30}
+  .tabbar>button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.78rem;color:#8e8e8e;position:relative}
   .tabbar>button.on{color:var(--ink);font-weight:700}
-  .tabbar .plus{width:52px;height:38px;border-radius:13px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center}
   .tabbar .cnt{top:5px;right:calc(50% - 24px)}
+  .tabbar .me-av{border-radius:50%;padding:1.5px;border:1.5px solid transparent;display:flex}
+  .tabbar button.on .me-av{border-color:var(--ink)}
   .muted{color:var(--sub)} .small{font-size:.85rem} .tiny{font-size:.78rem}
   .row{display:flex;align-items:center} .gap{gap:8px} .grow{flex:1;min-width:0}
   .pad{padding:0 14px}
@@ -59,27 +66,31 @@
   .av-gap{border-radius:50%;padding:2px;background:#fff;display:flex}
 
   /* 스토리 줄 */
-  .stories{display:flex;gap:14px;padding:6px 14px 12px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:none}
+  .stories{display:flex;gap:12px;padding:10px 16px 14px;overflow-x:auto;scrollbar-width:none}
   .stories::-webkit-scrollbar{display:none}
-  .st{width:68px;text-align:center;flex-shrink:0;position:relative}
-  .st .lb{font-size:.8rem;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st{width:70px;text-align:center;flex-shrink:0;position:relative}
+  .st .lb{font-size:.82rem;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#262626}
+  .st .me0{width:68px;height:68px;border-radius:50%;background:#EEF0F3;color:#7d8590;display:flex;align-items:center;justify-content:center;margin:0 auto}
   .st .mini{position:absolute;top:50px;left:50%;transform:translateX(-50%);background:#fff;border-radius:9px;font-size:.68rem;font-weight:900;padding:0 5px;color:#7b4bd1;border:1px solid #e3d8f7;white-space:nowrap}
-  .st .addp{position:absolute;top:46px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center}
+  .st .addp{position:absolute;top:48px;right:0;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center}
 
   /* 카드 줄 */
-  .banner{margin:12px 14px 0;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;width:calc(100% - 28px);text-align:left}
-  .banner b{display:block;font-size:1rem} .banner span{font-size:.88rem}
-  .ago{background:#FFF5E2} .ago span{color:#8a6d2a}
-  .ago .th{display:flex;flex-shrink:0}.ago .th img{width:42px;height:42px;border-radius:9px;object-fit:cover;border:2px solid #FFF5E2;margin-left:-12px}
+  .banner{margin:0 12px 10px;border-radius:20px;padding:12px 14px;display:flex;align-items:center;gap:12px;width:calc(100% - 24px);text-align:left;background:#fff;box-shadow:var(--card-sh)}
+  .banner b{display:block;font-size:1rem} .banner span{font-size:.88rem;color:var(--sub)}
+  .banner .bic{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .banner>span:last-child{color:#b5b0aa}
+  .ago .th{display:flex;flex-shrink:0}.ago .th img{width:42px;height:42px;border-radius:10px;object-fit:cover;border:2px solid #fff;margin-left:-12px}
   .ago .th img:first-child{margin-left:0}
-  .askme{background:#FFEFE8} .askme span{color:#9b4a2c}
-  .weekq{background:#F3EEFF} .weekq span{color:#5b4a86}
-  .newbar{background:#EAF3FF} .newbar span{color:#2d5c9e}
 
-  /* 게시물 */
-  .post{border-bottom:1px solid var(--line);padding-bottom:10px}
-  .post-hd{display:flex;align-items:center;gap:9px;padding:10px 6px 8px 14px}
-  .post-hd b{font-size:1rem}
+  /* 게시물 = 하얀 둥근 카드 */
+  .post{background:#fff;border-radius:22px;margin:0 12px 14px;overflow:hidden;box-shadow:var(--card-sh);padding-bottom:12px}
+  .page .post{box-shadow:none;margin:0;border-radius:0}
+  .post-hd{display:flex;align-items:center;gap:11px;padding:12px 6px 10px 14px}
+  .post-hd b{font-size:1.02rem}
+  .post-hd .when{display:flex;align-items:center;gap:6px;font-size:.84rem;color:var(--sub);margin-top:1px}
+  .ovl{position:absolute;top:9%;right:6%;max-width:62%;text-align:right;font-family:'Nanum Pen Script',cursive;font-size:2rem;line-height:1.05;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.35);transform:rotate(-6deg);pointer-events:none;white-space:pre-wrap}
+  .htag{color:var(--tag);font-weight:500}
+  .htags{padding:2px 14px 0;display:flex;flex-wrap:wrap;gap:2px 8px;font-size:.98rem}
   .newdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:2px}
   .car-wrap{position:relative;background:#f2f2f2;user-select:none}
   .car{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
@@ -183,6 +194,13 @@
   .tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f3f3f3}
   .tl-ic{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .tl-item b{font-size:.98rem;display:block}.tl-item span{font-size:.85rem;color:var(--sub)}
+  .sheetcard{background:#fff;border-radius:22px;margin:0 12px 14px;overflow:clip;box-shadow:var(--card-sh)}
+  .famrow{display:flex;gap:6px;overflow-x:auto;padding:4px 10px 14px;scrollbar-width:none}
+  .famrow::-webkit-scrollbar{display:none}
+  .fm{width:84px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center}
+  .fm b{font-size:.92rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fm span{font-size:.75rem;color:var(--sub);white-space:nowrap}
+  .fm-add{width:64px;height:64px;border-radius:50%;border:2px dashed #cfcac4;color:#9a948d;display:flex;align-items:center;justify-content:center}
+  .tagfeed .post{margin:0 0 10px;border-radius:0;box-shadow:none;border-bottom:8px solid var(--bg)}
   .famgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 14px}
   .famcard{border:1px solid var(--line);border-radius:18px;padding:16px 10px 14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:150px}
   .famcard b{font-size:1.05rem}.famcard span{font-size:.82rem;color:var(--sub)}
@@ -583,6 +601,7 @@ function speak(text, onEnd) {
 
 const Ctx = createContext(null);
 const useC = () => useContext(Ctx);
+const SAVE = '🔖';
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
 
@@ -743,6 +762,16 @@ function LockedCard({ p, onPeek }) {
   );
 }
 
+/* 글 속 #해시태그는 파란 글씨, 누르면 같은 태그 소식만 모아 본다 */
+const TAG_RE = /(#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)/g;
+const tagsOf = text => [...new Set(String(text || '').match(TAG_RE) || [])];
+function Tagged({ text }) {
+  const C = useC();
+  return String(text || '').split(TAG_RE).map((s, i) => i % 2
+    ? <button key={i} className="htag" onClick={e => { e.stopPropagation(); C.openTag(s); }}>{s}</button>
+    : s);
+}
+
 function CommentRow({ c, onDelete }) {
   const C = useC(); const a = C.getM(c.author_id);
   return (
@@ -764,23 +793,27 @@ function PostCard({ p }) {
   const lastTap = useRef(0);
   if (isLocked(p) && !peek) return <LockedCard p={p} onPeek={p.author_id === C.me ? () => setPeek(true) : null}/>;
   const photos = photosOf(p);
-  const likes = C.likesOf(p.id); const iLike = likes.includes(C.me);
+  const likes = C.likesOf(p.id); const iLike = likes.includes(C.me); const iSaved = C.isSaved(p.id);
   const comments = C.commentsOf(p.id);
   const answers = comments.filter(c => c.is_answer); const plain = comments.filter(c => !c.is_answer);
   const tagged = (p.tagged || []).filter(id => id !== p.author_id).map(C.getM);
   const asked = p.ask_to ? C.getM(p.ask_to) : null;
   const r0 = photos[0] && photos[0].w ? Math.max(0.8, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
   const tapImg = () => { const t = Date.now(); if (t - lastTap.current < 320) { if (!iLike) C.toggleLike(p); setPop(x => x + 1); } lastTap.current = t; };
-  const long = (p.content || '').length > 90 && !more;
+  /* 글 끝에 몰아 쓴 #태그는 참고 화면처럼 아래 줄로 따로 뺀다 */
+  const tm = (p.content || '').match(/(?:\s*#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)+\s*$/);
+  const body = tm ? p.content.slice(0, tm.index).trim() : (p.content || '');
+  const tail = tm ? tagsOf(tm[0]) : [];
+  const long = body.length > 90 && !more;
   const speakKey = 'p' + p.id;
   const openedToday = p.open_on && p.open_on === ymd();
   return (
     <article className="post">
       <div className="post-hd">
-        <Avatar m={a} size={34} ring={C.storyRing(a.id)} onClick={() => C.openProfile(a.id)}/>
+        <Avatar m={a} size={42} ring={C.storyRing(a.id)} onClick={() => C.openProfile(a.id)}/>
         <div className="grow">
-          <div><b>{a.name}</b>{p.isNew && <span className="newdot" title="새 소식"/>} <span className="small muted">· {relDay(p.happened_on, p.created_at)}</span></div>
-          {tagged.length > 0 && <div className="tiny muted">{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</div>}
+          <div><b>{a.name}</b>{p.isNew && <span className="newdot" title="새 소식"/>}</div>
+          <div className="when">{relDay(p.happened_on, p.created_at)}{tagged.length > 0 && <><LIcon name="users" size={14}/>{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</>}</div>
         </div>
         <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>
       </div>
@@ -792,26 +825,32 @@ function PostCard({ p }) {
             {photos.map((ph, i) => <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
           </div>
           {photos.length > 1 && <><span className="pcount">{idx + 1}/{photos.length}</span><div className="dots">{photos.map((_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div></>}
+          {p.title && idx === 0 && <span className="ovl">{p.title}</span>}
           {pop > 0 && <span key={pop} className="bigheart"><LIcon name="heart" size={96} fill="#fff" stroke="#fff"/></span>}
         </div>
       )}
       <div className="acts">
-        <button className="iconbtn" onClick={() => C.toggleLike(p)} aria-label="좋아요">{iLike ? <LIcon name="heart" size={27} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={27}/>}</button>
-        <button className="iconbtn" onClick={() => C.openComments(p)} aria-label="댓글"><LIcon name="message-circle" size={26}/></button>
-        <button className="iconbtn" onClick={() => C.openComments(p, 'voice')} aria-label="목소리 댓글"><LIcon name="mic" size={26}/></button>
-        <button className="iconbtn" onClick={() => C.toggleSpeak(speakKey, `${a.name}의 소식. ${p.content || '사진이 올라왔어요.'}${asked ? ` ${asked.name}께 질문. ${p.ask_text}` : ''}`)} aria-label="읽어 주기">
-          <LIcon name={C.speaking === speakKey ? 'volume-x' : 'volume-2'} size={26}/>
+        <button className="iconbtn" onClick={() => C.toggleLike(p)} aria-label="좋아요">{iLike ? <LIcon name="heart" size={28} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={28}/>}</button>
+        <button className="iconbtn" onClick={() => C.openComments(p)} aria-label="댓글"><LIcon name="message-circle" size={27}/></button>
+        <button className="iconbtn" onClick={() => C.sharePost(p)} aria-label="보내기"><LIcon name="send" size={26}/></button>
+        <button className="iconbtn" onClick={() => C.openComments(p, 'voice')} aria-label="목소리 댓글"><LIcon name="mic" size={24} stroke="#8e8e8e"/></button>
+        <button className="iconbtn" onClick={() => C.toggleSpeak(speakKey, `${a.name}의 소식. ${p.title ? p.title + '. ' : ''}${p.content || '사진이 올라왔어요.'}${asked ? ` ${asked.name}께 질문. ${p.ask_text}` : ''}`)} aria-label="읽어 주기">
+          <LIcon name={C.speaking === speakKey ? 'volume-x' : 'volume-2'} size={24} stroke="#8e8e8e"/>
         </button>
+        <span className="grow"/>
+        <button className="iconbtn" onClick={() => C.toggleSave(p)} aria-label={iSaved ? '보관 빼기' : '보관하기'}>{iSaved ? <LIcon name="bookmark" size={27} fill="#1a1a1a"/> : <LIcon name="bookmark" size={27}/>}</button>
       </div>
       {likes.length > 0 && (
         <div className="liked">
-          <span className="faces">{likes.slice(0, 4).map(id => <Avatar key={id} m={C.getM(id)} size={22}/>)}</span>
-          <span><b>{likes.map(id => C.getM(id).name).join(', ')}</b>{josa(likes.map(id => C.getM(id).name).join(', '), '이', '가').slice(-1)} 좋아해요</span>
+          <span className="faces">{likes.slice(0, 4).map(id => <Avatar key={id} m={C.getM(id)} size={24}/>)}</span>
+          <span>좋아요 <b>{likes.length}개</b> <span className="muted small">· {likes.map(id => C.getM(id).name).join(', ')}</span></span>
         </div>
       )}
-      {p.content && (
-        <div className="capt"><b>{a.name}</b> {long ? <>{p.content.slice(0, 90)}… <button className="more" onClick={() => setMore(true)}>더 보기</button></> : p.content}</div>
+      {!photos.length && p.title && <div className="capt" style={{ fontFamily: "'Nanum Pen Script',cursive", fontSize: '1.6rem', lineHeight: 1.2 }}>{p.title}</div>}
+      {body && (
+        <div className="capt"><b>{a.name}</b> {long ? <><Tagged text={body.slice(0, 90)}/>… <button className="more" onClick={() => setMore(true)}>더 보기</button></> : <Tagged text={body}/>}</div>
       )}
+      {tail.length > 0 && <div className="htags">{tail.map(t => <button key={t} className="htag" onClick={() => C.openTag(t)}>{t}</button>)}</div>}
       {asked && (
         <div className="askbox">
           <div className="tiny" style={{ color: '#b2502c', fontWeight: 700 }}>{asked.emoji} {asked.name}께 묻는 질문</div>
@@ -878,6 +917,7 @@ function Composer({ cfg, onClose }) {
   const [files, setFiles] = useState([]); const [text, setText] = useState(''); const [day, setDay] = useState(ymd());
   const [tagged, setTagged] = useState([]); const [cap, setCap] = useState(false); const [openOn, setOpenOn] = useState('');
   const [askTo, setAskTo] = useState(''); const [askText, setAskText] = useState(''); const [busy, setBusy] = useState(''); const pick = useRef(null);
+  const [ovl, setOvl] = useState('');
   const dict = useDictation(t => setText(s => joinText(s, t)));
   const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
   useEffect(() => {
@@ -885,7 +925,7 @@ function Composer({ cfg, onClose }) {
     const e = cfg.edit;
     setFiles([]); setText(e ? e.content || '' : ''); setDay(e ? e.happened_on : ymd());
     setTagged(e ? e.tagged || [] : []); setCap(!!(e && e.open_on)); setOpenOn(e && e.open_on || '');
-    setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setBusy('');
+    setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setOvl(e && e.title || ''); setBusy('');
   }, [cfg]);
   const addFiles = list => { const arr = Array.from(list || []).filter(f => /^image\//.test(f.type)); setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f) }))].slice(0, daily ? 1 : 10)); };
   const others = C.members.filter(m => m.id !== C.me);
@@ -897,7 +937,7 @@ function Composer({ cfg, onClose }) {
     try {
       if (edit) {
         setBusy('고치는 중…');
-        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
+        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), title: ovl.trim(), happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
         if (ok) onClose(); else setBusy('');
         return;
       }
@@ -906,7 +946,7 @@ function Composer({ cfg, onClose }) {
       setBusy('소식 올리는 중…');
       const row = daily
         ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
-        : { author_id: C.me, kind: 'post', content: text.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '' };
+        : { author_id: C.me, kind: 'post', content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '' };
       const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
       if (ok) onClose(); else setBusy('');
     } catch (e) { setBusy(''); C.toast('올리지 못했어요: ' + e.message); }
@@ -929,9 +969,14 @@ function Composer({ cfg, onClose }) {
         <label>{daily ? '한 줄 (선택)' : '무슨 일이 있었나요?'}</label>
         <textarea className="input" rows={daily ? 2 : 4} placeholder={daily ? '오늘 하루 한 줄' : '편하게 적거나, 아래 "말로 쓰기"를 눌러 말해 보세요'} value={text} onChange={e => setText(e.target.value)}/>
         <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+        {!daily && <p className="small muted" style={{ margin: '8px 2px 0' }}>글에 <span className="htag">#바다</span> <span className="htag">#할머니댁</span>처럼 적으면, 나중에 눌러서 같은 소식끼리 모아 볼 수 있어요.</p>}
       </div>
       {!daily && (
         <>
+          <div className="field">
+            <label>사진 위 손글씨 한 줄 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+            <input className="input" maxLength={30} placeholder="예: 우리, 오늘도 함께 ♡" value={ovl} onChange={e => setOvl(e.target.value)} style={{ fontFamily: "'Nanum Pen Script',cursive", fontSize: '1.4rem' }}/>
+          </div>
           <div className="field">
             <label>언제 있었던 일인가요?</label>
             <input type="date" className="input" max={ymd()} value={day} onChange={e => setDay(e.target.value)}/>
@@ -1010,14 +1055,16 @@ function HomeTab() {
   const agoPhotos = ago.flatMap(p => photosOf(p)).slice(0, 3);
   const askedMe = C.posts.filter(p => p.ask_to === C.me && !isLocked(p) && !C.commentsOf(p.id).some(c => c.is_answer && c.author_id === C.me));
   const wq = C.weekQ; const wqMine = wq && wq.target_id === C.me && !C.answers.some(x => x.question_id === wq.id && x.member_id === C.me);
-  const newCount = C.activity.length;
   return (
     <>
-      <div className="topbar">
-        <span className="logo">우리 가족</span>
+      <div className="topbar brand-hd">
+        <div>
+          <span className="brand">Familygram<LIcon name="heart" size={20} fill="#ED4956" stroke="#ED4956"/></span>
+          <span className="brand-sub">함께하는 모든 순간이 소중해요 ♥</span>
+        </div>
         <div className="row">
-          <button className="iconbtn" onClick={C.openActivity} aria-label="새 소식">{newCount > 0 ? <LIcon name="heart" fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart"/>}{newCount > 0 && <span className="cnt">{newCount}</span>}</button>
-          <button className="iconbtn" onClick={() => C.setTab('letters')} aria-label="편지함"><LIcon name="send"/>{C.unread > 0 && <span className="cnt">{C.unread}</span>}</button>
+          <button className="iconbtn" onClick={() => C.openComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/></button>
+          <button className="iconbtn" onClick={C.openLetters} aria-label="편지함"><LIcon name="send" size={26}/>{C.unread > 0 && <span className="cnt">{C.unread}</span>}</button>
         </div>
       </div>
       <div className="stories">
@@ -1026,37 +1073,39 @@ function HomeTab() {
           const mine = m.id === C.me; const has = C.dailyToday(m.id).length > 0;
           return (
             <div className="st" key={m.id}>
-              <Avatar m={m} size={62} ring={ring} onClick={() => { if (has) C.openStory(C.dailyToday(m.id)); else if (mine) C.openComposer({ mode: 'daily' }); else C.openProfile(m.id); }}/>
+              {mine && !has
+                ? <button className="me0" onClick={() => C.openComposer({ mode: 'daily' })} aria-label="내 스토리 올리기">{m.avatar ? <Avatar m={m} size={68}/> : <LIcon name="users" size={30}/>}</button>
+                : <Avatar m={m} size={62} ring={ring} onClick={() => { if (has) C.openStory(C.dailyToday(m.id)); else C.openProfile(m.id); }}/>}
               {mine && !has && <span className="addp"><LIcon name="plus" size={13} sw={3}/></span>}
               {bd !== null && bd <= 7 && !(mine && !has) && <span className="mini">🎂{ddayText(bd)}</span>}
-              <div className="lb">{mine ? (has ? '내 한 장' : '오늘의 한 장') : m.name}</div>
+              <div className="lb">{mine ? '내 스토리' : m.name}</div>
             </div>
           );
         })}
       </div>
       {askedMe.length > 0 && (
-        <button className="banner askme" onClick={() => C.openComments(askedMe[0])}>
+        <button className="banner" onClick={() => C.openComments(askedMe[0])}>
           <Avatar m={C.getM(askedMe[0].author_id)} size={42}/>
           <div className="grow"><b>{josa(C.getM(askedMe[0].author_id).name, '이', '가')} 질문했어요</b><span>“{askedMe[0].ask_text}”{askedMe.length > 1 ? ` 외 ${askedMe.length - 1}개` : ''}</span></div>
           <LIcon name="chevron-right"/>
         </button>
       )}
       {wqMine && (
-        <button className="banner weekq" onClick={() => C.openQuestion(wq)}>
-          <div className="tl-ic" style={{ background: '#fff', color: '#6a3fc8' }}><LIcon name="circle-help"/></div>
+        <button className="banner" onClick={() => C.openQuestion(wq)}>
+          <div className="bic" style={{ background: '#F3EEFF', color: '#6a3fc8' }}><LIcon name="circle-help"/></div>
           <div className="grow"><b>이번 주 질문이 와 있어요</b><span>“{wq.text}”</span></div>
           <LIcon name="chevron-right"/>
         </button>
       )}
       {ago.length > 0 && (
         <button className="banner ago" onClick={() => C.openAgo(ago)}>
-          {agoPhotos.length > 0 ? <div className="th">{agoPhotos.map((ph, i) => <img key={i} src={ph.thumb || ph.url} alt=""/>)}</div> : <div className="tl-ic" style={{ background: '#fff', color: '#B5861C' }}><LIcon name="history"/></div>}
+          {agoPhotos.length > 0 ? <div className="th">{agoPhotos.map((ph, i) => <img key={i} src={ph.thumb || ph.url} alt=""/>)}</div> : <div className="bic" style={{ background: '#FFF5E2', color: '#B5861C' }}><LIcon name="history"/></div>}
           <div className="grow"><b>{agoYears.map(y => `${y}년`).join('·')} 전 오늘</b><span>그날의 소식 {ago.length}개 · 눌러서 보기</span></div>
           <LIcon name="chevron-right"/>
         </button>
       )}
-      <div style={{ height: 8 }}/>
-      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋</b>를 눌러 첫 소식을 올려 보세요.</div>}
+      <div style={{ height: 4 }}/>
+      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>오른쪽 위 <b>＋</b>를 눌러 첫 소식을 올려 보세요.</div>}
       {feed.map(p => <PostCard key={p.id} p={p}/>)}
       {feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
     </>
@@ -1195,7 +1244,7 @@ function EventSheet({ open, onClose, day }) {
 }
 
 /* ═══════════ 편지함 ═══════════ */
-function LettersTab() {
+function LettersTab({ onBack }) {
   const C = useC(); const [fil, setFil] = useState('all'); const [note, setNote] = useState('');
   const list = C.letters.filter(l => fil === 'all' || (fil === 'in' ? l.receiver_id === C.me : l.sender_id === C.me));
   const wq = C.weekQ; const wqAns = wq ? C.answers.filter(a => a.question_id === wq.id) : [];
@@ -1206,7 +1255,10 @@ function LettersTab() {
   const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
   return (
     <>
-      <div className="topbar"><span className="h1">편지함</span><button className="iconbtn" onClick={() => C.openLetterCompose({})} aria-label="편지 쓰기"><LIcon name="square-pen" size={26}/></button></div>
+      <div className="topbar" style={{ paddingLeft: 4 }}>
+        <div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">편지함</span></div>
+        <button className="iconbtn" onClick={() => C.openLetterCompose({})} aria-label="편지 쓰기"><LIcon name="square-pen" size={26}/></button>
+      </div>
       {wq && (
         <button className="qcard" onClick={() => C.openQuestion(wq)}>
           <small>이번 주의 질문 · {C.getM(wq.target_id).name}께</small>
@@ -1368,32 +1420,100 @@ function QuestionSheet({ q, onClose }) {
   );
 }
 
-/* ═══════════ 식구 ═══════════ */
-function FamilyTab() {
+/* ═══════════ 알림 ═══════════ */
+function NotiTab() {
   const C = useC();
+  const fresh = C.activity.filter(x => x.isNew); const old = C.activity.filter(x => !x.isNew);
+  const row = x => (
+    <button key={x.key} className="lt" style={x.isNew ? { background: '#FFF7F3' } : undefined} onClick={x.go}>
+      <Avatar m={C.getM(x.who)} size={46}/>
+      <div className="grow"><b style={{ fontSize: '.98rem', whiteSpace: 'normal' }}>{x.text}</b><span>{relTime(x.t)}</span></div>
+      {x.thumb && <img src={x.thumb} alt="" style={{ width: 50, height: 50, borderRadius: 10, objectFit: 'cover' }}/>}
+    </button>
+  );
+  const soon = C.members.map(m => ({ m, d: C.bdayDays(m.id) })).filter(x => x.d !== null && x.d <= 14).sort((x, y) => x.d - y.d);
   return (
     <>
-      <div className="topbar"><span className="h1">식구</span><button className="iconbtn" onClick={C.openSettings} aria-label="설정"><LIcon name="settings"/></button></div>
-      <p className="small muted pad" style={{ margin: '0 0 4px' }}>식구를 누르면 그 사람의 사진·연표·목소리가 모여 있어요.</p>
-      <div className="famgrid">
-        {C.members.map(m => {
-          const bd = C.bdayDays(m.id); const n = C.posts.filter(p => p.author_id === m.id && p.kind !== 'daily').length;
-          return (
-            <button key={m.id} className="famcard" onClick={() => C.openProfile(m.id)}>
-              <Avatar m={m} size={72} ring={C.storyRing(m.id) || 'plain'}/>
-              <b>{m.name}{m.id === C.me && <span className="tiny" style={{ color: 'var(--accent)' }}> · 나</span>}</b>
-              <span>{m.role || ' '}</span>
-              {bd !== null ? <span className="bd">🎂 생일 {ddayText(bd)}</span> : <span>소식 {n}개</span>}
-            </button>
-          );
-        })}
-        <button className="famcard" style={{ borderStyle: 'dashed', justifyContent: 'center', color: 'var(--sub)' }} onClick={() => C.openMemberEdit({})}><LIcon name="user-plus" size={30}/>식구 더하기</button>
+      <div className="topbar"><span className="h1">알림</span></div>
+      <div className="sheetcard">
+        {soon.map(({ m, d }) => (
+          <button key={m.id} className="lt" onClick={() => C.openProfile(m.id)}>
+            <Avatar m={m} size={46} ring="bday"/>
+            <div className="grow"><b>🎂 {m.name} 생일 {d === 0 ? '오늘이에요!' : `${d}일 남았어요`}</b><span>눌러서 축하 편지 쓰기·사진 보기</span></div>
+          </button>
+        ))}
+        {fresh.length > 0 && <div className="sec-t">새로 온 소식</div>}
+        {fresh.map(row)}
+        {old.length > 0 && <div className="sec-t">지난 2주</div>}
+        {old.map(row)}
+        {!C.activity.length && !soon.length && <div className="empty">아직 알림이 없어요.<br/><span className="small">식구가 소식·댓글·편지를 남기면 여기 모여요.</span></div>}
       </div>
     </>
   );
 }
 
+/* ═══════════ 내 프로필 (+ 우리 식구) ═══════════ */
+function MeTab() {
+  const C = useC();
+  return (
+    <>
+      <div className="topbar">
+        <span className="h1">내 프로필</span>
+        <div className="row">
+          <button className="iconbtn" onClick={() => C.openMemberEdit(C.getM(C.me))} aria-label="프로필 고치기"><LIcon name="pencil" size={22}/></button>
+          <button className="iconbtn" onClick={C.openSettings} aria-label="설정"><LIcon name="settings"/></button>
+        </div>
+      </div>
+      <div className="sheetcard" style={{ paddingTop: 6 }}>
+        <div className="sec-t" style={{ paddingTop: 8 }}>우리 식구 <span className="small muted" style={{ fontWeight: 400 }}>누르면 그 사람의 사진·연표·목소리</span></div>
+        <div className="famrow">
+          {C.members.filter(m => m.id !== C.me).map(m => {
+            const bd = C.bdayDays(m.id);
+            return (
+              <button key={m.id} className="fm" onClick={() => C.openProfile(m.id)}>
+                <Avatar m={m} size={60} ring={C.storyRing(m.id) || 'plain'}/>
+                <b>{m.name}</b>
+                <span>{bd !== null && bd <= 30 ? `🎂 ${ddayText(bd)}` : m.role || ' '}</span>
+              </button>
+            );
+          })}
+          <button className="fm" onClick={() => C.openMemberEdit({})}><span className="fm-add"><LIcon name="user-plus" size={26}/></span><b>식구 더하기</b><span> </span></button>
+        </div>
+      </div>
+      <div className="sheetcard" style={{ paddingBottom: 6 }}><ProfileBody mid={C.me}/></div>
+    </>
+  );
+}
+
+/* ═══════════ 해시태그 모아 보기 ═══════════ */
+function TagPage({ tag, onClose }) {
+  const C = useC();
+  const list = tag ? C.posts.filter(p => p.kind !== 'daily' && !isLocked(p) && tagsOf(p.content).includes(tag)) : [];
+  return (
+    <Page open={!!tag} onClose={onClose} title={tag || ''}>
+      <p className="small muted pad" style={{ margin: '4px 0 10px' }}>{tag} 소식 {list.length}개</p>
+      <div className="tagfeed">{list.map(p => <PostCard key={p.id} p={p}/>)}</div>
+    </Page>
+  );
+}
+
+/* 편지함은 맨 위 종이비행기로 여는 창 */
+function LettersPage({ open, onClose }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return <div className="page"><LettersTab onBack={onClose}/></div>;
+}
+
 function ProfilePage({ mid, onClose }) {
+  const C = useC(); const m = mid ? C.getM(mid) : null;
+  return (
+    <Page open={!!m} onClose={onClose} title={m ? m.name : ''} right={m && <button className="iconbtn" onClick={() => C.openMemberEdit(m)} aria-label="프로필 고치기"><LIcon name="pencil" size={20}/></button>}>
+      {m && <ProfileBody mid={mid}/>}
+    </Page>
+  );
+}
+
+function ProfileBody({ mid, top = 56 }) {
   const C = useC(); const [tab, setTab] = useState('ph'); const [detail, setDetail] = useState(null);
   useEffect(() => { setTab('ph'); }, [mid]);
   const m = mid ? C.getM(mid) : null; const today = ymd();
@@ -1425,8 +1545,9 @@ function ProfilePage({ mid, onClose }) {
   ].sort((a, b) => b.t.localeCompare(a.t)) : [];
   const mine = m && m.id === C.me;
   const ageLabel = m && m.birth_date ? `${ageOn(m.birth_date, today)}살` : null;
+  const saved = mine ? C.posts.filter(p => C.isSaved(p.id) && !isLocked(p)) : [];
   return (
-    <Page open={!!m} onClose={onClose} title={m ? m.name : ''} right={m && <button className="iconbtn" onClick={() => C.openMemberEdit(m)} aria-label="프로필 고치기"><LIcon name="pencil" size={20}/></button>}>
+    <>
       {m && <>
         <div className="prof">
           <div className="row" style={{ gap: 16 }}>
@@ -1452,11 +1573,20 @@ function ProfilePage({ mid, onClose }) {
             </>}
           </div>
         </div>
-        <div className="ptabs">
+        <div className="ptabs" style={{ top }}>
           <button className={tab === 'ph' ? 'on' : ''} onClick={() => setTab('ph')}><LIcon name="grid-3x3" size={18}/>사진</button>
           <button className={tab === 'tl' ? 'on' : ''} onClick={() => setTab('tl')}><LIcon name="git-commit-vertical" size={18}/>연표</button>
           <button className={tab === 'vo' ? 'on' : ''} onClick={() => setTab('vo')}><LIcon name="audio-lines" size={18}/>목소리</button>
+          {mine && <button className={tab === 'sv' ? 'on' : ''} onClick={() => setTab('sv')}><LIcon name="bookmark" size={18}/>보관</button>}
         </div>
+        {tab === 'sv' && (<>
+          {!saved.length && <div className="empty">보관한 소식이 없어요.<br/><span className="small">소식 오른쪽 아래 <b>책갈피</b>를 누르면 여기 모여요.</span></div>}
+          <div className="grid">{saved.map(p => { const ph = photosOf(p)[0]; return (
+            <button key={p.id} onClick={() => setDetail(p)} aria-label="소식 보기">
+              {ph ? <img src={ph.thumb || ph.url} alt="" loading="lazy"/> : <div className="txt">{(p.content || '').slice(0, 40)}</div>}
+              {photosOf(p).length > 1 && <span className="multi"><LIcon name="copy" size={18} stroke="#fff"/></span>}
+            </button>); })}</div>
+        </>)}
         {tab === 'ph' && (<>
           {!years.length && <div className="empty">아직 {m.name}의 사진이 없어요.<br/><span className="small">소식을 올릴 때 "사진에 누가 나왔나요?"에서 {josa(m.name, '을', '를')} 고르면 여기 모여요.</span></div>}
           {years.map(y => { const ps = byYear[y]; const last = ps.map(p => p.happened_on).sort().pop(); const cnt = ps.reduce((n, p) => n + photosOf(p).length, 0); return (
@@ -1488,7 +1618,7 @@ function ProfilePage({ mid, onClose }) {
         )}
       </>}
       <Page open={!!detail} onClose={() => setDetail(null)} title="소식">{detail && (C.posts.find(x => x.id === detail.id) ? <PostCard p={C.posts.find(x => x.id === detail.id)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
-    </Page>
+    </>
   );
 }
 
@@ -1567,22 +1697,6 @@ function SettingsSheet({ open, onClose }) {
 }
 
 /* 지난번 이후 새 소식 */
-function ActivitySheet({ open, onClose }) {
-  const C = useC();
-  return (
-    <Sheet open={open} onClose={onClose} title="지난번 이후 새 소식" full>
-      {!C.activity.length && <div className="empty">새 소식이 없어요. 다 봤어요 👍</div>}
-      {C.activity.map(x => (
-        <button key={x.key} className="lt" style={{ padding: '12px 0' }} onClick={() => { onClose(); setTimeout(x.go, 60); }}>
-          <Avatar m={C.getM(x.who)} size={44}/>
-          <div className="grow"><b style={{ fontSize: '.98rem' }}>{x.text}</b><span>{relTime(x.t)}</span></div>
-          {x.thumb && <img src={x.thumb} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover' }}/>}
-        </button>
-      ))}
-    </Sheet>
-  );
-}
-
 /* ═══════════ 연말 가족 책 ═══════════ */
 function BookView({ year, onClose }) {
   const C = useC(); const [y, setY] = useState(year); const [withLetters, setWithLetters] = useState(false);
@@ -1669,7 +1783,7 @@ function Gate({ onEnter }) {
   };
   return (
     <div className="gate">
-      <div className="logo">우리 가족</div>
+      <div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
       <p className="muted" style={{ margin: '6px 0 26px' }}>우리 식구끼리만 보는 공간</p>
       {mode === 'checking' && <p className="muted">가족 공간을 찾는 중…</p>}
       {mode === 'error' && <p style={{ color: '#c33' }}>{err}</p>}
@@ -1689,7 +1803,7 @@ function Gate({ onEnter }) {
 function PickMe({ members, onPick, onLeave }) {
   return (
     <div className="gate">
-      <div className="logo">우리 가족</div>
+      <div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
       <h2 style={{ margin: '18px 0 4px', fontSize: '1.3rem' }}>이 폰은 누구의 것인가요?</h2>
       <p className="small muted" style={{ marginTop: 0 }}>고른 이름으로 소식과 편지가 올라가요. 나중에 바꿀 수 있어요.</p>
       <div className="famgrid" style={{ width: '100%', padding: 0 }}>
@@ -1716,7 +1830,7 @@ function App() {
   const [composer, setComposer] = useState(null); const [cmtPost, setCmtPost] = useState(null); const [cmtMode, setCmtMode] = useState('');
   const [profile, setProfile] = useState(null); const [story, setStory] = useState(null); const [letterCfg, setLetterCfg] = useState(null);
   const [letterView, setLetterView] = useState(null); const [question, setQuestion] = useState(null); const [book, setBook] = useState(null);
-  const [settings, setSettings] = useState(false); const [activityOpen, setActivityOpen] = useState(false); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
+  const [settings, setSettings] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
   const toastTimer = useRef(null);
   const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
 
@@ -1796,7 +1910,9 @@ function App() {
   const today = ymd();
   const memberMap = useMemo(() => { const m = {}; D.members.forEach(x => m[x.id] = x); return m; }, [D.members]);
   const getM = id => memberMap[id] || { id, name: '(떠난 식구)', emoji: '👤', color: '#999' };
-  const likesMap = useMemo(() => { const m = {}; D.reactions.forEach(r => (m[r.post_id] = m[r.post_id] || []).includes(r.member_id) || m[r.post_id].push(r.member_id)); return m; }, [D.reactions]);
+  /* 반응 표 하나에 좋아요와 보관(🔖)을 함께 적는다 */
+  const likesMap = useMemo(() => { const m = {}; D.reactions.filter(r => r.emoji !== SAVE).forEach(r => (m[r.post_id] = m[r.post_id] || []).includes(r.member_id) || m[r.post_id].push(r.member_id)); return m; }, [D.reactions]);
+  const savedSet = useMemo(() => new Set(D.reactions.filter(r => r.emoji === SAVE && r.member_id === me).map(r => r.post_id)), [D.reactions, me]);
   const cmtMap = useMemo(() => { const m = {}; D.comments.forEach(c => (m[c.post_id] = m[c.post_id] || []).push(c)); return m; }, [D.comments]);
   const posts = useMemo(() => D.posts.map(p => ({ ...p, isNew: p.author_id !== me && p.created_at > prevSeen })), [D.posts, me, prevSeen]);
   const allEvents = useMemo(() => [...D.events, ...D.members.map(birthdayEvent).filter(Boolean)], [D.events, D.members]);
@@ -1810,28 +1926,46 @@ function App() {
   const unread = D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).length;
   const weekQ = D.questions.find(q => q.week_start === weekStart()) || null;
   const activity = useMemo(() => {
-    const out = [];
-    posts.filter(p => p.isNew && !isLocked(p)).forEach(p => out.push({ key: 'p' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'daily' ? '오늘의 한 장을' : '새 소식을'} 올렸어요`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => p.kind === 'daily' ? setStory(dailyToday(p.author_id)) : (setTab('home'), setTimeout(() => setCmtPost(p), 0)) }));
-    D.comments.filter(c => c.author_id !== me && c.created_at > prevSeen).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
-    D.reactions.filter(r => r.member_id !== me && r.created_at > prevSeen).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
-    D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
-    D.answers.filter(a => a.member_id !== me && a.created_at > prevSeen).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
-    return out.sort((a, b) => b.t.localeCompare(a.t));
+    const out = []; const two = new Date(Date.now() - 14 * 864e5).toISOString(); const since = prevSeen < two ? prevSeen : two;
+    posts.filter(p => p.author_id !== me && p.created_at > since && !isLocked(p)).forEach(p => out.push({ key: 'p' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'daily' ? '오늘의 한 장을' : '새 소식을'} 올렸어요`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => p.kind === 'daily' ? setStory(dailyToday(p.author_id)) : setCmtPost(p) }));
+    D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
+    D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
+    D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, unread: true, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
+    D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
+    return out.map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
   }, [posts, D, me, prevSeen]);
+  const newCount = activity.filter(x => x.isNew).length;
 
   const C = {
     me, members: D.members, posts, comments: D.comments, notes: D.notes, letters: D.letters, questions: D.questions, answers: D.answers,
     allEvents, getM, unread, weekQ, activity, speaking, fontSize,
     likesOf: id => likesMap[id] || [], commentsOf: id => cmtMap[id] || [],
-    dailyToday, bdayDays, storyRing, toast, write, setTab, runBackup,
+    dailyToday, bdayDays, storyRing, toast, write, setTab: t => goTab(t), runBackup, newCount,
     markSeen: id => setSeen(s => { if (s.includes(id)) return s; const n = [...s, id].slice(-300); store.set('fz_story', JSON.stringify(n)); return n; }),
     setFontSize: k => { store.set('fz_fs', k); setFontSizeState(k); },
     toggleSpeak: (key, text) => { if (speaking === key) { window.speechSynthesis && window.speechSynthesis.cancel(); setSpeaking(null); return; } if (speak(text, () => setSpeaking(s => s === key ? null : s))) setSpeaking(key); },
     toggleLike: async p => {
       const had = (likesMap[p.id] || []).includes(me);
       setD(d => ({ ...d, reactions: had ? d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me)) : [...d.reactions, { post_id: p.id, member_id: me, emoji: '❤️', created_at: new Date().toISOString() }] }));
-      try { if (had) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}`); else await db.add('reactions', { post_id: p.id, member_id: me, emoji: '❤️' }); }
+      try { if (had) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=neq.${encodeURIComponent(SAVE)}`); else await db.add('reactions', { post_id: p.id, member_id: me, emoji: '❤️' }); }
       catch (e) { toast('좋아요를 저장하지 못했어요'); loadAll(); }
+    },
+    isSaved: id => savedSet.has(id),
+    toggleSave: async p => {
+      const had = savedSet.has(p.id);
+      setD(d => ({ ...d, reactions: had ? d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me && r.emoji === SAVE)) : [...d.reactions, { post_id: p.id, member_id: me, emoji: SAVE, created_at: new Date().toISOString() }] }));
+      toast(had ? '보관함에서 뺐어요' : '보관했어요 · 내 프로필 → 보관에서 다시 볼 수 있어요');
+      try { if (had) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=eq.${encodeURIComponent(SAVE)}`); else await db.add('reactions', { post_id: p.id, member_id: me, emoji: SAVE }); }
+      catch (e) { toast('보관하지 못했어요'); loadAll(); }
+    },
+    /* 보내기: 폰의 공유 창(카톡 등)으로 글과 사진 주소를 보낸다 */
+    sharePost: async p => {
+      const a = getM(p.author_id); const ph = photosOf(p)[0];
+      const text = `${a.name}의 소식${p.title ? ` · ${p.title}` : ''}\n${p.content || ''}`.trim();
+      try {
+        if (navigator.share) { await navigator.share({ title: 'Familygram', text, url: ph ? ph.url : undefined }); return; }
+        await navigator.clipboard.writeText(ph ? `${text}\n${ph.url}` : text); toast('글을 복사했어요. 카톡에 붙여 넣으세요');
+      } catch (e) { if (e && e.name !== 'AbortError') toast('보내지 못했어요'); }
     },
     addComment: row => write(() => db.add('comments', row)),
     deleteComment: c => { if (window.confirm('이 댓글을 지울까요?')) { write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요'); const id = driveId(c.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
@@ -1864,27 +1998,29 @@ function App() {
     openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
     openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
     openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true),
-    openActivity: () => setActivityOpen(true), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
+    openLetters: () => setLettersOpen(true), openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
   };
 
   if (!hasKey) return <Gate onEnter={() => setHasKey(true)}/>;
-  if (!loaded) return <div className="gate"><div className="logo">우리 가족</div><p className="muted"><span className="spin dark"/> 가족 소식을 펼치는 중…</p></div>;
+  if (!loaded) return <div className="gate"><div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div><p className="muted"><span className="spin dark"/> 가족 소식을 펼치는 중…</p></div>;
   if (!D.members.some(m => m.id === me)) return <PickMe members={D.members} onPick={id => setMe(id)} onLeave={() => leave()}/>;
 
-  const closeActivity = () => { setActivityOpen(false); const now = new Date().toISOString(); store.set('fz_seen', now); setPrevSeen(now); };
+  /* 알림 탭을 떠날 때 "여기까지 봤어요" 로 적는다 */
+  const goTab = t => { if (tab === 'noti' && t !== 'noti') { const now = new Date().toISOString(); store.set('fz_seen', now); setPrevSeen(now); } setTab(t); };
+  const me0 = getM(me);
   return (
     <Ctx.Provider value={C}>
       <div className="app">
         {tab === 'home' && <HomeTab/>}
         {tab === 'cal' && <CalendarTab/>}
-        {tab === 'letters' && <LettersTab/>}
-        {tab === 'family' && <FamilyTab/>}
+        {tab === 'noti' && <NotiTab/>}
+        {tab === 'me' && <MeTab/>}
         <nav className="tabbar">
-          <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); setTab('home'); }}><LIcon name="house" size={26}/>홈</button>
-          <button className={tab === 'cal' ? 'on' : ''} onClick={() => setTab('cal')}><LIcon name="calendar-days" size={26}/>달력</button>
-          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><span className="plus"><LIcon name="plus" size={26} sw={2.5}/></span></button>
-          <button className={tab === 'letters' ? 'on' : ''} onClick={() => setTab('letters')}><LIcon name="mail" size={26}/>편지{unread > 0 && <span className="cnt">{unread}</span>}</button>
-          <button className={tab === 'family' ? 'on' : ''} onClick={() => setTab('family')}><LIcon name="users" size={26}/>식구</button>
+          <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab('home'); }}><LIcon name="house" size={26} fill={tab === 'home' ? '#1a1a1a' : undefined}/>홈</button>
+          <button className={tab === 'cal' ? 'on' : ''} onClick={() => goTab('cal')}><LIcon name="calendar-days" size={26} sw={tab === 'cal' ? 2.4 : undefined}/>달력</button>
+          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>추가</button>
+          <button className={tab === 'noti' ? 'on' : ''} onClick={() => goTab('noti')}><LIcon name="heart" size={26} fill={tab === 'noti' ? '#1a1a1a' : undefined}/>알림{newCount > 0 && <span className="cnt">{newCount}</span>}</button>
+          <button className={tab === 'me' ? 'on' : ''} onClick={() => goTab('me')}>{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={26} sw={tab === 'me' ? 2.4 : undefined}/>}내 프로필</button>
         </nav>
       </div>
       <ProfilePage mid={profile} onClose={() => setProfile(null)}/>
@@ -1896,7 +2032,8 @@ function App() {
       <QuestionSheet q={question} onClose={() => setQuestion(null)}/>
       <MemberEdit m={memberEdit} onClose={() => setMemberEdit(null)}/>
       <SettingsSheet open={settings} onClose={() => setSettings(false)}/>
-      <ActivitySheet open={activityOpen} onClose={closeActivity}/>
+      <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
+      <TagPage tag={tagView} onClose={() => setTagView(null)}/>
       <StoryViewer items={story} onClose={() => setStory(null)}/>
       <BookView year={book} onClose={() => setBook(null)}/>
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
