@@ -18,6 +18,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+  /* 앱 설치 신호는 화면 코드(babel)가 뜨기 전에 올 수 있어서 여기서 먼저 받아 둔다 */
+  window.__inst = null;
+  addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.__inst = e; dispatchEvent(new Event('fz-inst')); });
+  addEventListener('appinstalled', function () { window.__inst = null; window.__installed = true; dispatchEvent(new Event('fz-inst')); });
+</script>
 <style>
   :root{--ink:#1a1a1a;--sub:#737373;--line:#ececec;--soft:#f5f3ef;--accent:#F0603A;--blue:#2F7BF6;--purple:#6a3fc8;--red:#ED4956;--tag:#1F6FD1;
     --bg:#F7F6F3;--card-sh:0 1px 2px rgba(0,0,0,.04),0 6px 22px rgba(60,40,20,.06);
@@ -609,6 +615,47 @@ function speak(text, onEnd) {
   s.speak(u); return true;
 }
 
+/* ── 앱으로 설치 ──
+   크롬 155 는 같은 주소(github.io)에 다른 앱이 깔려 있으면 메뉴의 설치를 막아 버린다.
+   페이지가 받은 설치 신호(beforeinstallprompt)로 직접 설치 창을 띄우면 그래도 깔린다.
+   아이폰은 이 신호가 없어서 사파리 "홈 화면에 추가" 안내만 보여 준다. */
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+function useInstall() {
+  const [, bump] = useState(0);
+  useEffect(() => { const f = () => bump(x => x + 1); addEventListener('fz-inst', f); return () => removeEventListener('fz-inst', f); }, []);
+  const standalone = isStandalone() || !!window.__installed;
+  return {
+    standalone, ios: IS_IOS && !standalone, can: !standalone && !!window.__inst,
+    install: async () => {
+      const e = window.__inst; if (!e) return false;
+      e.prompt(); const c = await e.userChoice; window.__inst = null; dispatchEvent(new Event('fz-inst'));
+      return c.outcome === 'accepted';
+    }
+  };
+}
+function InstallCard({ inSettings }) {
+  const C = useC(); const I = useInstall();
+  const [hide, setHide] = useState(() => !inSettings && store.get('fz_inst_hide') > ymd());
+  if (I.standalone || hide || (!I.can && !I.ios && !inSettings)) return null;
+  const body = I.can ? '홈 화면 아이콘으로 바로 열려요. 주소창 없이 앱처럼 쓸 수 있어요.'
+    : I.ios ? <>사파리 아래쪽 <b>공유 버튼(□↑)</b> → <b>홈 화면에 추가</b>를 눌러 주세요.</>
+    : <>크롬 오른쪽 위 <b>⋮ → 홈 화면에 추가</b>를 눌러 주세요.</>;
+  return (
+    <div className={inSettings ? '' : 'banner'} style={inSettings ? { background: '#f6f6f6', borderRadius: 14, padding: 12 } : { alignItems: 'flex-start' }}>
+      {!inSettings && <img src="icon-192.png?v=2" alt="" style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0 }}/>}
+      <div className="grow">
+        {!inSettings && <b>Familygram을 앱으로 설치</b>}
+        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>{body}</span>
+        <div className="row gap">
+          {I.can && <button className="btn sm primary" onClick={async () => { if (await I.install()) C.toast('설치했어요. 홈 화면의 Familygram 아이콘으로 열어 보세요'); }}><LIcon name="download" size={18}/>앱으로 설치</button>}
+          {!inSettings && <button className="btn sm soft" onClick={() => { store.set('fz_inst_hide', ymd(addDays(new Date(), 14))); setHide(true); }}>나중에</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const Ctx = createContext(null);
 const useC = () => useContext(Ctx);
 const SAVE = '🔖';
@@ -1099,6 +1146,7 @@ function HomeTab() {
           );
         })}
       </div>
+      <InstallCard/>
       {askedMe.length > 0 && (
         <button className="banner" onClick={() => C.openComments(askedMe[0])}>
           <Avatar m={C.getM(askedMe[0].author_id)} size={42}/>
@@ -1685,6 +1733,7 @@ function SettingsSheet({ open, onClose }) {
   const fs = C.fontSize;
   return (
     <Sheet open={open} onClose={onClose} full title="설정">
+      {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
       <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
       <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
       <div className="field">
