@@ -1265,7 +1265,7 @@ function HomeTab() {
           <span className="brand-sub">함께하는 모든 순간이 소중해요 ♥</span>
         </div>
         <div className="row">
-          <button className="iconbtn" onClick={C.openNoti} aria-label="알림">{C.newCount > 0 ? <LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={26}/>}{C.newCount > 0 && <span className="cnt">{C.newCount}</span>}</button>
+          <button className="iconbtn" onClick={C.openNoti} aria-label="알림"><LIcon name={C.newCount > 0 ? 'bell-ring' : 'bell'} size={26}/>{C.newCount > 0 && <span className="cnt">{C.newCount}</span>}</button>
           <button className="iconbtn" onClick={C.openLetters} aria-label="편지함"><LIcon name="send" size={26}/>{C.unread > 0 && <span className="cnt">{C.unread}</span>}</button>
         </div>
       </div>
