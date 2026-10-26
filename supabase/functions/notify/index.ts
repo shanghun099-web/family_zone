@@ -70,7 +70,7 @@ async function send(sub: Sub, m: Omit<Msg, "to" | "pref">) {
   try {
     await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
       JSON.stringify({ title: m.title, body: m.body || "", url: m.url || APP, tag: m.tag, image: m.image, badge }),
-      { TTL: 86400, urgency: "normal" });
+      { TTL: 86400, urgency: "high" });   // 폰이 절전 중이어도 바로
     await sb.from("push_subs").update({ unread: badge, last_ok: new Date().toISOString() }).eq("id", sub.id);
     sub.unread = badge;
     return 1;
@@ -115,11 +115,10 @@ async function build(table: string, r: any, op = "INSERT", old: any = null): Pro
   if (table === "comments") {
     const { data: p } = await sb.from("posts").select("id,author_id,content,open_on").eq("id", r.post_id).maybeSingle();
     if (!p) return [];
-    const { data: cs } = await sb.from("comments").select("author_id").eq("post_id", r.post_id);
-    const to = [...new Set([p.author_id, ...((cs || []).map((c: { author_id: string }) => c.author_id))])].filter(id => id !== r.author_id);
+    const to = others(r.author_id);   // 새 댓글은 쓴 사람을 뺀 온 가족에게 (사용자 요청)
     const c = name(r.author_id);
     const title = r.is_answer ? `${josa(c, "이", "가")} 질문에 답했어요` : `${josa(c, "이", "가")} ${r.audio_url ? "목소리 댓글" : "댓글"}을 남겼어요`;
-    return [{ to, pref: "react", title, body: cut(r.content) || (r.audio_url ? "🎙 눌러서 들어 보세요" : ""), url: `${APP}?post=${p.id}&c=1`, tag: `cmt-${p.id}` }];
+    return [{ to, pref: "post", title, body: cut(r.content) || (r.audio_url ? "🎙 눌러서 들어 보세요" : ""), url: `${APP}?post=${p.id}&c=1`, tag: `cmt-${r.id}` }];   // 댓글마다 따로 (앞 알림을 덮지 않게)
   }
   if (table === "reactions") {
     if (r.emoji === "🔖") return [];

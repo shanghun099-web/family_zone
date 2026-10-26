@@ -356,7 +356,26 @@ const savePushSub = async (member, sub) => {
   await db.del('push_subs', `device=eq.${deviceId}&endpoint=neq.${encodeURIComponent(j.endpoint)}`).catch(() => {});
 };
 const pushSub = async () => { const reg = await swReady; return reg ? reg.pushManager.getSubscription() : null; };
-const PUSH_PREFS = [['post', '새 소식 · 오늘의 한 장'], ['react', '내 소식에 달린 댓글 · 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+/* 알림 주소 저절로 고치기: 한 번 허용한 폰이면 앱을 열 때마다 확인해서, 주소가 없거나 서버가 만료로 지운 주소면
+   묻지 않고 새 주소를 받아 적는다. (안드로이드 크롬은 앱 설치·업데이트 때 알림 주소를 가끔 바꾼다)
+   "이 폰 알림 끄기"를 누른 폰(fz_push_off)은 건드리지 않는다 */
+let ensuring = null;
+const ensurePush = member => ensuring || (ensuring = (async () => {
+  try {
+    if (!PUSH_OK || !member || Notification.permission !== 'granted' || store.get('fz_push_off')) return false;
+    const reg = await swReady; if (!reg) return false;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const rows = await db.list('push_subs', `select=id&endpoint=eq.${encodeURIComponent(sub.endpoint)}&order=id`).catch(() => null);
+      if (rows && !rows.length && store.get('fz_push_ep') === sub.endpoint) { await sub.unsubscribe().catch(() => {}); sub = null; }   // 서버가 만료로 지운 주소
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
+    await savePushSub(member, sub); store.set('fz_push_ep', sub.endpoint);
+    dispatchEvent(new Event('fz-push'));
+    return true;
+  } catch (e) { return false; } finally { ensuring = null; }
+})());
+const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 달린 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
   const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
@@ -372,17 +391,16 @@ function usePush() {
     try {
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') { C.toast(perm === 'denied' ? '알림이 막혀 있어요. 폰 설정 → 애플리케이션 → Familygram(또는 크롬) → 알림을 켜 주세요' : '알림을 허락해야 받을 수 있어요'); return; }
-      const reg = await swReady; if (!reg) throw new Error('이 폰은 알림을 지원하지 않아요');
-      let sub = await reg.pushManager.getSubscription();
-      if (sub && !st.row) { const old = sub.endpoint; await sub.unsubscribe().catch(() => {}); await db.del('push_subs', `endpoint=eq.${encodeURIComponent(old)}`).catch(() => {}); sub = null; }   // 서버가 만료로 지운 옛 주소는 버리고 새로 받기
-      sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
-      await savePushSub(C.me, sub);
+      if (!(await swReady)) throw new Error('이 폰은 알림을 지원하지 않아요');
+      store.del('fz_push_off');
+      if (!(await ensurePush(C.me))) throw new Error('알림 주소를 받지 못했어요. 잠시 뒤 다시 눌러 주세요');
       C.toast('알림을 켰어요 🔔 식구가 소식을 올리면 알려 드릴게요');
     } catch (e) { C.toast('알림을 켜지 못했어요: ' + e.message); }
     finally { setSt(x => ({ ...x, busy: false })); dispatchEvent(new Event('fz-push')); }
   };
   const off = async () => {
     const sub = await pushSub();
+    store.set('fz_push_off', '1');   // 일부러 끈 폰은 저절로 다시 켜지 않는다
     if (sub) { try { await db.del('push_subs', `endpoint=eq.${encodeURIComponent(sub.endpoint)}`); } catch (e) {} await sub.unsubscribe().catch(() => {}); }
     C.toast('이 폰의 알림을 껐어요'); dispatchEvent(new Event('fz-push'));
   };
@@ -398,7 +416,7 @@ function usePush() {
     C.toast('시험 알림을 보냈어요. 몇 초 뒤 폰 맨 위를 보세요');
     try {
       const r = await fetch(`${SB_URL}/functions/v1/notify?mode=self`, { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
-      if (!r.ok) { C.toast('이 폰의 알림 주소가 만료됐어요. 알림 받기를 다시 눌러 주세요'); await sub.unsubscribe().catch(() => {}); dispatchEvent(new Event('fz-push')); }
+      if (!r.ok) { C.toast('알림 주소를 새로 받는 중이에요. 잠시 뒤 다시 눌러 주세요'); await sub.unsubscribe().catch(() => {}); store.del('fz_push_ep'); ensurePush(C.me); }
     } catch (e) { C.toast('시험 알림을 보내지 못했어요: ' + e.message); }
   };
   return { ...st, supported: PUSH_OK, needsInstall: IS_IOS && !isStandalone(), on, off, setPref, sample };
@@ -407,7 +425,7 @@ function usePush() {
 function PushCard() {
   const P = usePush(); const I = useInstall();
   const [hide, setHide] = useState(() => store.get('fz_push_hide') > ymd());
-  if (!P.ready || !P.supported || P.needsInstall || P.row || P.perm === 'denied' || hide || I.can) return null;
+  if (!P.ready || !P.supported || P.needsInstall || P.row || P.perm !== 'default' || hide || I.can) return null;
   return (
     <div className="banner" style={{ alignItems: 'flex-start' }}>
       <div className="bic" style={{ background: '#FFEDEE', color: '#ED4956' }}><LIcon name="bell-ring"/></div>
@@ -2136,7 +2154,7 @@ function App() {
   }, [hasKey]);
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === 'visible' && familyKey) clearBadge();
+      if (document.visibilityState === 'visible' && familyKey) { clearBadge(); ensurePush(store.get('fz_me')); }
       if (document.visibilityState === 'hidden') { store.set('fz_seen', new Date().toISOString()); if (window.speechSynthesis) window.speechSynthesis.cancel(); }
       if (document.visibilityState === 'visible' && familyKey) { setPrevSeen(store.get('fz_seen') || prevSeen); loadAll(); }
     };
@@ -2257,11 +2275,11 @@ function App() {
   useEffect(() => {
     if (!loaded || !me) return;
     clearBadge();
-    pushSub().then(sub => { if (sub) return savePushSub(me, sub); }).catch(() => {});
+    ensurePush(me);
   }, [loaded, me]);
   useEffect(() => {
     if (!PUSH_OK) return;
-    const f = e => { if (e.data && e.data.type === 'fz-open') loadAll().then(() => setLinkReq(new URL(e.data.url).search)); };
+    const f = e => { if (e.data && e.data.type === 'fz-resub') { store.del('fz_push_ep'); ensurePush(store.get('fz_me')); return; } if (e.data && e.data.type === 'fz-open') loadAll().then(() => setLinkReq(new URL(e.data.url).search)); };
     navigator.serviceWorker.addEventListener('message', f);
     return () => navigator.serviceWorker.removeEventListener('message', f);
   }, []);
