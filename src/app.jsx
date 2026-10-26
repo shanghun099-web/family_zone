@@ -375,7 +375,7 @@ const ensurePush = member => ensuring || (ensuring = (async () => {
     return true;
   } catch (e) { return false; } finally { ensuring = null; }
 })());
-const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 달린 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 남긴 마음 (❤️😂👍 …)'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
   const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
@@ -476,6 +476,9 @@ function clearBadge() {
 const Ctx = createContext(null);
 const useC = () => useContext(Ctx);
 const SAVE = '🔖';
+/* 소식에 남기는 마음: 한 사람당 하나. 하트는 한 번 누르기, 나머지는 하트를 누르면 뜨는 줄에서 고른다 */
+const REACTS = [['❤️', '좋아요'], ['🥰', '사랑스러워요'], ['😂', '웃겨요'], ['👍', '최고예요'], ['😮', '놀라워요'], ['😢', '슬퍼요'], ['🙏', '기도해요'], ['🎉', '축하해요']];
+const reactWord = e => (REACTS.find(x => x[0] === e) || [e, '마음을 남겼어요'])[1];
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
 
@@ -664,16 +667,26 @@ function PostCard({ p }) {
   const C = useC(); const a = C.getM(p.author_id);
   const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
   const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false);
+  const [bar, setBar] = useState(false); const barT = useRef(0); const press = useRef(null);
   const lastTap = useRef(0);
+  useEffect(() => () => { clearTimeout(barT.current); clearTimeout(press.current); }, []);
   if (isLocked(p) && !peek) return <LockedCard p={p} onPeek={p.author_id === C.me ? () => setPeek(true) : null}/>;
   const photos = photosOf(p);
   const likes = C.likesOf(p.id); const iLike = likes.includes(C.me); const iSaved = C.isSaved(p.id);
+  const reacts = C.reactsOf(p.id); const mine = C.myReact(p.id);
+  const kinds = REACTS.map(x => x[0]).filter(e => reacts.some(r => r.emoji === e)).concat([...new Set(reacts.map(r => r.emoji))].filter(e => !REACTS.some(x => x[0] === e)));
+  const showBar = ms => { clearTimeout(barT.current); setBar(true); if (ms) barT.current = setTimeout(() => setBar(false), ms); };
+  const pick = e => { clearTimeout(barT.current); setBar(false); C.react(p, e); };
+  /* 하트 한 번: 하트를 남기고 다른 마음 줄을 잠깐 보여 준다 · 이미 남겼으면 지운다 · 꾹 누르면 줄만 연다 */
+  const heartTap = () => { if (press.current === 'long') { press.current = null; return; } if (bar) { setBar(false); return; } if (mine) C.react(p, mine); else { C.react(p, '❤️'); showBar(4000); } };
+  const heartDown = () => { clearTimeout(press.current); press.current = setTimeout(() => { press.current = 'long'; showBar(0); if (navigator.vibrate) navigator.vibrate(15); }, 450); };
+  const heartUp = () => { if (press.current !== 'long') { clearTimeout(press.current); press.current = null; } };
   const comments = C.commentsOf(p.id);
   const answers = comments.filter(c => c.is_answer); const plain = comments.filter(c => !c.is_answer);
   const tagged = (p.tagged || []).filter(id => id !== p.author_id).map(C.getM);
   const asked = p.ask_to ? C.getM(p.ask_to) : null;
   const r0 = photos[0] && photos[0].w ? Math.max(0.8, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
-  const tapImg = () => { const t = Date.now(); if (t - lastTap.current < 320) { if (!iLike) C.toggleLike(p); setPop(x => x + 1); } lastTap.current = t; };
+  const tapImg = () => { const t = Date.now(); if (t - lastTap.current < 320) { if (!mine) C.react(p, '❤️'); setPop(x => x + 1); } lastTap.current = t; };
   /* 글 끝에 몰아 쓴 #태그는 참고 화면처럼 아래 줄로 따로 뺀다 */
   const tm = (p.content || '').match(/(?:\s*#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)+\s*$/);
   const body = tm ? p.content.slice(0, tm.index).trim() : (p.content || '');
@@ -704,7 +717,14 @@ function PostCard({ p }) {
         </div>
       )}
       <div className="acts">
-        <button className="iconbtn" onClick={() => C.toggleLike(p)} aria-label="좋아요">{iLike ? <LIcon name="heart" size={28} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={28}/>}</button>
+        {bar && (
+          <div className="rbar" role="menu" aria-label="마음 고르기">
+            {REACTS.map(([e, w]) => <button key={e} className={mine === e ? 'on' : ''} onClick={() => pick(e)} aria-label={w}>{e}</button>)}
+          </div>
+        )}
+        <button className="iconbtn" onClick={heartTap} onPointerDown={heartDown} onPointerUp={heartUp} onPointerLeave={heartUp} onContextMenu={e => e.preventDefault()} aria-label={mine ? `내 마음 ${mine} · 누르면 지워요` : '마음 남기기'}>
+          {!mine ? <LIcon name="heart" size={28}/> : mine === '❤️' ? <LIcon name="heart" size={28} fill="#ED4956" stroke="#ED4956"/> : <span className="myr">{mine}</span>}
+        </button>
         <button className="iconbtn" onClick={() => C.openComments(p)} aria-label="댓글"><LIcon name="message-circle" size={27}/></button>
         <button className="iconbtn" onClick={() => C.sharePost(p)} aria-label="보내기"><LIcon name="send" size={26}/></button>
         <button className="iconbtn" onClick={() => C.openComments(p, 'voice')} aria-label="목소리 댓글"><LIcon name="mic" size={24} stroke="#8e8e8e"/></button>
@@ -714,11 +734,11 @@ function PostCard({ p }) {
         <span className="grow"/>
         <button className="iconbtn" onClick={() => C.toggleSave(p)} aria-label={iSaved ? '보관 빼기' : '보관하기'}>{iSaved ? <LIcon name="bookmark" size={27} fill="#1a1a1a"/> : <LIcon name="bookmark" size={27}/>}</button>
       </div>
-      {likes.length > 0 && (
-        <div className="liked">
-          <span className="faces">{likes.slice(0, 4).map(id => <Avatar key={id} m={C.getM(id)} size={24}/>)}</span>
-          <span>좋아요 <b>{likes.length}개</b> <span className="muted small">· {likes.map(id => C.getM(id).name).join(', ')}</span></span>
-        </div>
+      {reacts.length > 0 && (
+        <button className="liked" onClick={() => showBar(0)} aria-label="마음 바꾸기">
+          <span className="faces">{reacts.slice(0, 4).map(r => <Avatar key={r.member_id} m={C.getM(r.member_id)} size={24}/>)}</span>
+          <span><span className="rk">{kinds.slice(0, 4).join('')}</span> <b>{reacts.length}개</b> <span className="muted small">· {reacts.map(r => C.getM(r.member_id).name + r.emoji).join(', ')}</span></span>
+        </button>
       )}
       {!photos.length && p.title && <div className="capt" style={{ fontFamily: "'Nanum Pen Script',cursive", fontSize: '1.6rem', lineHeight: 1.2 }}>{p.title}</div>}
       {body && (
@@ -2174,6 +2194,7 @@ function App() {
   const getM = id => memberMap[id] || { id, name: '(떠난 식구)', emoji: '👤', color: '#999' };
   /* 반응 표 하나에 좋아요와 보관(🔖)을 함께 적는다 */
   const likesMap = useMemo(() => { const m = {}; D.reactions.filter(r => r.emoji !== SAVE).forEach(r => (m[r.post_id] = m[r.post_id] || []).includes(r.member_id) || m[r.post_id].push(r.member_id)); return m; }, [D.reactions]);
+  const reactMap = useMemo(() => { const m = {}; D.reactions.filter(r => r.emoji !== SAVE).forEach(r => { const a = m[r.post_id] = m[r.post_id] || []; const i = a.findIndex(x => x.member_id === r.member_id); if (i < 0) a.push(r); else if ((r.created_at || '') >= (a[i].created_at || '')) a[i] = r; }); return m; }, [D.reactions]);
   const savedSet = useMemo(() => new Set(D.reactions.filter(r => r.emoji === SAVE && r.member_id === me).map(r => r.post_id)), [D.reactions, me]);
   const cmtMap = useMemo(() => { const m = {}; D.comments.forEach(c => (m[c.post_id] = m[c.post_id] || []).push(c)); return m; }, [D.comments]);
   const posts = useMemo(() => D.posts.map(p => ({ ...p, isNew: p.author_id !== me && p.created_at > prevSeen })), [D.posts, me, prevSeen]);
@@ -2191,7 +2212,7 @@ function App() {
     const out = []; const two = new Date(Date.now() - 14 * 864e5).toISOString(); const since = prevSeen < two ? prevSeen : two;
     posts.filter(p => p.author_id !== me && p.created_at > since && !isLocked(p)).forEach(p => out.push({ key: 'p' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'daily' ? '오늘의 한 장을' : '새 소식을'} 올렸어요`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => p.kind === 'daily' ? setStory(dailyToday(p.author_id)) : setCmtPost(p) }));
     D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
-    D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
+    D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식에 ${r.emoji} ${reactWord(r.emoji)}`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
     D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, unread: true, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
     D.prayers.filter(p => p.author_id !== me && p.created_at > since).forEach(p => out.push({ key: 'pr' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏'}${p.content ? ` “${p.content.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
     D.prayers.filter(p => p.answered_at && p.author_id !== me && p.answered_at > since).forEach(p => out.push({ key: 'pa' + p.id, who: p.author_id, t: p.answered_at, text: `✨ ${getM(p.author_id).name}의 기도가 응답됐어요${p.answer_note ? ` “${p.answer_note.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
@@ -2205,11 +2226,20 @@ function App() {
   const C = {
     me, members: D.members, posts, comments: D.comments, notes: D.notes, letters: D.letters, questions: D.questions, answers: D.answers,
     allEvents, getM, unread, weekQ, activity, speaking, fontSize, bank: D.bank,
-    likesOf: id => likesMap[id] || [], commentsOf: id => cmtMap[id] || [],
+    likesOf: id => likesMap[id] || [], reactsOf: id => reactMap[id] || [], myReact: id => ((reactMap[id] || []).find(r => r.member_id === me) || {}).emoji || null, commentsOf: id => cmtMap[id] || [],
     dailyToday, bdayDays, storyRing, toast, write, setTab: t => goTab(t), runBackup, newCount,
     markSeen: id => setSeen(s => { if (s.includes(id)) return s; const n = [...s, id].slice(-300); store.set('fz_story', JSON.stringify(n)); return n; }),
     setFontSize: k => { store.set('fz_fs', k); setFontSizeState(k); },
     toggleSpeak: (key, text) => { if (speaking === key) { window.speechSynthesis && window.speechSynthesis.cancel(); setSpeaking(null); return; } if (speak(text, () => setSpeaking(s => s === key ? null : s))) setSpeaking(key); },
+    react: async (p, emoji) => {   // 같은 걸 다시 고르면 지우고, 다른 걸 고르면 바꾼다
+      const cur = ((reactMap[p.id] || []).find(r => r.member_id === me) || {}).emoji;
+      const off = cur === emoji;
+      setD(d => ({ ...d, reactions: [...d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me && r.emoji !== SAVE)), ...(off ? [] : [{ post_id: p.id, member_id: me, emoji, created_at: new Date().toISOString() }])] }));
+      try {
+        if (cur) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=neq.${encodeURIComponent(SAVE)}`);
+        if (!off) await db.add('reactions', { post_id: p.id, member_id: me, emoji });
+      } catch (e) { toast('마음을 저장하지 못했어요'); loadAll(); }
+    },
     toggleLike: async p => {
       const had = (likesMap[p.id] || []).includes(me);
       setD(d => ({ ...d, reactions: had ? d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me)) : [...d.reactions, { post_id: p.id, member_id: me, emoji: '❤️', created_at: new Date().toISOString() }] }));

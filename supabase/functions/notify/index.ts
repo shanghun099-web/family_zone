@@ -124,7 +124,8 @@ async function build(table: string, r: any, op = "INSERT", old: any = null): Pro
     if (r.emoji === "🔖") return [];
     const { data: p } = await sb.from("posts").select("id,author_id,content").eq("id", r.post_id).maybeSingle();
     if (!p || p.author_id === r.member_id) return [];
-    return [{ to: [p.author_id], pref: "react", title: `${josa(name(r.member_id), "이", "가")} 내 소식을 좋아해요 ❤️`, body: cut(p.content, 60), url: `${APP}?post=${p.id}`, tag: `like-${p.id}` }];
+    const word: Record<string, string> = { "❤️": "좋아요", "🥰": "사랑스러워요", "😂": "웃겨요", "👍": "최고예요", "😮": "놀라워요", "😢": "슬퍼요", "🙏": "기도해요", "🎉": "축하해요" };
+    return [{ to: [p.author_id], pref: "react", title: `${josa(name(r.member_id), "이", "가")} 내 소식에 ${r.emoji} ${word[r.emoji] || "마음을 남겼어요"}`, body: cut(p.content, 60), url: `${APP}?post=${p.id}`, tag: `like-${p.id}` }];
   }
   if (table === "letters") {
     if (!r.receiver_id || r.receiver_id === r.sender_id) return [];

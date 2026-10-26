@@ -807,7 +807,7 @@ const ensurePush = member => ensuring || (ensuring = (async () => {
     ensuring = null;
   }
 })());
-const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 달린 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 남긴 마음 (❤️😂👍 …)'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
   const [st, setSt] = useState({
@@ -1077,6 +1077,9 @@ function clearBadge() {
 const Ctx = createContext(null);
 const useC = () => useContext(Ctx);
 const SAVE = '🔖';
+/* 소식에 남기는 마음: 한 사람당 하나. 하트는 한 번 누르기, 나머지는 하트를 누르면 뜨는 줄에서 고른다 */
+const REACTS = [['❤️', '좋아요'], ['🥰', '사랑스러워요'], ['😂', '웃겨요'], ['👍', '최고예요'], ['😮', '놀라워요'], ['😢', '슬퍼요'], ['🙏', '기도해요'], ['🎉', '축하해요']];
+const reactWord = e => (REACTS.find(x => x[0] === e) || [e, '마음을 남겼어요'])[1];
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
 
@@ -1487,7 +1490,14 @@ function PostCard({
   const [more, setMore] = useState(false);
   const [peek, setPeek] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [bar, setBar] = useState(false);
+  const barT = useRef(0);
+  const press = useRef(null);
   const lastTap = useRef(0);
+  useEffect(() => () => {
+    clearTimeout(barT.current);
+    clearTimeout(press.current);
+  }, []);
   if (isLocked(p) && !peek) return /*#__PURE__*/React.createElement(LockedCard, {
     p: p,
     onPeek: p.author_id === C.me ? () => setPeek(true) : null
@@ -1496,6 +1506,48 @@ function PostCard({
   const likes = C.likesOf(p.id);
   const iLike = likes.includes(C.me);
   const iSaved = C.isSaved(p.id);
+  const reacts = C.reactsOf(p.id);
+  const mine = C.myReact(p.id);
+  const kinds = REACTS.map(x => x[0]).filter(e => reacts.some(r => r.emoji === e)).concat([...new Set(reacts.map(r => r.emoji))].filter(e => !REACTS.some(x => x[0] === e)));
+  const showBar = ms => {
+    clearTimeout(barT.current);
+    setBar(true);
+    if (ms) barT.current = setTimeout(() => setBar(false), ms);
+  };
+  const pick = e => {
+    clearTimeout(barT.current);
+    setBar(false);
+    C.react(p, e);
+  };
+  /* 하트 한 번: 하트를 남기고 다른 마음 줄을 잠깐 보여 준다 · 이미 남겼으면 지운다 · 꾹 누르면 줄만 연다 */
+  const heartTap = () => {
+    if (press.current === 'long') {
+      press.current = null;
+      return;
+    }
+    if (bar) {
+      setBar(false);
+      return;
+    }
+    if (mine) C.react(p, mine);else {
+      C.react(p, '❤️');
+      showBar(4000);
+    }
+  };
+  const heartDown = () => {
+    clearTimeout(press.current);
+    press.current = setTimeout(() => {
+      press.current = 'long';
+      showBar(0);
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, 450);
+  };
+  const heartUp = () => {
+    if (press.current !== 'long') {
+      clearTimeout(press.current);
+      press.current = null;
+    }
+  };
   const comments = C.commentsOf(p.id);
   const answers = comments.filter(c => c.is_answer);
   const plain = comments.filter(c => !c.is_answer);
@@ -1505,7 +1557,7 @@ function PostCard({
   const tapImg = () => {
     const t = Date.now();
     if (t - lastTap.current < 320) {
-      if (!iLike) C.toggleLike(p);
+      if (!mine) C.react(p, '❤️');
       setPop(x => x + 1);
     }
     lastTap.current = t;
@@ -1592,19 +1644,34 @@ function PostCard({
     stroke: "#fff"
   }))), /*#__PURE__*/React.createElement("div", {
     className: "acts"
-  }, /*#__PURE__*/React.createElement("button", {
+  }, bar && /*#__PURE__*/React.createElement("div", {
+    className: "rbar",
+    role: "menu",
+    "aria-label": "\uB9C8\uC74C \uACE0\uB974\uAE30"
+  }, REACTS.map(([e, w]) => /*#__PURE__*/React.createElement("button", {
+    key: e,
+    className: mine === e ? 'on' : '',
+    onClick: () => pick(e),
+    "aria-label": w
+  }, e))), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
-    onClick: () => C.toggleLike(p),
-    "aria-label": "\uC88B\uC544\uC694"
-  }, iLike ? /*#__PURE__*/React.createElement(LIcon, {
+    onClick: heartTap,
+    onPointerDown: heartDown,
+    onPointerUp: heartUp,
+    onPointerLeave: heartUp,
+    onContextMenu: e => e.preventDefault(),
+    "aria-label": mine ? `내 마음 ${mine} · 누르면 지워요` : '마음 남기기'
+  }, !mine ? /*#__PURE__*/React.createElement(LIcon, {
+    name: "heart",
+    size: 28
+  }) : mine === '❤️' ? /*#__PURE__*/React.createElement(LIcon, {
     name: "heart",
     size: 28,
     fill: "#ED4956",
     stroke: "#ED4956"
-  }) : /*#__PURE__*/React.createElement(LIcon, {
-    name: "heart",
-    size: 28
-  })), /*#__PURE__*/React.createElement("button", {
+  }) : /*#__PURE__*/React.createElement("span", {
+    className: "myr"
+  }, mine)), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: () => C.openComments(p),
     "aria-label": "\uB313\uAE00"
@@ -1647,17 +1714,21 @@ function PostCard({
   }) : /*#__PURE__*/React.createElement(LIcon, {
     name: "bookmark",
     size: 27
-  }))), likes.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "liked"
+  }))), reacts.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "liked",
+    onClick: () => showBar(0),
+    "aria-label": "\uB9C8\uC74C \uBC14\uAFB8\uAE30"
   }, /*#__PURE__*/React.createElement("span", {
     className: "faces"
-  }, likes.slice(0, 4).map(id => /*#__PURE__*/React.createElement(Avatar, {
-    key: id,
-    m: C.getM(id),
+  }, reacts.slice(0, 4).map(r => /*#__PURE__*/React.createElement(Avatar, {
+    key: r.member_id,
+    m: C.getM(r.member_id),
     size: 24
-  }))), /*#__PURE__*/React.createElement("span", null, "\uC88B\uC544\uC694 ", /*#__PURE__*/React.createElement("b", null, likes.length, "\uAC1C"), " ", /*#__PURE__*/React.createElement("span", {
+  }))), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "rk"
+  }, kinds.slice(0, 4).join('')), " ", /*#__PURE__*/React.createElement("b", null, reacts.length, "\uAC1C"), " ", /*#__PURE__*/React.createElement("span", {
     className: "muted small"
-  }, "\xB7 ", likes.map(id => C.getM(id).name).join(', ')))), !photos.length && p.title && /*#__PURE__*/React.createElement("div", {
+  }, "\xB7 ", reacts.map(r => C.getM(r.member_id).name + r.emoji).join(', ')))), !photos.length && p.title && /*#__PURE__*/React.createElement("div", {
     className: "capt",
     style: {
       fontFamily: "'Nanum Pen Script',cursive",
@@ -5731,6 +5802,15 @@ function App() {
     D.reactions.filter(r => r.emoji !== SAVE).forEach(r => (m[r.post_id] = m[r.post_id] || []).includes(r.member_id) || m[r.post_id].push(r.member_id));
     return m;
   }, [D.reactions]);
+  const reactMap = useMemo(() => {
+    const m = {};
+    D.reactions.filter(r => r.emoji !== SAVE).forEach(r => {
+      const a = m[r.post_id] = m[r.post_id] || [];
+      const i = a.findIndex(x => x.member_id === r.member_id);
+      if (i < 0) a.push(r);else if ((r.created_at || '') >= (a[i].created_at || '')) a[i] = r;
+    });
+    return m;
+  }, [D.reactions]);
   const savedSet = useMemo(() => new Set(D.reactions.filter(r => r.emoji === SAVE && r.member_id === me).map(r => r.post_id)), [D.reactions, me]);
   const cmtMap = useMemo(() => {
     const m = {};
@@ -5786,7 +5866,7 @@ function App() {
         key: 'r' + r.post_id + r.member_id,
         who: r.member_id,
         t: r.created_at,
-        text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`,
+        text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식에 ${r.emoji} ${reactWord(r.emoji)}`,
         thumb: photosOf(p)[0] && photosOf(p)[0].thumb,
         go: () => setCmtPost(p)
       });
@@ -5873,6 +5953,8 @@ function App() {
     fontSize,
     bank: D.bank,
     likesOf: id => likesMap[id] || [],
+    reactsOf: id => reactMap[id] || [],
+    myReact: id => ((reactMap[id] || []).find(r => r.member_id === me) || {}).emoji || null,
     commentsOf: id => cmtMap[id] || [],
     dailyToday,
     bdayDays,
@@ -5899,6 +5981,31 @@ function App() {
         return;
       }
       if (speak(text, () => setSpeaking(s => s === key ? null : s))) setSpeaking(key);
+    },
+    react: async (p, emoji) => {
+      // 같은 걸 다시 고르면 지우고, 다른 걸 고르면 바꾼다
+      const cur = ((reactMap[p.id] || []).find(r => r.member_id === me) || {}).emoji;
+      const off = cur === emoji;
+      setD(d => ({
+        ...d,
+        reactions: [...d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me && r.emoji !== SAVE)), ...(off ? [] : [{
+          post_id: p.id,
+          member_id: me,
+          emoji,
+          created_at: new Date().toISOString()
+        }])]
+      }));
+      try {
+        if (cur) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=neq.${encodeURIComponent(SAVE)}`);
+        if (!off) await db.add('reactions', {
+          post_id: p.id,
+          member_id: me,
+          emoji
+        });
+      } catch (e) {
+        toast('마음을 저장하지 못했어요');
+        loadAll();
+      }
     },
     toggleLike: async p => {
       const had = (likesMap[p.id] || []).includes(me);
