@@ -229,6 +229,7 @@
   .qh-note{position:relative;font-size:.95rem;color:#6d4a46;margin:0 0 10px;line-height:1.5}
   .qh-by{position:relative;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.75);border-radius:22px;padding:3px 12px 3px 3px;font-size:.88rem;color:#5a3d39}
   .qh-by b{color:#2a1d1a}
+  .qh-ask{display:inline-flex;color:#E0607A}
   .qh-ft{position:relative;display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.7)}
   .qh-faces{display:flex}.qh-faces>span{margin-left:-7px;border:2px solid #fff;border-radius:50%;display:flex}.qh-faces>span:first-child{margin-left:0}
   .qh-st{flex:1;min-width:0;font-size:.82rem;color:#6d4a46;line-height:1.35}
@@ -1575,13 +1576,17 @@ function QHero({ q, onOpen, inline }) {
   const Tag = inline ? 'div' : 'button';
   return (
     <Tag className={'qhero' + (inline ? ' inline' : '')} onClick={inline ? undefined : onOpen}>
-      <div className="qh-top"><span className="pill">❓ {S.isCur ? '이번 주 질문' : `${fmtDate(q.week_start)} 주 질문`}</span>{q.auto && !S.picking && <span className="pill">자동으로 골랐어요</span>}</div>
+      <div className="qh-top"><span className="pill">{S.isCur ? '이번 주 질문' : `${fmtDate(q.week_start)} 주 질문`} ❓</span>{q.auto && !S.picking && <span className="pill">자동으로 골랐어요</span>}</div>
       {S.picking
         ? <div className="qh-q wait">{iAsk ? '이번 주는 내가 온 가족에게 질문할 차례예요 🎤' : `${josa(asker.name, '이', '가')} 온 가족에게 물어볼 질문을 고르는 중이에요 🤔`}</div>
         : <div className="qh-q">{q.text}</div>}
       {!S.picking && q.note && <div className="qh-note">💬 “{q.note}”</div>}
       {!S.picking && q.audio_url && inline && <div style={{ position: 'relative', marginBottom: 10 }}><VoicePlayer src={q.audio_url}/></div>}
-      <div className="qh-by"><Avatar m={asker} size={26}/><span><b>{asker.name}</b>{S.picking ? ' 차례' : josa(asker.name, '이', '가').slice(asker.name.length) + ' 물어요'}{q.audio_url && !inline ? ' · 🎙 목소리' : ''}</span></div>
+      {/* 누가 누구에게: [얼굴] 지온 (물음표 말풍선) 온 가족 */}
+      <div className="qh-by"><Avatar m={asker} size={26}/><b>{asker.name}</b>
+        {S.picking ? <span>차례 🎤</span> : <><span className="qh-ask" aria-label="이(가) 묻고"><LIcon name="message-circle-question" size={18}/></span><b>온 가족</b></>}
+        {q.audio_url && !inline && <span>· 🎙</span>}
+      </div>
       <div className="qh-ft">
         <span className="qh-faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .35 }}><Avatar m={m} size={24}/></span>)}</span>
         <span className="qh-st">{status}</span>
