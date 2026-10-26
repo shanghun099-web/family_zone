@@ -1476,7 +1476,7 @@ function QuestionSheet({ q, onClose }) {
    - 그날 아침 8시엔 서버가 온 가족에게 "오늘 함께 기도해요" 알림 */
 const prayFor = (C, p) => p.for_member ? C.getM(p.for_member).name : (p.for_text || '');
 function PrayCard({ p, focus }) {
-  const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false);
+  const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false); const [editing, setEditing] = useState(false);
   const ref = useRef(null);
   useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
   const marks = C.pmarks.filter(m => m.prayer_id === p.id);
@@ -1509,12 +1509,14 @@ function PrayCard({ p, focus }) {
       </div>
       <Sheet open={menu} onClose={() => setMenu(false)} title={voice ? '목소리 기도' : '기도 제목'}>
         <div style={{ display: 'grid', gap: 8 }}>
+          <button className="btn soft block" onClick={() => { setMenu(false); setEditing(true); }}><LIcon name="pencil" size={18}/>글 고치기</button>
           {!voice && !p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); setAns(true); }}>✨ 응답됐어요 (감사 나누기)</button>}
           {p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); C.write(() => db.patch('prayers', p.id, { answered_at: null, answer_note: null }), '다시 기도 중으로 옮겼어요'); }}>다시 기도 중으로 옮기기</button>}
           <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 기도를 지울까요?')) { C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요'); const id = driveId(p.audio_url); if (id) gw('delete', { id }).catch(() => {}); } }}><LIcon name="trash-2" size={18}/>지우기</button>
         </div>
       </Sheet>
       <PrayAnswer p={ans ? p : null} onClose={() => setAns(false)}/>
+      <PrayCompose open={editing} edit={p} onClose={() => setEditing(false)}/>
     </article>
   );
 }
@@ -1538,28 +1540,39 @@ function PrayAnswer({ p, onClose }) {
 }
 
 /* 기도 나누기 (기도 제목 / 목소리 기도) */
-function PrayCompose({ open, onClose }) {
+function PrayCompose({ open, onClose, edit }) {
   const C = useC();
   const [kind, setKind] = useState('request'); const [text, setText] = useState(''); const [voice, setVoice] = useState(null);
+  const [keep, setKeep] = useState(null);   // 고칠 때: 이미 남긴 목소리 (빼면 null)
   const [forWho, setForWho] = useState(''); const [other, setOther] = useState(''); const [due, setDue] = useState(''); const [busy, setBusy] = useState(false);
   const dict = useDictation(t => setText(s => joinText(s, t)));
-  useEffect(() => { if (open) { setKind('request'); setText(''); setVoice(null); setForWho(''); setOther(''); setDue(''); setBusy(false); } }, [open]);
-  const can = !busy && (kind === 'prayer' ? !!voice : !!(text.trim() || voice));
+  useEffect(() => {
+    if (!open) return;
+    const e = edit;
+    setKind(e ? e.kind : 'request'); setText(e ? e.content || '' : ''); setVoice(null); setKeep(e ? e.audio_url || null : null);
+    setForWho(e ? (e.for_member || (e.for_text ? 'other' : '')) : ''); setOther(e ? e.for_text || '' : ''); setDue(e ? e.due_on || '' : ''); setBusy(false);
+  }, [open]);
+  const can = !busy && (kind === 'prayer' ? !!(voice || keep) : !!(text.trim() || voice || keep));
   const submit = async () => {
     setBusy(true);
     try {
-      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : null;
-      const row = { author_id: C.me, kind, content: text.trim() || (kind === 'prayer' && voice && voice.text ? voice.text : ''), audio_url: audio,
+      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : keep;
+      const row = { kind, content: text.trim() || (kind === 'prayer' && voice && voice.text ? voice.text : ''), audio_url: audio,
         for_member: forWho && forWho !== 'other' ? forWho : null, for_text: forWho === 'other' ? (other.trim() || null) : null, due_on: kind === 'request' && due ? due : null };
-      if (await C.write(() => db.add('prayers', row), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose(); else setBusy(false);
+      if (edit) {   // 고치기: 바뀐 목소리면 옛 녹음은 드라이브에서 지운다
+        const ok = await C.write(() => db.patch('prayers', edit.id, row), '기도를 고쳤어요');
+        if (ok) { if (edit.audio_url && edit.audio_url !== audio) { const id = driveId(edit.audio_url); if (id) gw('delete', { id }).catch(() => {}); } onClose(); } else setBusy(false);
+        return;
+      }
+      if (await C.write(() => db.add('prayers', { ...row, author_id: C.me }), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose(); else setBusy(false);
     } catch (e) { setBusy(false); C.toast('올리지 못했어요: ' + e.message); }
   };
   return (
-    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title="기도 나누기" right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : '올리기'}</button>}>
-      <div className="seg" style={{ marginBottom: 16 }}>
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title={edit ? '기도 고치기' : '기도 나누기'} right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : edit ? '저장' : '올리기'}</button>}>
+      {!edit && <div className="seg" style={{ marginBottom: 16 }}>
         <button className={kind === 'request' ? 'on' : ''} onClick={() => setKind('request')}>🙏 기도 제목 나누기</button>
         <button className={kind === 'prayer' ? 'on' : ''} onClick={() => setKind('prayer')}>🎙 목소리 기도 남기기</button>
-      </div>
+      </div>}
       {kind === 'request' ? (
         <div className="field">
           <label>어떤 기도가 필요하세요?</label>
@@ -1567,6 +1580,7 @@ function PrayCompose({ open, onClose }) {
           <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
           <div style={{ marginTop: 10 }}>
             {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>목소리 빼기</button></div>
+              : keep ? <div className="row gap"><VoicePlayer src={keep}/><button className="btn sm soft" onClick={() => setKeep(null)}>목소리 빼기</button></div>
               : <RecordButton label="목소리로도 남기기 (선택)" onDone={async r => { setVoice(r); if (!text.trim() && r.text) setText(r.text); }}/>}
           </div>
         </div>
@@ -1575,6 +1589,7 @@ function PrayCompose({ open, onClose }) {
           <label>식구를 위해 드리는 기도를 목소리로 남겨요</label>
           <p className="small muted" style={{ margin: '0 0 8px' }}>할머니·할아버지의 기도는 오래오래 들을 수 있는 보물이 돼요. 내 프로필의 <b>목소리</b>에도 모여요.</p>
           {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>다시 녹음</button></div>
+            : keep ? <div className="row gap"><VoicePlayer src={keep}/><button className="btn sm soft" onClick={() => setKeep(null)}>다시 녹음</button></div>
             : <RecordButton block label="🎙 기도 녹음하기" onDone={async r => { setVoice(r); }}/>}
           <input className="input" style={{ marginTop: 10 }} placeholder="한 줄 (선택) 예: 손주들을 위한 아침 기도" value={text} onChange={e => setText(e.target.value)}/>
         </div>
@@ -1592,7 +1607,7 @@ function PrayCompose({ open, onClose }) {
         <div className="field">
           <label>그날이 있나요? <span className="muted" style={{ fontWeight: 400 }}>(선택 · 시험날, 수술날, 면접날)</span></label>
           <input type="date" className="input" min={ymd()} value={due} onChange={e => setDue(e.target.value)}/>
-          {due && <p className="small muted" style={{ margin: '6px 2px 0' }}>{fmtDate(due, true)} 아침 8시에 온 가족에게 "오늘 함께 기도해요 🙏" 알림이 가요.</p>}
+          {due && <p className="small muted" style={{ margin: '6px 2px 0' }}>{due === ymd() && new Date().getHours() >= 8 ? '오늘 아침 알림 시간(8시)은 지났어요. 기도 탭에서는 "오늘!"로 맨 위에 보여요.' : `${fmtDate(due, true)} 아침 8시에 온 가족에게 "오늘 함께 기도해요 🙏" 알림이 가요.`}</p>}
         </div>
       )}
     </Sheet>

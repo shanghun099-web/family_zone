@@ -3829,6 +3829,7 @@ function PrayCard({
   const a = C.getM(p.author_id);
   const [menu, setMenu] = useState(false);
   const [ans, setAns] = useState(false);
+  const [editing, setEditing] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
     if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({
@@ -3901,7 +3902,16 @@ function PrayCard({
       display: 'grid',
       gap: 8
     }
-  }, !voice && !p.answered_at && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft block",
+    onClick: () => {
+      setMenu(false);
+      setEditing(true);
+    }
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "pencil",
+    size: 18
+  }), "\uAE00 \uACE0\uCE58\uAE30"), !voice && !p.answered_at && /*#__PURE__*/React.createElement("button", {
     className: "btn soft block",
     onClick: () => {
       setMenu(false);
@@ -3934,6 +3944,10 @@ function PrayCard({
   }), "\uC9C0\uC6B0\uAE30"))), /*#__PURE__*/React.createElement(PrayAnswer, {
     p: ans ? p : null,
     onClose: () => setAns(false)
+  }), /*#__PURE__*/React.createElement(PrayCompose, {
+    open: editing,
+    edit: p,
+    onClose: () => setEditing(false)
   }));
 }
 
@@ -3994,35 +4008,37 @@ function PrayAnswer({
 /* 기도 나누기 (기도 제목 / 목소리 기도) */
 function PrayCompose({
   open,
-  onClose
+  onClose,
+  edit
 }) {
   const C = useC();
   const [kind, setKind] = useState('request');
   const [text, setText] = useState('');
   const [voice, setVoice] = useState(null);
+  const [keep, setKeep] = useState(null); // 고칠 때: 이미 남긴 목소리 (빼면 null)
   const [forWho, setForWho] = useState('');
   const [other, setOther] = useState('');
   const [due, setDue] = useState('');
   const [busy, setBusy] = useState(false);
   const dict = useDictation(t => setText(s => joinText(s, t)));
   useEffect(() => {
-    if (open) {
-      setKind('request');
-      setText('');
-      setVoice(null);
-      setForWho('');
-      setOther('');
-      setDue('');
-      setBusy(false);
-    }
+    if (!open) return;
+    const e = edit;
+    setKind(e ? e.kind : 'request');
+    setText(e ? e.content || '' : '');
+    setVoice(null);
+    setKeep(e ? e.audio_url || null : null);
+    setForWho(e ? e.for_member || (e.for_text ? 'other' : '') : '');
+    setOther(e ? e.for_text || '' : '');
+    setDue(e ? e.due_on || '' : '');
+    setBusy(false);
   }, [open]);
-  const can = !busy && (kind === 'prayer' ? !!voice : !!(text.trim() || voice));
+  const can = !busy && (kind === 'prayer' ? !!(voice || keep) : !!(text.trim() || voice || keep));
   const submit = async () => {
     setBusy(true);
     try {
-      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : null;
+      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : keep;
       const row = {
-        author_id: C.me,
         kind,
         content: text.trim() || (kind === 'prayer' && voice && voice.text ? voice.text : ''),
         audio_url: audio,
@@ -4030,7 +4046,24 @@ function PrayCompose({
         for_text: forWho === 'other' ? other.trim() || null : null,
         due_on: kind === 'request' && due ? due : null
       };
-      if (await C.write(() => db.add('prayers', row), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose();else setBusy(false);
+      if (edit) {
+        // 고치기: 바뀐 목소리면 옛 녹음은 드라이브에서 지운다
+        const ok = await C.write(() => db.patch('prayers', edit.id, row), '기도를 고쳤어요');
+        if (ok) {
+          if (edit.audio_url && edit.audio_url !== audio) {
+            const id = driveId(edit.audio_url);
+            if (id) gw('delete', {
+              id
+            }).catch(() => {});
+          }
+          onClose();
+        } else setBusy(false);
+        return;
+      }
+      if (await C.write(() => db.add('prayers', {
+        ...row,
+        author_id: C.me
+      }), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose();else setBusy(false);
     } catch (e) {
       setBusy(false);
       C.toast('올리지 못했어요: ' + e.message);
@@ -4042,15 +4075,15 @@ function PrayCompose({
       if (!busy) onClose();
     },
     full: true,
-    title: "\uAE30\uB3C4 \uB098\uB204\uAE30",
+    title: edit ? '기도 고치기' : '기도 나누기',
     right: /*#__PURE__*/React.createElement("button", {
       className: "hdbtn",
       disabled: !can,
       onClick: submit
     }, busy ? /*#__PURE__*/React.createElement("span", {
       className: "spin dark"
-    }) : '올리기')
-  }, /*#__PURE__*/React.createElement("div", {
+    }) : edit ? '저장' : '올리기')
+  }, !edit && /*#__PURE__*/React.createElement("div", {
     className: "seg",
     style: {
       marginBottom: 16
@@ -4094,6 +4127,13 @@ function PrayCompose({
   }), /*#__PURE__*/React.createElement("small", null, fmtSec(voice.sec))), /*#__PURE__*/React.createElement("button", {
     className: "btn sm soft",
     onClick: () => setVoice(null)
+  }, "\uBAA9\uC18C\uB9AC \uBE7C\uAE30")) : keep ? /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement(VoicePlayer, {
+    src: keep
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: () => setKeep(null)
   }, "\uBAA9\uC18C\uB9AC \uBE7C\uAE30")) : /*#__PURE__*/React.createElement(RecordButton, {
     label: "\uBAA9\uC18C\uB9AC\uB85C\uB3C4 \uB0A8\uAE30\uAE30 (\uC120\uD0DD)",
     onDone: async r => {
@@ -4122,6 +4162,13 @@ function PrayCompose({
   }), /*#__PURE__*/React.createElement("small", null, fmtSec(voice.sec))), /*#__PURE__*/React.createElement("button", {
     className: "btn sm soft",
     onClick: () => setVoice(null)
+  }, "\uB2E4\uC2DC \uB179\uC74C")) : keep ? /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement(VoicePlayer, {
+    src: keep
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: () => setKeep(null)
   }, "\uB2E4\uC2DC \uB179\uC74C")) : /*#__PURE__*/React.createElement(RecordButton, {
     block: true,
     label: "\uD83C\uDF99 \uAE30\uB3C4 \uB179\uC74C\uD558\uAE30",
@@ -4179,7 +4226,7 @@ function PrayCompose({
     style: {
       margin: '6px 2px 0'
     }
-  }, fmtDate(due, true), " \uC544\uCE68 8\uC2DC\uC5D0 \uC628 \uAC00\uC871\uC5D0\uAC8C \"\uC624\uB298 \uD568\uAED8 \uAE30\uB3C4\uD574\uC694 \uD83D\uDE4F\" \uC54C\uB9BC\uC774 \uAC00\uC694.")));
+  }, due === ymd() && new Date().getHours() >= 8 ? '오늘 아침 알림 시간(8시)은 지났어요. 기도 탭에서는 "오늘!"로 맨 위에 보여요.' : `${fmtDate(due, true)} 아침 8시에 온 가족에게 "오늘 함께 기도해요 🙏" 알림이 가요.`)));
 }
 function PrayTab() {
   const C = useC();
