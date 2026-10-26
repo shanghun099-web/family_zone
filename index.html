@@ -217,6 +217,23 @@
   .qcard small{font-size:.8rem;font-weight:700;color:#b2502c}
   .qcard .qt{display:block;font-size:1.2rem;font-weight:900;margin:6px 0 10px;line-height:1.45}
   .qcard .qa{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;color:#7a4a3a}
+  /* 이번 주 질문 카드: 질문 글이 주인공, 질문자는 작은 얼굴+이름 */
+  .qhero{position:relative;display:block;width:calc(100% - 24px);margin:0 12px 12px;text-align:left;border-radius:24px;padding:18px 18px 16px;overflow:hidden;
+    background:linear-gradient(140deg,#FFE6D6 0%,#FFD3E1 52%,#E8DBFF 100%);box-shadow:0 8px 26px rgba(226,110,120,.18);color:#2a1d1a}
+  .qhero.inline{width:100%;margin:0 0 14px}
+  .qhero::before{content:'“';position:absolute;right:10px;top:-34px;font-family:Georgia,'Times New Roman',serif;font-size:170px;line-height:1;color:#fff;opacity:.55;pointer-events:none}
+  .qh-top{display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700;color:#b8475a;letter-spacing:.02em;position:relative}
+  .qh-top .pill{background:rgba(255,255,255,.7);border-radius:20px;padding:2px 9px}
+  .qh-q{position:relative;font-size:1.5rem;font-weight:900;line-height:1.38;margin:12px 0 8px;text-wrap:balance;word-break:keep-all}
+  .qh-q.wait{font-size:1.2rem;font-weight:800}
+  .qh-note{position:relative;font-size:.95rem;color:#6d4a46;margin:0 0 10px;line-height:1.5}
+  .qh-by{position:relative;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.75);border-radius:22px;padding:3px 12px 3px 3px;font-size:.88rem;color:#5a3d39}
+  .qh-by b{color:#2a1d1a}
+  .qh-ft{position:relative;display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.7)}
+  .qh-faces{display:flex}.qh-faces>span{margin-left:-7px;border:2px solid #fff;border-radius:50%;display:flex}.qh-faces>span:first-child{margin-left:0}
+  .qh-st{flex:1;min-width:0;font-size:.82rem;color:#6d4a46;line-height:1.35}
+  .qh-cta{background:#2a1d1a;color:#fff;border-radius:22px;padding:8px 14px;font-weight:700;font-size:.92rem;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+  .qh-cta.done{background:rgba(255,255,255,.85);color:#2a1d1a}
   .qnote{font-size:.95rem;color:#7a4a3a;margin:-4px 0 10px;line-height:1.5}
   .turns{background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px 12px 12px;margin-bottom:12px}
   .turns-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:.92rem}
@@ -1224,8 +1241,7 @@ function HomeTab() {
   const agoYears = [...new Set(ago.map(p => +today.slice(0, 4) - +p.happened_on.slice(0, 4)))].sort((a, b) => a - b);
   const agoPhotos = ago.flatMap(p => photosOf(p)).slice(0, 3);
   const askedMe = C.posts.filter(p => p.ask_to === C.me && !isLocked(p) && !C.commentsOf(p.id).some(c => c.is_answer && c.author_id === C.me));
-  const wq = C.weekQ; const wqPick = wq && !wq.text; const wqAsker = wq && C.getM(wq.asker_id);
-  const wqMine = wq && ((wqPick && wq.asker_id === C.me) || (!wqPick && !C.answers.some(x => x.question_id === wq.id && x.member_id === C.me)));
+  const wq = C.weekQ;
   return (
     <>
       <div className="topbar brand-hd">
@@ -1254,21 +1270,13 @@ function HomeTab() {
           );
         })}
       </div>
+      {wq && <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>}
       <InstallCard/>
       <PushCard/>
       {askedMe.length > 0 && (
         <button className="banner" onClick={() => C.openComments(askedMe[0])}>
           <Avatar m={C.getM(askedMe[0].author_id)} size={42}/>
           <div className="grow"><b>{josa(C.getM(askedMe[0].author_id).name, '이', '가')} 질문했어요</b><span>“{askedMe[0].ask_text}”{askedMe.length > 1 ? ` 외 ${askedMe.length - 1}개` : ''}</span></div>
-          <LIcon name="chevron-right"/>
-        </button>
-      )}
-      {wqMine && (
-        <button className="banner" onClick={() => C.openQuestion(wq)}>
-          <div className="bic" style={{ background: '#FFEFE8', color: '#D0603A' }}><LIcon name="mic"/></div>
-          {wqPick
-            ? <div className="grow"><b>이번 주는 내가 질문할 차례예요 🎤</b><span>질문 상자에서 고르거나, 글·말로 온 가족에게 물어보세요</span></div>
-            : <div className="grow"><b>이번 주 질문자 · {wqAsker.name}</b><span>“{wq.text}”</span></div>}
           <LIcon name="chevron-right"/>
         </button>
       )}
@@ -1424,7 +1432,7 @@ function EventSheet({ open, onClose, day }) {
 function LettersTab({ onBack }) {
   const C = useC(); const [fil, setFil] = useState('all'); const [note, setNote] = useState('');
   const list = C.letters.filter(l => fil === 'all' || (fil === 'in' ? l.receiver_id === C.me : l.sender_id === C.me));
-  const wq = C.weekQ; const wqAns = wq ? C.answers.filter(a => a.question_id === wq.id) : [];
+  const wq = C.weekQ;
   const year = new Date().getFullYear();
   const yp = C.posts.filter(p => p.happened_on.startsWith(year + '') && !isLocked(p));
   const yPhotos = yp.reduce((n, p) => n + photosOf(p).length, 0);
@@ -1437,14 +1445,7 @@ function LettersTab({ onBack }) {
         <button className="iconbtn" onClick={() => C.openLetterCompose({})} aria-label="편지 쓰기"><LIcon name="square-pen" size={26}/></button>
       </div>
       {wq && (
-        <button className="qcard" onClick={() => C.openQuestion(wq)}>
-          <small>🎤 이번 주 질문자 · {C.getM(wq.asker_id).name}</small>
-          <span className="qt">{wq.text ? `“${wq.text}”` : wq.asker_id === C.me ? '내가 질문할 차례예요! 눌러서 질문 정하기' : `${josa(C.getM(wq.asker_id).name, '이', '가')} 질문을 고르는 중이에요 🤔`}</span>
-          <div className="qa">
-            <span>{wq.text ? `답 ${new Set(wqAns.map(a => a.member_id)).size}/${C.members.length} · 모두 답하면 다 같이 열려요` : '수요일 아침까지 안 정하면 자동으로 골라요'}</span>
-            <span className="rec"><LIcon name="mic" size={16}/>{wq.text ? '보기·답하기' : wq.asker_id === C.me ? '질문 정하기' : '순서 보기'}</span>
-          </div>
-        </button>
+        <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>
       )}
       <div className="fil">{[['all', '모두'], ['in', '나에게 온'], ['out', '내가 보낸']].map(([k, l]) => <button key={k} className={'chip' + (fil === k ? ' on' : '')} onClick={() => setFil(k)}>{l}</button>)}</div>
       {!list.length && <div className="empty">아직 편지가 없어요.<br/>오른쪽 위 연필을 눌러 첫 편지를 써 보세요.</div>}
@@ -1559,6 +1560,36 @@ function qState(C, q) {
   const isCur = !!q && q.week_start === weekStart();
   const allDone = C.members.length > 0 && C.members.every(m => done.includes(m.id));
   return { ans, done, isCur, picking: !!q && !q.text, allDone, revealed: !isCur || allDone || Date.now() >= revealAt(q.week_start) };
+}
+
+/* 이번 주 질문 카드. inline=질문 창 안 (버튼 없음) */
+function QHero({ q, onOpen, inline }) {
+  const C = useC(); const S = qState(C, q); const asker = C.getM(q.asker_id); const iAsk = q.asker_id === C.me;
+  const mine = S.done.includes(C.me);
+  const left = dayDiff(ymd(), ymd(revealAt(q.week_start)));   // 공개일(일요일)까지 남은 날
+  const status = S.picking ? '수요일 아침까지 안 정하면 자동으로 골라요'
+    : S.allDone ? '모두 답했어요! 답이 열렸어요 🎁'
+    : !S.isCur || S.revealed ? `답 ${S.done.length}개 · 답이 열렸어요 🎁`
+    : `답 ${S.done.length}/${C.members.length} · ${left <= 0 ? '오늘' : left === 1 ? '내일' : '일요일'} 밤 9시에 다 같이 공개`;
+  const cta = S.picking ? (iAsk ? ['질문 정하기 →', ''] : ['순서 보기', 'done']) : S.revealed ? ['답 보러 가기 🎁', ''] : mine ? ['내 답 남김 ✓', 'done'] : ['답하기 →', ''];
+  const Tag = inline ? 'div' : 'button';
+  return (
+    <Tag className={'qhero' + (inline ? ' inline' : '')} onClick={inline ? undefined : onOpen}>
+      <div className="qh-top"><span className="pill">❓ {S.isCur ? '이번 주 질문' : `${fmtDate(q.week_start)} 주 질문`}</span>{q.auto && !S.picking && <span className="pill">자동으로 골랐어요</span>}</div>
+      {S.picking
+        ? <div className="qh-q wait">{iAsk ? '이번 주는 내가 온 가족에게 질문할 차례예요 🎤' : `${josa(asker.name, '이', '가')} 온 가족에게 물어볼 질문을 고르는 중이에요 🤔`}</div>
+        : <div className="qh-q">{q.text}</div>}
+      {!S.picking && q.note && <div className="qh-note">💬 “{q.note}”</div>}
+      {!S.picking && q.audio_url && inline && <div style={{ position: 'relative', marginBottom: 10 }}><VoicePlayer src={q.audio_url}/></div>}
+      <div className="qh-by"><Avatar m={asker} size={26}/><span><b>{asker.name}</b>{S.picking ? ' 차례' : josa(asker.name, '이', '가').slice(asker.name.length) + ' 물어요'}{q.audio_url && !inline ? ' · 🎙 목소리' : ''}</span></div>
+      <div className="qh-ft">
+        <span className="qh-faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .35 }}><Avatar m={m} size={24}/></span>)}</span>
+        <span className="qh-st">{status}</span>
+        {!inline && <span className={'qh-cta ' + cta[1]}>{cta[0]}</span>}
+        {inline && !S.picking && <button className="qh-cta done" onClick={e => { e.stopPropagation(); C.toggleSpeak('q' + q.id, `${asker.name}의 질문. ${q.text}`); }}><LIcon name="volume-2" size={16}/>읽어 주기</button>}
+      </div>
+    </Tag>
+  );
 }
 
 /* 순서표: 지난주 · 이번 주 · 다음 주들 */
@@ -1720,18 +1751,7 @@ function QuestionSheet({ q, onClose }) {
       {cur && (
         <>
           {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
-          <div className="qcard" style={{ margin: '0 0 14px', width: '100%' }}>
-            <small>🎤 {S.isCur ? '이번 주' : fmtDate(cur.week_start) + ' 주'} 질문자 · {asker.name}</small>
-            {S.picking
-              ? <span className="qt" style={{ fontSize: '1.05rem' }}>{iAsk ? '이번 주는 내가 질문할 차례예요! 온 가족에게 물어볼 질문을 정해 주세요.' : `${josa(asker.name, '이', '가')} 질문을 고르는 중이에요 🤔`}</span>
-              : <span className="qt">“{cur.text}”</span>}
-            {!S.picking && cur.note && <div className="qnote">💬 {cur.note}</div>}
-            {!S.picking && cur.audio_url && <div style={{ margin: '0 0 10px' }}><VoicePlayer src={cur.audio_url}/></div>}
-            <div className="qa">
-              <span>{S.picking ? '수요일 아침까지 안 정하면 질문 상자에서 자동으로 골라요' : cur.auto ? `${asker.name} 차례 · 자동으로 골랐어요 · 온 가족이 답해요` : `${josa(asker.name, '이', '가')} 묻고, 온 가족이 답해요`}</span>
-              {!S.picking && <button className="rec" onClick={() => C.toggleSpeak('q' + cur.id, `${asker.name}의 질문. ${cur.text}`)}><LIcon name="volume-2" size={16}/>읽어 주기</button>}
-            </div>
-          </div>
+          <QHero q={cur} inline/>
 
           {showPicker && <QPicker key={cur.id + (editing ? 'e' : '')} cur={cur} onDone={() => setEditing(false)}/>}
           {S.isCur && iAsk && S.picking && passTo && passTo.id !== C.me && (
