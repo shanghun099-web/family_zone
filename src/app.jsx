@@ -1,0 +1,2314 @@
+const { useState, useEffect, useRef, useMemo, useContext, createContext } = React;
+
+/* ── 아이콘 (lucide 0.460 고정) ── */
+const LIcon = ({ name, size = 24, fill, stroke, sw }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const box = ref.current; if (!box) return;
+    box.innerHTML = '';
+    const pascal = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+    const icon = (lucide.icons && lucide.icons[pascal]) || lucide[pascal];
+    if (!icon) return;
+    const el = lucide.createElement(icon);
+    el.setAttribute('width', size); el.setAttribute('height', size);
+    if (fill) el.setAttribute('fill', fill);
+    if (stroke) el.setAttribute('stroke', stroke);
+    if (sw) el.setAttribute('stroke-width', sw);
+    box.appendChild(el);
+  }, [name, size, fill, stroke, sw]);
+  return <span ref={ref} aria-hidden="true" style={{display:'inline-flex',lineHeight:0}}/>;
+};
+
+/* ── 가족 공간 (Supabase) ──
+   모든 표는 가족 암호로 잠겨 있다. 앱은 요청마다 x-family-key 헤더로 암호를 보내고,
+   서버가 맞는 암호일 때만 읽고 쓰게 한다. 아래 키는 공개용이라 코드에 있어도 괜찮다. */
+const SB_URL = 'https://ijpbmlphaanmqnsixckt.supabase.co';
+const SB_KEY = 'sb_publishable_lZIA-d3DTswNZOKdhEn4iw_W8k7BDQl';
+/* 사진·목소리·백업 창구 (내 구글 드라이브, Apps Script) */
+const GW_URL = 'https://script.google.com/macros/s/AKfycbxogoYj6R2QqWwkcO0JibLlszlJTZHeM0Oldq2GhllyoPevi3IJT8CA-PgSiESHk3WASQ/exec';
+
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k, v){ try{ localStorage.setItem(k, v); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+let familyKey = store.get('fz_key') || '';
+
+async function sb(path, opt = {}) {
+  const headers = { apikey: SB_KEY, 'Content-Type': 'application/json' };
+  if (familyKey) headers['x-family-key'] = familyKey;
+  if (opt.prefer) headers.Prefer = opt.prefer;
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: opt.method || 'GET', headers,
+    body: opt.body === undefined ? undefined : JSON.stringify(opt.body)
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+  if (!res.ok) throw new Error((data && data.message) || `서버 오류 (${res.status})`);
+  return data;
+}
+/* 서버는 한 번에 1000줄까지만 준다 → 1000줄씩 받아서 끝날 때까지 이어 붙인다 (순서는 order 로 고정) */
+const PAGE = 1000;
+async function listAll(t, q) {
+  const out = [];
+  for (let off = 0; ; off += PAGE) {
+    const rows = await sb(`${t}?${q}&limit=${PAGE}&offset=${off}`);
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+const db = {
+  list:   (t, q = 'select=*&order=id') => listAll(t, q),
+  add:    (t, row) => sb(t, { method: 'POST', body: row, prefer: 'return=representation' }),
+  addOnce:(t, row, conflict) => sb(`${t}?on_conflict=${conflict}`, { method: 'POST', body: row, prefer: 'resolution=ignore-duplicates,return=representation' }),
+  upsert: (t, row, conflict) => sb(`${t}?on_conflict=${conflict}`, { method: 'POST', body: row, prefer: 'resolution=merge-duplicates,return=representation' }),
+  patch:  (t, id, patch) => sb(`${t}?id=eq.${id}`, { method: 'PATCH', body: patch, prefer: 'return=representation' }),
+  del:    (t, filter) => sb(`${t}?${filter}`, { method: 'DELETE' }),
+  rpc:    (fn, args = {}) => sb(`rpc/${fn}`, { method: 'POST', body: args })
+};
+
+/* 창구: 헤더 없는 text/plain POST (Apps Script 가 받는 방식) */
+async function gw(action, payload = {}) {
+  const res = await fetch(GW_URL, { method: 'POST', body: JSON.stringify({ action, key: familyKey, ...payload }) });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || '사진 창구 오류');
+  return j;
+}
+let gwVer = null;
+async function gwVersion() {
+  if (gwVer !== null) return gwVer;
+  try { const j = await (await fetch(GW_URL)).json(); gwVer = j.v || 1; } catch (e) { gwVer = 0; }
+  return gwVer;
+}
+
+/* 사진: 올리기 전에 폰에서 줄인다 (긴 변 1600px, 장당 300KB 안팎) */
+async function shrinkImage(file, max = 1600, q = 0.82) {
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    src = await new Promise((ok, no) => { const img = new Image(); img.onload = () => ok(img); img.onerror = () => no(new Error('사진을 읽지 못했어요')); img.src = URL.createObjectURL(file); });
+  }
+  const k = Math.min(1, max / Math.max(src.width, src.height));
+  const w = Math.round(src.width * k), h = Math.round(src.height * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(src, 0, 0, w, h);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
+  return { blob, w, h };
+}
+const blobToB64 = blob => new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); });
+async function uploadPhoto(file, max) {
+  const { blob, w, h } = await shrinkImage(file, max);
+  const r = await gw('upload', { kind: 'photo', name: (file.name || '사진').replace(/\.\w+$/, ''), mime: 'image/jpeg', data: await blobToB64(blob) });
+  return { id: r.id, url: r.url, thumb: r.thumb, w, h };
+}
+/* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
+async function uploadVoice(blob, sec) {
+  const mime = (blob.type || 'audio/webm').split(';')[0];
+  const r = await gw('upload', { kind: 'voice', name: '목소리', mime, data: await blobToB64(blob) });
+  return `drive:${r.id}#${Math.round(sec || 0)}`;
+}
+const driveId = u => String(u || '').startsWith('drive:') ? u.slice(6).split('#')[0] : '';
+const voiceSec = u => { const m = String(u || '').match(/#(\d+)/); return m ? +m[1] : 0; };
+const voiceCache = {};
+async function voiceSrc(u) {
+  const id = driveId(u); if (voiceCache[id]) return voiceCache[id];
+  const r = await gw('get', { id });
+  const bin = atob(r.data); const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return voiceCache[id] = URL.createObjectURL(new Blob([arr], { type: r.mime }));
+}
+const fmtSec = s => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+
+/* ── 날짜: 전부 이 기기(한국) 날짜 기준. toISOString 은 UTC 라 쓰지 않는다 ── */
+const pad = n => String(n).padStart(2, '0');
+const ymd = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseYmd = s => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const addYears = (s, n) => { const d = parseYmd(s); d.setFullYear(d.getFullYear() + n); return ymd(d); };
+const dayDiff = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 864e5);   // b - a (일)
+const weekStart = (d = new Date()) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
+const WD = ['일','월','화','수','목','금','토'];
+const fmtDate = (s, withYear) => { if (!s) return ''; const d = parseYmd(s); const show = withYear || d.getFullYear() !== new Date().getFullYear(); return `${show ? d.getFullYear() + '년 ' : ''}${d.getMonth()+1}월 ${d.getDate()}일`; };
+const fmtDot = s => s ? s.replace(/-/g, '.') : '';
+function relDay(day, createdAt) {
+  const diff = dayDiff(day, ymd());
+  if (diff === 0) {
+    if (createdAt) { const m = Math.floor((Date.now() - new Date(createdAt)) / 60000); if (m < 1) return '방금'; if (m < 60) return `${m}분 전`; if (m < 24*60) return `${Math.floor(m/60)}시간 전`; }
+    return '오늘';
+  }
+  if (diff === 1) return '어제';
+  if (diff > 1 && diff < 7) return `${diff}일 전`;
+  return fmtDate(day);
+}
+const relTime = iso => relDay(ymd(new Date(iso)), iso);
+const ageOn = (birth, on) => { const b = parseYmd(birth), o = parseYmd(on); let a = o.getFullYear() - b.getFullYear(); if (o.getMonth() < b.getMonth() || (o.getMonth() === b.getMonth() && o.getDate() < b.getDate())) a--; return a; };
+/* 받침에 맞는 조사: josa('지우','이','가') → '지우가' */
+const josa = (w, a, b) => { w = String(w || ''); const c = w.charCodeAt(w.length - 1); return w + (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? a : b); };
+const ddayText = n => n === 0 ? '오늘' : n > 0 ? `D-${n}` : `D+${-n}`;
+
+/* ── 음력: 브라우저에 든 한국 달력(dangi)으로 바꾼다 ── */
+const LUNAR_FMT = (() => { try { return new Intl.DateTimeFormat('ko-KR-u-ca-dangi', { year:'numeric', month:'numeric', day:'numeric' }); } catch (e) { return null; } })();
+function lunarOf(d) {
+  if (!LUNAR_FMT) return null;
+  const p = {}; LUNAR_FMT.formatToParts(d).forEach(x => p[x.type] = x.value);
+  const mm = String(p.month || '');
+  return { y: +(p.relatedYear || p.year), m: parseInt(mm.replace(/\D/g, ''), 10), d: parseInt(p.day, 10), leap: /윤/.test(mm) };
+}
+const lunarYearCache = {};
+function lunarYear(Y) {   // 음력 Y년의 (월-일 → 양력 날짜) 표
+  if (lunarYearCache[Y]) return lunarYearCache[Y];
+  const map = {}; let d = new Date(Y, 0, 10);
+  for (let i = 0; i < 420; i++) {
+    const l = lunarOf(d); if (!l) break;
+    if (l.y > Y) break;
+    if (l.y === Y && !l.leap) { const k = l.m + '-' + l.d; if (!map[k]) map[k] = ymd(d); }
+    d = addDays(d, 1);
+  }
+  return lunarYearCache[Y] = map;
+}
+function solarOfLunar(Y, m, d) { const map = lunarYear(Y); return map[m + '-' + d] || (d === 30 ? map[m + '-29'] : null) || null; }
+const lunarText = s => { const l = lunarOf(parseYmd(s)); return l ? `음 ${l.leap ? '윤' : ''}${l.m}.${l.d}` : ''; };
+
+/* 일정 하나가 양력 Y년에 오는 날짜들 */
+function occurIn(ev, Y) {
+  if (ev.calendar === 'lunar' && ev.lunar_month) {
+    return [Y - 1, Y].map(ly => solarOfLunar(ly, ev.lunar_month, ev.lunar_day)).filter(s => s && s.startsWith(Y + '-'));
+  }
+  if (!ev.event_date) return [];
+  if (!ev.yearly) return ev.event_date.startsWith(Y + '-') ? [ev.event_date] : [];
+  const [, m, d] = ev.event_date.split('-');
+  let s = `${Y}-${m}-${d}`;
+  if (m === '02' && d === '29' && new Date(Y, 1, 29).getMonth() !== 1) s = `${Y}-02-28`;
+  return ev.event_date.slice(0, 4) <= String(Y) ? [s] : [];
+}
+function nextOccur(ev, from) {
+  const Y = +from.slice(0, 4);
+  for (const y of [Y, Y + 1]) { const hit = occurIn(ev, y).filter(s => s >= from).sort()[0]; if (hit) return hit; }
+  return null;
+}
+/* 식구 생일 → 달력용 일정 */
+function birthdayEvent(m) {
+  if (!m.birth_date) return null;
+  const base = { id: 'bd-' + m.id, title: `${m.name} 생일`, kind: 'birthday', member_id: m.id, yearly: true, virtual: true };
+  if (m.bday_lunar) { const l = lunarOf(parseYmd(m.birth_date)); if (l) return { ...base, calendar: 'lunar', lunar_month: l.m, lunar_day: l.d }; }
+  return { ...base, calendar: 'solar', event_date: m.birth_date };
+}
+/* 공휴일 (설·추석·부처님오신날은 음력으로 계산, 대체공휴일은 뺌) */
+const holCache = {};
+function holidays(Y) {
+  if (holCache[Y]) return holCache[Y];
+  const h = {}; const put = (s, n) => { if (s) h[s] = h[s] ? h[s] + '·' + n : n; };
+  [['01-01','신정'],['03-01','삼일절'],['05-05','어린이날'],['06-06','현충일'],['08-15','광복절'],['10-03','개천절'],['10-09','한글날'],['12-25','성탄절']].forEach(([md, n]) => put(`${Y}-${md}`, n));
+  const sl = solarOfLunar(Y, 1, 1); if (sl) { put(ymd(addDays(parseYmd(sl), -1)), '설 연휴'); put(sl, '설날'); put(ymd(addDays(parseYmd(sl), 1)), '설 연휴'); }
+  const ch = solarOfLunar(Y, 8, 15); if (ch) { put(ymd(addDays(parseYmd(ch), -1)), '추석 연휴'); put(ch, '추석'); put(ymd(addDays(parseYmd(ch), 1)), '추석 연휴'); }
+  put(solarOfLunar(Y, 4, 8), '부처님오신날');
+  return holCache[Y] = h;
+}
+
+/* 이번 주의 질문: 질문 상자(기본 50개 + 식구가 넣은 것)는 DB question_bank 표에 있다 */
+
+/* ── 휴대폰 뒤로가기 = 맨 위 창 닫기 ── */
+/* 창을 열면 기록 한 칸을 쌓고, 화면에서 닫으면 그 칸을 되돌린다.
+   history.back() 은 늦게 끝나므로, 되돌리는 중에 새 창이 열리면 쌓기를 잠깐 미뤘다가 한다 */
+const layerStack = []; let pendingBack = 0; let queuedPush = 0;
+const histPush = () => { if (pendingBack > 0) queuedPush++; else history.pushState({ fz: 1 }, ''); };
+const histBack = () => { pendingBack++; history.back(); };
+window.addEventListener('popstate', () => {
+  if (pendingBack > 0) { pendingBack--; if (!pendingBack) for (; queuedPush > 0; queuedPush--) history.pushState({ fz: 1 }, ''); return; }
+  const top = layerStack.pop(); if (top) top.close();
+});
+function useLayer(open, close) {
+  const closeRef = useRef(close); closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const me = { close: () => { me.popped = true; closeRef.current(); } };
+    layerStack.push(me); histPush();
+    return () => {
+      const i = layerStack.indexOf(me); if (i >= 0) layerStack.splice(i, 1);
+      if (me.popped) return;
+      if (queuedPush > 0) queuedPush--; else histBack();
+    };
+  }, [open]);
+}
+
+/* ── 말하기 → 글 (브라우저 음성 인식) ── */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function useDictation(append) {
+  const [on, setOn] = useState(false); const ref = useRef(null);
+  const appendRef = useRef(append); appendRef.current = append;
+  const toggle = () => {
+    if (!SR) { alert('이 폰에서는 말로 쓰기가 안 돼요. 크롬이나 사파리에서 열어 주세요.'); return; }
+    if (ref.current) { ref.current.stop(); return; }
+    const rec = new SR(); rec.lang = 'ko-KR'; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) appendRef.current(e.results[i][0].transcript.trim()); };
+    rec.onend = () => { ref.current = null; setOn(false); };
+    rec.onerror = ev => { if (ev.error === 'not-allowed') alert('마이크 사용을 허락해 주세요.'); };
+    ref.current = rec; try { rec.start(); setOn(true); } catch (e) { ref.current = null; }
+  };
+  useEffect(() => () => { if (ref.current) ref.current.stop(); }, []);
+  return { on, toggle };
+}
+const joinText = (s, t) => (s && s.trim() ? s.replace(/\s+$/, '') + ' ' : '') + t;
+
+/* ── 목소리 녹음 (녹음하면서 받아쓰기도 같이 시도) ── */
+function useRecorder() {
+  const [on, setOn] = useState(false); const [sec, setSec] = useState(0); const [live, setLive] = useState('');
+  const r = useRef({});
+  const start = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const c = { stream, mr, chunks: [], t0: Date.now(), text: '', live: '', restarts: 0 };
+    mr.ondataavailable = e => { if (e.data && e.data.size) c.chunks.push(e.data); };
+    r.current = c; mr.start(500);
+    c.timer = setInterval(() => setSec(Math.round((Date.now() - c.t0) / 1000)), 500);
+    if (SR) {
+      try {
+        const rec = new SR(); rec.lang = 'ko-KR'; rec.continuous = true; rec.interimResults = true;
+        let done = '';
+        rec.onresult = e => { let fin = '', tmp = ''; for (let i = 0; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) fin += t + ' '; else tmp += t; } c.text = (done + fin).trim(); c.live = (done + fin + tmp).trim(); setLive(c.live); };
+        rec.onend = () => { done = c.text ? c.text + ' ' : done; if (c.rec === rec && mr.state === 'recording' && c.restarts++ < 15) { try { rec.start(); } catch (e) {} } };
+        rec.onerror = () => {};
+        rec.start(); c.rec = rec;
+      } catch (e) {}
+    }
+    setSec(0); setLive(''); setOn(true);
+  };
+  const finish = keep => new Promise(ok => {
+    const c = r.current; if (!c.mr) return ok(null);
+    clearInterval(c.timer); const rec = c.rec; c.rec = null; if (rec) { try { rec.stop(); } catch (e) {} }
+    c.mr.onstop = () => {
+      c.stream.getTracks().forEach(t => t.stop()); setOn(false); r.current = {};
+      ok(keep ? { blob: new Blob(c.chunks, { type: c.mr.mimeType || 'audio/webm' }), sec: Math.max(1, Math.round((Date.now() - c.t0) / 1000)), text: (c.text || c.live || '').trim() } : null);
+    };
+    c.mr.stop();
+  });
+  useEffect(() => () => { const c = r.current; if (c.mr && c.mr.state !== 'inactive') { clearInterval(c.timer); try { c.mr.stop(); } catch (e) {} c.stream.getTracks().forEach(t => t.stop()); } }, []);
+  return { on, sec, live, start, stop: () => finish(true), cancel: () => finish(false) };
+}
+
+/* ── 소리 내어 읽어 주기 ── */
+function speak(text, onEnd) {
+  const s = window.speechSynthesis;
+  if (!s) { alert('이 폰은 읽어 주기를 지원하지 않아요.'); return false; }
+  s.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; u.rate = 0.92;
+  const ko = s.getVoices().find(v => /ko/i.test(v.lang)); if (ko) u.voice = ko;
+  u.onend = u.onerror = () => onEnd && onEnd();
+  s.speak(u); return true;
+}
+
+/* ── 앱으로 설치 ──
+   크롬 155 는 같은 주소(github.io)에 다른 앱이 깔려 있으면 메뉴의 설치를 막아 버린다.
+   페이지가 받은 설치 신호(beforeinstallprompt)로 직접 설치 창을 띄우면 그래도 깔린다.
+   아이폰은 이 신호가 없어서 사파리 "홈 화면에 추가" 안내만 보여 준다. */
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+function useInstall() {
+  const [, bump] = useState(0);
+  useEffect(() => { const f = () => bump(x => x + 1); addEventListener('fz-inst', f); return () => removeEventListener('fz-inst', f); }, []);
+  const standalone = isStandalone() || !!window.__installed;
+  return {
+    standalone, ios: IS_IOS && !standalone, can: !standalone && !!window.__inst,
+    install: async () => {
+      const e = window.__inst; if (!e) return false;
+      e.prompt(); const c = await e.userChoice; window.__inst = null; dispatchEvent(new Event('fz-inst'));
+      return c.outcome === 'accepted';
+    }
+  };
+}
+function InstallCard({ inSettings }) {
+  const C = useC(); const I = useInstall();
+  const [hide, setHide] = useState(() => !inSettings && store.get('fz_inst_hide') > ymd());
+  if (I.standalone || hide || (!I.can && !I.ios && !inSettings)) return null;
+  const body = I.can ? '홈 화면 아이콘으로 바로 열려요. 주소창 없이 앱처럼 쓸 수 있어요.'
+    : I.ios ? <>사파리 아래쪽 <b>공유 버튼(□↑)</b> → <b>홈 화면에 추가</b>를 눌러 주세요.</>
+    : <>크롬 오른쪽 위 <b>⋮ → 홈 화면에 추가</b>를 눌러 주세요.</>;
+  return (
+    <div className={inSettings ? '' : 'banner'} style={inSettings ? { background: '#f6f6f6', borderRadius: 14, padding: 12 } : { alignItems: 'flex-start' }}>
+      {!inSettings && <img src="icon-192.png?v=2" alt="" style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0 }}/>}
+      <div className="grow">
+        {!inSettings && <b>Familygram을 앱으로 설치</b>}
+        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>{body}</span>
+        <div className="row gap">
+          {I.can && <button className="btn sm primary" onClick={async () => { if (await I.install()) C.toast('설치했어요. 홈 화면의 Familygram 아이콘으로 열어 보세요'); }}><LIcon name="download" size={18}/>앱으로 설치</button>}
+          {!inSettings && <button className="btn sm soft" onClick={() => { store.set('fz_inst_hide', ymd(addDays(new Date(), 14))); setHide(true); }}>나중에</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 폰 알림 (Web Push) ──
+   "알림 받기"를 누르면 이 폰의 알림 주소를 push_subs 표에 적는다. 식구가 무언가 올리면
+   Supabase 의 notify 함수가 그 주소로 알림을 보내고, sw.js 가 폰 알림으로 띄운다.
+   밤 10시~아침 8시 것은 서버가 모아 두었다가 아침에 보낸다. */
+const VAPID_PUB = 'BCXSOfWZ11rtXk2VdgjbGEs_-sR8G4lKgN9w7Rqkd0VPSsF2WYaPEHfy7MYPVIRDTVkvd3cm23Pa_FDVG0r3RLY';
+const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const swReady = PUSH_OK ? navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).catch(() => null) : Promise.resolve(null);
+const b64u = s => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+/* 이 폰을 구분하는 값 (알림 주소가 새로 생기면 같은 폰의 옛 주소를 지우는 데 쓴다) */
+const deviceId = (() => { let d = store.get('fz_dev'); if (!d) { d = Math.random().toString(36).slice(2, 12); store.set('fz_dev', d); } return d; })();
+const savePushSub = async (member, sub) => {
+  const j = sub.toJSON();
+  await db.upsert('push_subs', { member_id: member, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceId, ua: navigator.userAgent.slice(0, 160) }, 'endpoint');
+  await db.del('push_subs', `device=eq.${deviceId}&endpoint=neq.${encodeURIComponent(j.endpoint)}`).catch(() => {});
+};
+const pushSub = async () => { const reg = await swReady; return reg ? reg.pushManager.getSubscription() : null; };
+const PUSH_PREFS = [['post', '새 소식 · 오늘의 한 장'], ['react', '내 소식에 달린 댓글 · 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+function usePush() {
+  const C = useC();
+  const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
+  const load = async () => {
+    if (!PUSH_OK) { setSt(x => ({ ...x, ready: true })); return; }
+    const sub = await pushSub(); let row = null;
+    if (sub) { try { row = (await db.list('push_subs', `select=*&endpoint=eq.${encodeURIComponent(sub.endpoint)}&order=id`))[0] || null; } catch (e) {} }
+    setSt(x => ({ ...x, ready: true, perm: Notification.permission, row }));
+  };
+  useEffect(() => { load(); const f = () => load(); addEventListener('fz-push', f); return () => removeEventListener('fz-push', f); }, []);
+  const on = async () => {
+    setSt(x => ({ ...x, busy: true }));
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { C.toast(perm === 'denied' ? '알림이 막혀 있어요. 폰 설정 → 애플리케이션 → Familygram(또는 크롬) → 알림을 켜 주세요' : '알림을 허락해야 받을 수 있어요'); return; }
+      const reg = await swReady; if (!reg) throw new Error('이 폰은 알림을 지원하지 않아요');
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !st.row) { const old = sub.endpoint; await sub.unsubscribe().catch(() => {}); await db.del('push_subs', `endpoint=eq.${encodeURIComponent(old)}`).catch(() => {}); sub = null; }   // 서버가 만료로 지운 옛 주소는 버리고 새로 받기
+      sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
+      await savePushSub(C.me, sub);
+      C.toast('알림을 켰어요 🔔 식구가 소식을 올리면 알려 드릴게요');
+    } catch (e) { C.toast('알림을 켜지 못했어요: ' + e.message); }
+    finally { setSt(x => ({ ...x, busy: false })); dispatchEvent(new Event('fz-push')); }
+  };
+  const off = async () => {
+    const sub = await pushSub();
+    if (sub) { try { await db.del('push_subs', `endpoint=eq.${encodeURIComponent(sub.endpoint)}`); } catch (e) {} await sub.unsubscribe().catch(() => {}); }
+    C.toast('이 폰의 알림을 껐어요'); dispatchEvent(new Event('fz-push'));
+  };
+  const setPref = async (k, v) => {
+    const row = st.row; if (!row) return;
+    const prefs = { ...row.prefs, [k]: v }; setSt(x => ({ ...x, row: { ...row, prefs } }));
+    try { await db.patch('push_subs', row.id, { prefs }); } catch (e) { C.toast('저장하지 못했어요'); }
+  };
+  /* 서버를 거쳐 이 폰으로 진짜 알림 한 통 (알림이 잘 오는지 확인용) */
+  const sample = async () => {
+    const sub = await pushSub();
+    if (!sub) { C.toast('알림이 꺼져 있어요. 알림 받기를 다시 눌러 주세요'); dispatchEvent(new Event('fz-push')); return; }
+    C.toast('시험 알림을 보냈어요. 몇 초 뒤 폰 맨 위를 보세요');
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/notify?mode=self`, { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
+      if (!r.ok) { C.toast('이 폰의 알림 주소가 만료됐어요. 알림 받기를 다시 눌러 주세요'); await sub.unsubscribe().catch(() => {}); dispatchEvent(new Event('fz-push')); }
+    } catch (e) { C.toast('시험 알림을 보내지 못했어요: ' + e.message); }
+  };
+  return { ...st, supported: PUSH_OK, needsInstall: IS_IOS && !isStandalone(), on, off, setPref, sample };
+}
+/* 홈 위쪽 "알림 받기" 카드 (앱 설치 카드가 먼저 보일 땐 숨김) */
+function PushCard() {
+  const P = usePush(); const I = useInstall();
+  const [hide, setHide] = useState(() => store.get('fz_push_hide') > ymd());
+  if (!P.ready || !P.supported || P.needsInstall || P.row || P.perm === 'denied' || hide || I.can) return null;
+  return (
+    <div className="banner" style={{ alignItems: 'flex-start' }}>
+      <div className="bic" style={{ background: '#FFEDEE', color: '#ED4956' }}><LIcon name="bell-ring"/></div>
+      <div className="grow">
+        <b>새 소식 알림 받기</b>
+        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>식구가 소식·댓글·편지를 남기면 폰에 알려 드려요. 앱 아이콘에 숫자도 떠요.</span>
+        <div className="row gap">
+          <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}알림 받기</button>
+          <button className="btn sm soft" onClick={() => { store.set('fz_push_hide', ymd(addDays(new Date(), 14))); setHide(true); }}>나중에</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+/* 설정 안의 알림 칸 */
+function PushSettings() {
+  const P = usePush();
+  const box = { background: '#f6f6f6', borderRadius: 14, padding: 12, fontSize: '.95rem' };
+  if (!P.ready) return <div style={box}><div className="row gap"><span className="spin dark"/>확인하는 중…</div></div>;
+  if (!P.supported) return <div style={box}>이 폰(브라우저)은 알림을 지원하지 않아요. 크롬이나 사파리에서 열어 주세요.</div>;
+  if (P.needsInstall) return <div style={box}>아이폰은 먼저 사파리 <b>공유 → 홈 화면에 추가</b>를 하고, 홈 화면의 Familygram 아이콘으로 연 다음에 알림을 켤 수 있어요.</div>;
+  if (P.perm === 'denied') return <div style={box}>알림이 막혀 있어요. 폰 <b>설정 → 애플리케이션 → Familygram</b>(또는 크롬) <b>→ 알림</b>을 켠 뒤 다시 와 주세요.</div>;
+  if (!P.row) return (
+    <div style={box}>
+      <div style={{ marginBottom: 10 }}>식구가 소식·댓글·편지를 남기면 이 폰에 알려 드려요.</div>
+      <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}알림 받기</button>
+    </div>
+  );
+  return (
+    <div style={box}>
+      <div className="row gap" style={{ marginBottom: 4 }}><LIcon name="bell-ring" size={18}/><b className="grow">이 폰은 알림을 받고 있어요</b></div>
+      {PUSH_PREFS.map(([k, l]) => <Toggle key={k} on={P.row.prefs[k] !== false} onChange={v => P.setPref(k, v)} label={l}/>)}
+      <div className="row gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+        <button className="btn sm soft" onClick={P.sample}><LIcon name="bell" size={16}/>내 폰으로 시험 알림 받기</button>
+        <button className="btn sm soft danger" onClick={P.off}>이 폰 알림 끄기</button>
+      </div>
+      {!IS_IOS && <p className="small muted" style={{ margin: '8px 0 0' }}>갤럭시에서 아이콘에 점 대신 숫자로 보려면: 폰 설정 → 알림 → 고급 설정 → 앱 아이콘 배지 → 숫자</p>}
+    </div>
+  );
+}
+/* 앱을 열면 아이콘 숫자·쌓인 알림을 지운다 */
+function clearBadge() {
+  if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  swReady.then(reg => reg && reg.getNotifications().then(ns => ns.forEach(n => n.close()))).catch(() => {});
+  pushSub().then(sub => sub && db.rpc('push_seen', { p_endpoint: sub.endpoint })).catch(() => {});
+}
+
+const Ctx = createContext(null);
+const useC = () => useContext(Ctx);
+const SAVE = '🔖';
+const isLocked = x => !!(x.open_on && x.open_on > ymd());
+const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
+
+/* ═══════════ 작은 부품들 ═══════════ */
+function Avatar({ m, size = 32, ring, onClick }) {
+  const inner = (
+    <div className="av-in" style={{ width: size, height: size, fontSize: size * 0.55, background: m.avatar ? '#eee' : (m.color || '#999') + '22' }}>
+      {m.avatar ? <img src={m.avatar} alt=""/> : (m.emoji || '🙂')}
+    </div>
+  );
+  const Tag = onClick ? 'button' : 'div';
+  if (!ring) return <Tag className="av" onClick={onClick} aria-label={m.name}>{inner}</Tag>;
+  return <Tag className={'av ring ' + ring} onClick={onClick} aria-label={m.name} style={{ padding: size > 60 ? 3 : 2.5 }}><div className="av-gap">{inner}</div></Tag>;
+}
+
+function VoicePlayer({ src }) {
+  const [st, setSt] = useState('idle'); const [pos, setPos] = useState(0);
+  const au = useRef(null); const total = voiceSec(src);
+  const toggle = async e => {
+    if (e) e.stopPropagation();
+    if (st === 'playing') { au.current.pause(); return; }
+    if (au.current) { au.current.play(); return; }
+    setSt('loading');
+    try {
+      const a = new Audio(await voiceSrc(src)); au.current = a;
+      a.ontimeupdate = () => setPos(a.currentTime);
+      a.onplay = () => setSt('playing'); a.onpause = () => setSt('paused'); a.onended = () => { setSt('idle'); setPos(0); };
+      await a.play();
+    } catch (err) { setSt('idle'); au.current = null; alert('목소리를 불러오지 못했어요: ' + err.message); }
+  };
+  useEffect(() => () => { if (au.current) au.current.pause(); }, []);
+  const pct = total ? Math.min(100, pos / total * 100) : 0;
+  return (
+    <div className="vp">
+      <button className="vp-b" onClick={toggle} aria-label={st === 'playing' ? '멈추기' : '목소리 듣기'}>
+        {st === 'loading' ? <span className="spin"/> : <LIcon name={st === 'playing' ? 'pause' : 'play'} size={16} fill="#fff" stroke="#fff"/>}
+      </button>
+      <div className="wave"><i style={{ width: pct + '%' }}/></div>
+      <small>{fmtSec(st === 'idle' ? total : pos)}</small>
+    </div>
+  );
+}
+
+/* 녹음 단추 → 다 하면 onDone({blob, sec, text}) */
+function RecordButton({ onDone, label = '목소리로 남기기', block }) {
+  const R = useRecorder(); const [busy, setBusy] = useState(false);
+  if (busy) return <div className="recbox"><div className="row gap"><span className="spin dark"/> 목소리 올리는 중…</div></div>;
+  if (!R.on) return (
+    <button type="button" className={'btn soft' + (block ? ' block' : '')} onClick={() => R.start().catch(e => alert('마이크를 쓸 수 없어요: ' + e.message))}>
+      <LIcon name="mic" size={20}/>{label}
+    </button>
+  );
+  return (
+    <div className="recbox">
+      <div className="row gap"><span className="recdot"/><b>{fmtSec(R.sec)}</b><span className="small muted">녹음 중</span></div>
+      <div className="live">{R.live || '편하게 말씀하세요…'}</div>
+      <div className="row gap">
+        <button type="button" className="btn soft grow" onClick={R.cancel}>취소</button>
+        <button type="button" className="btn accent grow" onClick={async () => { const r = await R.stop(); if (!r) return; setBusy(true); try { await onDone(r); } finally { setBusy(false); } }}>다 했어요</button>
+      </div>
+    </div>
+  );
+}
+
+function MicButton({ dict }) {
+  return (
+    <button type="button" className={'btn sm ' + (dict.on ? 'accent' : 'soft')} onClick={dict.toggle}>
+      <LIcon name="mic" size={18}/>{dict.on ? '듣고 있어요… (누르면 끝)' : '말로 쓰기'}
+    </button>
+  );
+}
+
+function Toggle({ on, onChange, label, sub }) {
+  return (
+    <button type="button" className="switch" onClick={() => onChange(!on)} style={{ width: '100%', textAlign: 'left' }}>
+      <span><b style={{ display: 'block', fontSize: '1rem' }}>{label}</b>{sub && <span className="small muted">{sub}</span>}</span>
+      <span className={'tgl' + (on ? ' on' : '')}/>
+    </button>
+  );
+}
+
+function Sheet({ open, onClose, title, right, children, footer, full }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return (
+    <div className="sheet-bg" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={'sheet' + (full ? ' full' : '')} role="dialog" aria-label={title}>
+        <div className="sheet-hd">
+          <button className="iconbtn" onClick={onClose} aria-label="닫기"><LIcon name="x"/></button>
+          <b>{title}</b>
+          {right || <span style={{ width: 44 }}/>}
+        </div>
+        <div className="sheet-bd">{children}</div>
+        {footer && <div className="sheet-ft">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Page({ open, onClose, title, right, children }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return (
+    <div className="page">
+      <div className="topbar" style={{ paddingLeft: 4 }}>
+        <button className="iconbtn" onClick={onClose} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>
+        <b className="pt">{title}</b>
+        {right || <span style={{ width: 44 }}/>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* 타임캡슐 날짜 고르기 */
+function CapsulePicker({ on, setOn, date, setDate, member }) {
+  const today = ymd();
+  const presets = [['1년 뒤', addYears(today, 1)], ['5년 뒤', addYears(today, 5)], ['10년 뒤', addYears(today, 10)]];
+  if (member && member.birth_date) {
+    const nb = nextOccur(birthdayEvent(member), ymd(addDays(new Date(), 1)));
+    if (nb) presets.push([`${member.name} 다음 생일`, nb]);
+    const a = ageOn(member.birth_date, today);
+    if (a < 20) presets.push([`${member.name} 스무 살 생일`, addYears(member.birth_date, 20)]);
+  }
+  return (
+    <div className="field">
+      <label>언제 보여 줄까요?</label>
+      <div className="seg purple">
+        <button type="button" className={!on ? 'on' : ''} onClick={() => setOn(false)}>지금 바로</button>
+        <button type="button" className={on ? 'on' : ''} onClick={() => { setOn(true); if (!date) setDate(addYears(today, 1)); }}>🔒 타임캡슐</button>
+      </div>
+      {on && (
+        <div style={{ marginTop: 10 }}>
+          <div className="chips" style={{ marginBottom: 8 }}>
+            {presets.map(([l, d]) => <button type="button" key={l} className={'chip' + (date === d ? ' pon' : '')} onClick={() => setDate(d)}>{l}</button>)}
+          </div>
+          <input type="date" className="input" min={ymd(addDays(new Date(), 1))} value={date} onChange={e => setDate(e.target.value)}/>
+          <p className="small muted" style={{ margin: '6px 2px 0' }}>{date ? `${fmtDate(date, true)}까지는 봉투만 보이고, 그날 열려요.` : ''}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════ 소식 카드 ═══════════ */
+function LockedCard({ p, onPeek }) {
+  const C = useC(); const a = C.getM(p.author_id);
+  return (
+    <div className="post">
+      <div className="post-hd"><Avatar m={a} size={34}/><div className="grow"><b>{a.name}</b> <span className="small muted">· {relDay(p.happened_on, p.created_at)}</span></div></div>
+      <div className="locked">
+        <div className="lk"><LIcon name="lock" size={26}/></div>
+        <b>{a.name}의 타임캡슐</b>
+        <p>{fmtDate(p.open_on, true)}에 열려요 · {ddayText(dayDiff(ymd(), p.open_on))}</p>
+        {onPeek && <button className="btn sm line" style={{ marginTop: 10, background: '#fff' }} onClick={onPeek}>내가 잠근 것 · 미리 보기</button>}
+      </div>
+    </div>
+  );
+}
+
+/* 글 속 #해시태그는 파란 글씨, 누르면 같은 태그 소식만 모아 본다 */
+const TAG_RE = /(#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)/g;
+const tagsOf = text => [...new Set(String(text || '').match(TAG_RE) || [])];
+function Tagged({ text }) {
+  const C = useC();
+  return String(text || '').split(TAG_RE).map((s, i) => i % 2
+    ? <button key={i} className="htag" onClick={e => { e.stopPropagation(); C.openTag(s); }}>{s}</button>
+    : s);
+}
+
+function CommentRow({ c, onDelete }) {
+  const C = useC(); const a = C.getM(c.author_id);
+  return (
+    <div className="cmt">
+      <Avatar m={a} size={28} onClick={() => C.openProfile(a.id)}/>
+      <div className="body">
+        <div>{c.is_answer && <span className="tag-ans">답</span>}<b>{a.name}</b> {c.content && !c.audio_url && <span>{c.content}</span>}</div>
+        {c.audio_url && <><VoicePlayer src={c.audio_url}/>{c.content && <div className="small" style={{ color: '#5b4a86' }}>“{c.content}”</div>}</>}
+        <div className="meta"><span>{relTime(c.created_at)}</span>{onDelete && c.author_id === C.me && <button onClick={() => onDelete(c)}>지우기</button>}</div>
+      </div>
+    </div>
+  );
+}
+
+function PostCard({ p }) {
+  const C = useC(); const a = C.getM(p.author_id);
+  const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
+  const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false);
+  const lastTap = useRef(0);
+  if (isLocked(p) && !peek) return <LockedCard p={p} onPeek={p.author_id === C.me ? () => setPeek(true) : null}/>;
+  const photos = photosOf(p);
+  const likes = C.likesOf(p.id); const iLike = likes.includes(C.me); const iSaved = C.isSaved(p.id);
+  const comments = C.commentsOf(p.id);
+  const answers = comments.filter(c => c.is_answer); const plain = comments.filter(c => !c.is_answer);
+  const tagged = (p.tagged || []).filter(id => id !== p.author_id).map(C.getM);
+  const asked = p.ask_to ? C.getM(p.ask_to) : null;
+  const r0 = photos[0] && photos[0].w ? Math.max(0.8, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
+  const tapImg = () => { const t = Date.now(); if (t - lastTap.current < 320) { if (!iLike) C.toggleLike(p); setPop(x => x + 1); } lastTap.current = t; };
+  /* 글 끝에 몰아 쓴 #태그는 참고 화면처럼 아래 줄로 따로 뺀다 */
+  const tm = (p.content || '').match(/(?:\s*#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)+\s*$/);
+  const body = tm ? p.content.slice(0, tm.index).trim() : (p.content || '');
+  const tail = tm ? tagsOf(tm[0]) : [];
+  const long = body.length > 90 && !more;
+  const speakKey = 'p' + p.id;
+  const openedToday = p.open_on && p.open_on === ymd();
+  return (
+    <article className="post">
+      <div className="post-hd">
+        <Avatar m={a} size={42} ring={C.storyRing(a.id)} onClick={() => C.openProfile(a.id)}/>
+        <div className="grow">
+          <div><b>{a.name}</b>{p.isNew && <span className="newdot" title="새 소식"/>}</div>
+          <div className="when">{relDay(p.happened_on, p.created_at)}{tagged.length > 0 && <><LIcon name="users" size={14}/>{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</>}</div>
+        </div>
+        <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>
+      </div>
+      {openedToday && <span className="opened">🎁 오늘 열린 타임캡슐 · {fmtDate(ymd(new Date(p.created_at)), true)}에 남김</span>}
+      {isLocked(p) && <span className="opened" style={{ background: '#F3EEFF', color: '#6a3fc8' }}>🔒 {fmtDate(p.open_on, true)}에 열려요 (나만 미리 보는 중)</span>}
+      {photos.length > 0 && (
+        <div className="car-wrap" onClick={tapImg} style={{ aspectRatio: String(r0) }}>
+          <div className="car" style={{ height: '100%' }} onScroll={e => { const el = e.currentTarget; setIdx(Math.round(el.scrollLeft / el.clientWidth)); }}>
+            {photos.map((ph, i) => <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
+          </div>
+          {photos.length > 1 && <><span className="pcount">{idx + 1}/{photos.length}</span><div className="dots">{photos.map((_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div></>}
+          {p.title && idx === 0 && <span className="ovl">{p.title}</span>}
+          {pop > 0 && <span key={pop} className="bigheart"><LIcon name="heart" size={96} fill="#fff" stroke="#fff"/></span>}
+        </div>
+      )}
+      <div className="acts">
+        <button className="iconbtn" onClick={() => C.toggleLike(p)} aria-label="좋아요">{iLike ? <LIcon name="heart" size={28} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={28}/>}</button>
+        <button className="iconbtn" onClick={() => C.openComments(p)} aria-label="댓글"><LIcon name="message-circle" size={27}/></button>
+        <button className="iconbtn" onClick={() => C.sharePost(p)} aria-label="보내기"><LIcon name="send" size={26}/></button>
+        <button className="iconbtn" onClick={() => C.openComments(p, 'voice')} aria-label="목소리 댓글"><LIcon name="mic" size={24} stroke="#8e8e8e"/></button>
+        <button className="iconbtn" onClick={() => C.toggleSpeak(speakKey, `${a.name}의 소식. ${p.title ? p.title + '. ' : ''}${p.content || '사진이 올라왔어요.'}${asked ? ` ${asked.name}께 질문. ${p.ask_text}` : ''}`)} aria-label="읽어 주기">
+          <LIcon name={C.speaking === speakKey ? 'volume-x' : 'volume-2'} size={24} stroke="#8e8e8e"/>
+        </button>
+        <span className="grow"/>
+        <button className="iconbtn" onClick={() => C.toggleSave(p)} aria-label={iSaved ? '보관 빼기' : '보관하기'}>{iSaved ? <LIcon name="bookmark" size={27} fill="#1a1a1a"/> : <LIcon name="bookmark" size={27}/>}</button>
+      </div>
+      {likes.length > 0 && (
+        <div className="liked">
+          <span className="faces">{likes.slice(0, 4).map(id => <Avatar key={id} m={C.getM(id)} size={24}/>)}</span>
+          <span>좋아요 <b>{likes.length}개</b> <span className="muted small">· {likes.map(id => C.getM(id).name).join(', ')}</span></span>
+        </div>
+      )}
+      {!photos.length && p.title && <div className="capt" style={{ fontFamily: "'Nanum Pen Script',cursive", fontSize: '1.6rem', lineHeight: 1.2 }}>{p.title}</div>}
+      {body && (
+        <div className="capt"><b>{a.name}</b> {long ? <><Tagged text={body.slice(0, 90)}/>… <button className="more" onClick={() => setMore(true)}>더 보기</button></> : <Tagged text={body}/>}</div>
+      )}
+      {tail.length > 0 && <div className="htags">{tail.map(t => <button key={t} className="htag" onClick={() => C.openTag(t)}>{t}</button>)}</div>}
+      {asked && (
+        <div className="askbox">
+          <div className="tiny" style={{ color: '#b2502c', fontWeight: 700 }}>{asked.emoji} {asked.name}께 묻는 질문</div>
+          <div className="q">“{p.ask_text}”</div>
+          {answers.map(c => <div className="ans" key={c.id}><CommentRow c={c}/></div>)}
+          {!answers.length && (p.ask_to === C.me
+            ? <button className="btn sm accent" onClick={() => C.openComments(p)}><LIcon name="mic" size={16}/>답하기</button>
+            : <div className="small muted">{asked.name}의 답을 기다려요</div>)}
+        </div>
+      )}
+      <div className="cmts">
+        {plain.length > 2 && <button className="linkbtn" onClick={() => C.openComments(p)}>댓글 {plain.length}개 모두 보기</button>}
+        {plain.slice(-2).map(c => <CommentRow key={c.id} c={c}/>)}
+      </div>
+      <Sheet open={menu} onClose={() => setMenu(false)} title="소식">
+        <div style={{ display: 'grid', gap: 8 }}>
+          <button className="btn soft block" onClick={() => { setMenu(false); C.openComposer({ edit: p }); }}><LIcon name="pencil" size={18}/>글 고치기</button>
+          <button className="btn soft block danger" onClick={() => { setMenu(false); C.deletePost(p); }}><LIcon name="trash-2" size={18}/>소식 지우기</button>
+        </div>
+      </Sheet>
+    </article>
+  );
+}
+
+/* ═══════════ 댓글 시트 ═══════════ */
+function CommentsSheet({ post, mode, onClose }) {
+  const C = useC();
+  const [text, setText] = useState(''); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  const open = !!post;
+  const p = post ? (C.posts.find(x => x.id === post.id) || post) : null;
+  const list = p ? C.commentsOf(p.id) : [];
+  const answering = p && p.ask_to === C.me;
+  const send = async (row) => { setBusy(true); const ok = await C.addComment({ post_id: p.id, author_id: C.me, is_answer: !!answering, ...row }); setBusy(false); return ok; };
+  return (
+    <Sheet open={open} onClose={onClose} title={answering ? '질문에 답하기' : '댓글'} full
+      footer={p && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <RecordButton block label={answering ? '목소리로 답하기' : '목소리 댓글 남기기'} onDone={async r => { const url = await uploadVoice(r.blob, r.sec); await send({ audio_url: url, content: r.text || '' }); }}/>
+          <div className="row gap">
+            <input className="input grow" placeholder={answering ? '글로 답하기…' : '댓글 달기…'} value={text} onChange={e => setText(e.target.value)}/>
+            <button className={'iconbtn'} style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
+            <button className="btn blue sm" disabled={!text.trim() || busy} onClick={async () => { if (await send({ content: text.trim() })) setText(''); }}>올리기</button>
+          </div>
+        </div>
+      )}>
+      {p && (
+        <>
+          {answering && <div className="askbox" style={{ margin: '0 0 12px' }}><div className="tiny" style={{ color: '#b2502c', fontWeight: 700 }}>{C.getM(p.author_id).name}의 질문</div><div className="q">“{p.ask_text}”</div><div className="small muted">글이나 목소리로 답해 주세요.</div></div>}
+          {p.content && <div className="cmt" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 12, marginBottom: 6 }}><Avatar m={C.getM(p.author_id)} size={28}/><div className="body"><b>{C.getM(p.author_id).name}</b> {p.content}</div></div>}
+          {!list.length && <p className="empty">첫 댓글을 남겨 보세요.<br/><span className="small">타자가 어려우면 아래 마이크를 누르세요.</span></p>}
+          {list.map(c => <CommentRow key={c.id} c={c} onDelete={C.deleteComment}/>)}
+          {mode === 'voice' && !list.length && <p className="small muted" style={{ textAlign: 'center' }}>↓ "목소리 댓글 남기기"를 누르고 말하면 돼요</p>}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/* ═══════════ 올리기 (소식 / 오늘의 한 장 / 고치기) ═══════════ */
+function Composer({ cfg, onClose }) {
+  const C = useC();
+  const open = !!cfg; const edit = cfg && cfg.edit; const daily = cfg && cfg.mode === 'daily';
+  const [files, setFiles] = useState([]); const [text, setText] = useState(''); const [day, setDay] = useState(ymd());
+  const [tagged, setTagged] = useState([]); const [cap, setCap] = useState(false); const [openOn, setOpenOn] = useState('');
+  const [askTo, setAskTo] = useState(''); const [askText, setAskText] = useState(''); const [busy, setBusy] = useState(''); const pick = useRef(null);
+  const [ovl, setOvl] = useState('');
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
+  useEffect(() => {
+    if (!cfg) return;
+    const e = cfg.edit;
+    setFiles([]); setText(e ? e.content || '' : ''); setDay(e ? e.happened_on : ymd());
+    setTagged(e ? e.tagged || [] : []); setCap(!!(e && e.open_on)); setOpenOn(e && e.open_on || '');
+    setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setOvl(e && e.title || ''); setBusy('');
+  }, [cfg]);
+  const addFiles = list => { const arr = Array.from(list || []).filter(f => /^image\//.test(f.type)); setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f) }))].slice(0, daily ? 1 : 10)); };
+  const others = C.members.filter(m => m.id !== C.me);
+  const capMember = tagged.length === 1 ? C.getM(tagged[0]) : null;
+  const can = !busy && (edit ? true : daily ? files.length > 0 : (files.length > 0 || text.trim()));
+  const submit = async () => {
+    if (cap && !openOn) { C.toast('타임캡슐 여는 날을 골라 주세요'); return; }
+    if (askTo && !askText.trim()) { C.toast('질문 내용을 적어 주세요'); return; }
+    try {
+      if (edit) {
+        setBusy('고치는 중…');
+        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), title: ovl.trim(), happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
+        if (ok) onClose(); else setBusy('');
+        return;
+      }
+      const photos = [];
+      try { for (let i = 0; i < files.length; i++) { setBusy(`사진 올리는 중 ${i + 1}/${files.length}`); photos.push(await uploadPhoto(files[i].f)); } }
+      catch (e) { photos.forEach(ph => gw('delete', { id: ph.id }).catch(() => {})); throw e; }
+      setBusy('소식 올리는 중…');
+      const row = daily
+        ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
+        : { author_id: C.me, kind: 'post', content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '' };
+      const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
+      if (ok) onClose(); else { setBusy(''); photos.forEach(ph => gw('delete', { id: ph.id }).catch(() => {})); }
+    } catch (e) { setBusy(''); C.toast('올리지 못했어요: ' + e.message); }
+  };
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title={edit ? '소식 고치기' : daily ? '오늘의 한 장' : '새 소식'}
+      right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : edit ? '저장' : '올리기'}</button>}>
+      {busy && <div className="recbox" style={{ marginBottom: 14, background: '#EAF3FF' }}><div className="row gap"><span className="spin dark"/>{busy}</div></div>}
+      {daily && <p className="small muted" style={{ marginTop: 0 }}>하루에 한 장씩 쌓여서, 1년 뒤엔 우리 가족 365일 달력이 돼요. 사라지지 않아요.</p>}
+      {!edit && (
+        <div className="field">
+          <div className="thumbs">
+            {files.map((x, i) => <div className="t" key={i}><img src={x.url} alt=""/><button className="x" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
+            {files.length < (daily ? 1 : 10) && <button className="add" onClick={() => pick.current.click()}><LIcon name="image-plus" size={28}/>사진 고르기</button>}
+          </div>
+          <input ref={pick} type="file" accept="image/*" multiple={!daily} hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }}/>
+        </div>
+      )}
+      <div className="field">
+        <label>{daily ? '한 줄 (선택)' : '무슨 일이 있었나요?'}</label>
+        <textarea className="input" rows={daily ? 2 : 4} placeholder={daily ? '오늘 하루 한 줄' : '편하게 적거나, 아래 "말로 쓰기"를 눌러 말해 보세요'} value={text} onChange={e => setText(e.target.value)}/>
+        <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+        {!daily && <p className="small muted" style={{ margin: '8px 2px 0' }}>글에 <span className="htag">#바다</span> <span className="htag">#할머니댁</span>처럼 적으면, 나중에 눌러서 같은 소식끼리 모아 볼 수 있어요.</p>}
+      </div>
+      {!daily && (
+        <>
+          <div className="field">
+            <label>사진 위 손글씨 한 줄 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+            <input className="input" maxLength={30} placeholder="예: 우리, 오늘도 함께 ♡" value={ovl} onChange={e => setOvl(e.target.value)} style={{ fontFamily: "'Nanum Pen Script',cursive", fontSize: '1.4rem' }}/>
+          </div>
+          <div className="field">
+            <label>언제 있었던 일인가요?</label>
+            <input type="date" className="input" max={ymd()} value={day} onChange={e => setDay(e.target.value)}/>
+            {day !== ymd() && <p className="small muted" style={{ margin: '6px 2px 0' }}>옛날 사진도 그날 날짜로 올리면 "N년 전 오늘"에 다시 떠요.</p>}
+          </div>
+          <div className="field">
+            <label>사진에 누가 나왔나요?</label>
+            <div className="chips">{C.members.map(m => { const on = tagged.includes(m.id); return <button type="button" key={m.id} className={'chip' + (on ? ' on' : '')} onClick={() => setTagged(t => on ? t.filter(x => x !== m.id) : [...t, m.id])}>{m.emoji} {m.name}</button>; })}</div>
+          </div>
+          <CapsulePicker on={cap} setOn={setCap} date={openOn} setDate={setOpenOn} member={capMember}/>
+          <div className="field">
+            <label>질문도 붙일까요? <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+            <div className="chips" style={{ marginBottom: askTo ? 8 : 0 }}>
+              <button type="button" className={'chip' + (!askTo ? ' on' : '')} onClick={() => setAskTo('')}>안 붙임</button>
+              {others.map(m => <button type="button" key={m.id} className={'chip' + (askTo === m.id ? ' on' : '')} onClick={() => setAskTo(m.id)}>{m.emoji} {m.name}께</button>)}
+            </div>
+            {askTo && <><input className="input" placeholder={'예: 엄마도 어릴 때 이거 해 봤어요?'} value={askText} onChange={e => setAskText(e.target.value)}/><div style={{ marginTop: 8 }}><MicButton dict={dictQ}/></div></>}
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/* ═══════════ 오늘의 한 장 보기 (스토리) ═══════════ */
+function StoryViewer({ items, onClose }) {
+  const C = useC(); const [i, setI] = useState(0); const [t, setT] = useState(0);
+  const open = !!(items && items.length);
+  useLayer(open, onClose);
+  useEffect(() => { setI(0); setT(0); }, [items]);
+  const cur = open ? items[Math.min(i, items.length - 1)] : null;
+  useEffect(() => { if (cur) C.markSeen(cur.id); }, [cur && cur.id]);
+  useEffect(() => {
+    if (!open) return;
+    const iv = setInterval(() => setT(x => x + 1), 60);
+    return () => clearInterval(iv);
+  }, [open, i]);
+  useEffect(() => { if (t >= 100) { if (i < items.length - 1) { setI(i + 1); setT(0); } else onClose(); } }, [t]);
+  if (!open) return null;
+  const a = C.getM(cur.author_id); const ph = photosOf(cur)[0];
+  const likes = C.likesOf(cur.id); const iLike = likes.includes(C.me);
+  return (
+    <div className="story">
+      <div className="bars">{items.map((_, k) => <i key={k}><b style={{ width: k < i ? '100%' : k === i ? t + '%' : '0%' }}/></i>)}</div>
+      <div className="sh">
+        <Avatar m={a} size={34}/><b>{a.name}</b><span style={{ opacity: .7, fontSize: '.85rem' }}>{relDay(cur.happened_on, cur.created_at)}</span>
+        <span className="grow"/>
+        <button className="iconbtn" onClick={onClose} aria-label="닫기"><LIcon name="x" size={28} stroke="#fff"/></button>
+      </div>
+      <div className="simg">
+        {ph ? <img src={ph.url} alt="오늘의 한 장"/> : <div style={{ fontSize: '1.3rem', padding: 30 }}>{cur.content}</div>}
+        <button className="tapL" aria-label="이전" onClick={() => { if (i > 0) { setI(i - 1); setT(0); } else setT(0); }}/>
+        <button className="tapR" aria-label="다음" onClick={() => { if (i < items.length - 1) { setI(i + 1); setT(0); } else onClose(); }}/>
+      </div>
+      <div className="sc">
+        <div className="grow">{ph && cur.content}{likes.length > 0 && <div className="small" style={{ opacity: .8 }}>{likes.map(id => C.getM(id).name).join(', ')} ❤️</div>}</div>
+        <button className="iconbtn" onClick={() => C.toggleLike(cur)} aria-label="좋아요">{iLike ? <LIcon name="heart" size={30} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={30} stroke="#fff"/>}</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ 홈 ═══════════ */
+function HomeTab() {
+  const C = useC(); const today = ymd();
+  const feed = C.posts.filter(p => p.kind !== 'daily');
+  const [shown, setShown] = useState(15); const endRef = useRef(null);
+  useEffect(() => {
+    const el = endRef.current; if (!el || !window.IntersectionObserver) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) setShown(n => n + 15); }, { rootMargin: '800px' });
+    io.observe(el); return () => io.disconnect();
+  }, [shown, feed.length]);
+  const order = [C.me, ...C.members.map(m => m.id).filter(id => id !== C.me)];
+  const stories = order.map(id => C.getM(id)).sort((x, y) => {
+    if (x.id === C.me) return -1; if (y.id === C.me) return 1;
+    const rank = m => ({ '': 3, plain: 3, seen: 2, bday: 0 }[C.storyRing(m.id) || ''] ?? 1);
+    return rank(x) - rank(y);
+  });
+  const md = today.slice(5);
+  const ago = C.posts.filter(p => p.happened_on.slice(5) === md && p.happened_on < today.slice(0, 4) && !isLocked(p));
+  const agoYears = [...new Set(ago.map(p => +today.slice(0, 4) - +p.happened_on.slice(0, 4)))].sort((a, b) => a - b);
+  const agoPhotos = ago.flatMap(p => photosOf(p)).slice(0, 3);
+  const askedMe = C.posts.filter(p => p.ask_to === C.me && !isLocked(p) && !C.commentsOf(p.id).some(c => c.is_answer && c.author_id === C.me));
+  const wq = C.weekQ;
+  return (
+    <>
+      <div className="topbar brand-hd">
+        <div>
+          <span className="brand">Familygram<LIcon name="heart" size={20} fill="#ED4956" stroke="#ED4956"/></span>
+          <span className="brand-sub">함께하는 모든 순간이 소중해요 ♥</span>
+        </div>
+        <div className="row">
+          <button className="iconbtn" onClick={C.openNoti} aria-label="알림"><LIcon name={C.newCount > 0 ? 'bell-ring' : 'bell'} size={26}/>{C.newCount > 0 && <span className="cnt" style={{ top: -1, right: -6 }}>{C.newCount}</span>}</button>
+          <button className="iconbtn" onClick={C.openLetters} aria-label="편지함"><LIcon name="send" size={26}/>{C.unread > 0 && <span className="cnt">{C.unread}</span>}</button>
+        </div>
+      </div>
+      <div className="stories">
+        {stories.map(m => {
+          const ring = C.storyRing(m.id) || 'plain'; const bd = C.bdayDays(m.id);
+          const mine = m.id === C.me; const has = C.dailyToday(m.id).length > 0;
+          return (
+            <div className="st" key={m.id}>
+              {mine && !has
+                ? <button className="me0" onClick={() => C.openComposer({ mode: 'daily' })} aria-label="내 스토리 올리기">{m.avatar ? <Avatar m={m} size={68}/> : <LIcon name="users" size={30}/>}</button>
+                : <Avatar m={m} size={62} ring={ring} onClick={() => { if (has) C.openStory(C.dailyToday(m.id)); else C.openProfile(m.id); }}/>}
+              {mine && !has && <span className="addp"><LIcon name="plus" size={13} sw={3}/></span>}
+              {bd !== null && bd <= 7 && !(mine && !has) && <span className="mini">🎂{ddayText(bd)}</span>}
+              <div className="lb">{mine ? '내 스토리' : m.name}</div>
+            </div>
+          );
+        })}
+      </div>
+      {wq && <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>}
+      <InstallCard/>
+      <PushCard/>
+      {askedMe.length > 0 && (
+        <button className="banner" onClick={() => C.openComments(askedMe[0])}>
+          <Avatar m={C.getM(askedMe[0].author_id)} size={42}/>
+          <div className="grow"><b>{josa(C.getM(askedMe[0].author_id).name, '이', '가')} 질문했어요</b><span>“{askedMe[0].ask_text}”{askedMe.length > 1 ? ` 외 ${askedMe.length - 1}개` : ''}</span></div>
+          <LIcon name="chevron-right"/>
+        </button>
+      )}
+      {ago.length > 0 && (
+        <button className="banner ago" onClick={() => C.openAgo(ago)}>
+          {agoPhotos.length > 0 ? <div className="th">{agoPhotos.map((ph, i) => <img key={i} src={ph.thumb || ph.url} alt=""/>)}</div> : <div className="bic" style={{ background: '#FFF5E2', color: '#B5861C' }}><LIcon name="history"/></div>}
+          <div className="grow"><b>{agoYears.map(y => `${y}년`).join('·')} 전 오늘</b><span>그날의 소식 {ago.length}개 · 눌러서 보기</span></div>
+          <LIcon name="chevron-right"/>
+        </button>
+      )}
+      <div style={{ height: 4 }}/>
+      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 추가</b>를 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
+      {feed.slice(0, shown).map(p => <PostCard key={p.id} p={p}/>)}
+      {shown < feed.length
+        ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
+        : feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
+    </>
+  );
+}
+
+/* ═══════════ 달력 ═══════════ */
+function CalendarTab() {
+  const C = useC(); const today = ymd();
+  const [mode, setMode] = useState('ev');
+  const [cur, setCur] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [sel, setSel] = useState(today); const [who, setWho] = useState('all'); const [adding, setAdding] = useState(false);
+  const Y = cur.getFullYear(), M = cur.getMonth();
+  const allEvents = C.allEvents;
+  const byDay = useMemo(() => {
+    const map = {};
+    allEvents.forEach(ev => occurIn(ev, Y).forEach(s => { if (+s.slice(5, 7) === M + 1) (map[s] = map[s] || []).push(ev); }));
+    return map;
+  }, [allEvents, Y, M]);
+  const hol = holidays(Y);
+  const dailies = useMemo(() => {
+    const map = {};
+    C.posts.filter(p => p.kind === 'daily' && (who === 'all' || p.author_id === who)).forEach(p => (map[p.happened_on] = map[p.happened_on] || []).push(p));
+    return map;
+  }, [C.posts, who]);
+  const first = new Date(Y, M, 1).getDay(); const days = new Date(Y, M + 1, 0).getDate();
+  const cells = []; for (let i = 0; i < first; i++) cells.push(null); for (let d = 1; d <= days; d++) cells.push(`${Y}-${pad(M + 1)}-${pad(d)}`);
+  const upcoming = allEvents.map(ev => ({ ev, d: nextOccur(ev, today) })).filter(x => x.d && dayDiff(today, x.d) <= 120).sort((a, b) => a.d.localeCompare(b.d));
+  const holUp = [];
+  for (const y of [+today.slice(0, 4), +today.slice(0, 4) + 1]) Object.entries(holidays(y)).forEach(([d, n]) => { if (d >= today && dayDiff(today, d) <= 60 && !/연휴/.test(n)) holUp.push({ d, n }); });
+  const selEvents = (byDay[sel] || []);
+  const kindIcon = k => ({ birthday: '🎂', anniversary: '💍', memorial: '🕯️' }[k] || '📌');
+  const colorOf = ev => ev.member_id ? C.getM(ev.member_id).color : '#555';
+  return (
+    <>
+      <div className="topbar"><span className="h1">달력</span><button className="iconbtn" onClick={() => setAdding(true)} aria-label="일정 넣기"><LIcon name="plus" size={28}/></button></div>
+      <div className="pad" style={{ marginBottom: 6 }}>
+        <div className="seg"><button className={mode === 'ev' ? 'on' : ''} onClick={() => setMode('ev')}>📅 일정</button><button className={mode === 'ph' ? 'on' : ''} onClick={() => setMode('ph')}>🖼 오늘의 한 장</button></div>
+      </div>
+      <div className="cal-hd">
+        <button className="iconbtn" onClick={() => setCur(new Date(Y, M - 1, 1))} aria-label="이전 달"><LIcon name="chevron-left"/></button>
+        <b>{Y}년 {M + 1}월</b>
+        <button className="iconbtn" onClick={() => setCur(new Date(Y, M + 1, 1))} aria-label="다음 달"><LIcon name="chevron-right"/></button>
+      </div>
+      {mode === 'ph' && (
+        <div className="chips pad" style={{ marginBottom: 8 }}>
+          <button className={'chip' + (who === 'all' ? ' on' : '')} onClick={() => setWho('all')}>모두</button>
+          {C.members.map(m => <button key={m.id} className={'chip' + (who === m.id ? ' on' : '')} onClick={() => setWho(m.id)}>{m.emoji} {m.name}</button>)}
+        </div>
+      )}
+      <div className="cal-wd">{WD.map(w => <span key={w}>{w}</span>)}</div>
+      <div className="cal" style={{ gap: mode === 'ph' ? 2 : 0 }}>
+        {cells.map((s, i) => {
+          if (!s) return <div key={'e' + i}/>;
+          const dow = parseYmd(s).getDay(); const cls = ['cell', s === today && 'today', hol[s] && 'hol', dow === 0 && 'sun', dow === 6 && 'sat'].filter(Boolean);
+          if (mode === 'ph') {
+            const ds = dailies[s] || []; const ph = ds.length ? photosOf(ds[0])[0] : null;
+            return <button key={s} className={[...cls, 'ph'].join(' ')} onClick={() => ds.length && C.openStory(ds)} aria-label={s}>{ph ? <img src={ph.thumb || ph.url} alt=""/> : <span style={{ width: '100%', height: '100%', background: '#f6f6f6', borderRadius: 8, display: 'block' }}/>}<span className="dn">{+s.slice(8)}</span></button>;
+          }
+          const evs = byDay[s] || [];
+          return (
+            <button key={s} className={[...cls, sel === s && 'sel'].filter(Boolean).join(' ')} onClick={() => setSel(s)}>
+              <span className="dn">{+s.slice(8)}</span>
+              {hol[s] && <span className="hn">{hol[s]}</span>}
+              {evs.slice(0, 2).map(ev => <span key={ev.id} className="ev" style={{ background: colorOf(ev) }}>{ev.title}</span>)}
+              {evs.length > 2 && <span className="tiny muted">+{evs.length - 2}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {mode === 'ev' && (
+        <>
+          <div className="sec-t"><span>{fmtDate(sel)} ({WD[parseYmd(sel).getDay()]}) <span className="small muted" style={{ fontWeight: 400 }}>{lunarText(sel)}</span></span></div>
+          {hol[sel] && <div className="up-item"><span style={{ fontSize: '1.4rem' }}>🎌</span><b style={{ color: '#e0453a' }}>{hol[sel]}</b></div>}
+          {!selEvents.length && !hol[sel] && <p className="small muted pad">이날은 일정이 없어요.</p>}
+          {selEvents.map(ev => <EventRow key={ev.id} ev={ev} d={sel}/>)}
+          <div className="sec-t">다가오는 날</div>
+          {!upcoming.length && !holUp.length && <p className="small muted pad">다가오는 일정이 없어요. 오른쪽 위 ＋로 생일·기념일을 넣어 보세요.</p>}
+          {upcoming.map(({ ev, d }) => <EventRow key={ev.id + d} ev={ev} d={d} showDday/>)}
+          {holUp.slice(0, 4).map(h => <div key={h.d} className="up-item"><span style={{ fontSize: '1.4rem' }}>🎌</span><div className="grow"><b>{h.n}</b><span className="small muted" style={{ display: 'block' }}>{fmtDate(h.d)} ({WD[parseYmd(h.d).getDay()]})</span></div><span className="dday" style={{ color: '#e0453a' }}>{ddayText(dayDiff(today, h.d))}</span></div>)}
+        </>
+      )}
+      {mode === 'ph' && <p className="small muted pad" style={{ marginTop: 12 }}>날짜를 누르면 그날의 한 장을 크게 봐요. 홈 맨 위 내 동그라미의 ＋로 오늘의 한 장을 올려요.</p>}
+      <EventSheet open={adding} onClose={() => setAdding(false)} day={sel}/>
+    </>
+  );
+  function EventRow({ ev, d, showDday }) {
+    const n = dayDiff(today, d); const m = ev.member_id ? C.getM(ev.member_id) : null;
+    return (
+      <div className="up-item">
+        <span style={{ fontSize: '1.4rem' }}>{kindIcon(ev.kind)}</span>
+        <div className="grow">
+          <b>{ev.title}</b>
+          <span className="small muted" style={{ display: 'block' }}>{fmtDate(d)} ({WD[parseYmd(d).getDay()]}){ev.calendar === 'lunar' ? ` · 음력 ${ev.lunar_month}월 ${ev.lunar_day}일` : ''}{ev.yearly ? ' · 매년' : ''}{m ? ` · ${m.name}` : ''}</span>
+        </div>
+        {showDday && <span className={'dday' + (n <= 7 ? ' near' : '')}>{ddayText(n)}</span>}
+        {!ev.virtual && <button className="iconbtn" onClick={() => C.deleteEvent(ev)} aria-label="일정 지우기"><LIcon name="trash-2" size={18}/></button>}
+      </div>
+    );
+  }
+}
+
+function EventSheet({ open, onClose, day }) {
+  const C = useC();
+  const [title, setTitle] = useState(''); const [kind, setKind] = useState('event'); const [cal, setCal] = useState('solar');
+  const [date, setDate] = useState(day || ymd()); const [lm, setLm] = useState(1); const [ld, setLd] = useState(1);
+  const [yearly, setYearly] = useState(false); const [mid, setMid] = useState('');
+  useEffect(() => { if (open) { setTitle(''); setKind('event'); setCal('solar'); setDate(day || ymd()); setYearly(false); setMid(''); const l = lunarOf(parseYmd(day || ymd())); if (l) { setLm(l.m); setLd(l.d); } } }, [open]);
+  const kinds = [['event', '📌 일정'], ['birthday', '🎂 생일'], ['anniversary', '💍 기념일'], ['memorial', '🕯️ 기일']];
+  const save = async () => {
+    if (!title.trim()) { C.toast('이름을 적어 주세요'); return; }
+    const row = { title: title.trim(), kind, member_id: mid || null, calendar: cal, yearly: cal === 'lunar' ? true : yearly,
+      event_date: cal === 'solar' ? date : null, lunar_month: cal === 'lunar' ? +lm : null, lunar_day: cal === 'lunar' ? +ld : null };
+    if (await C.write(() => db.add('events', row), '달력에 넣었어요')) onClose();
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="일정 넣기" right={<button className="hdbtn" onClick={save}>저장</button>}>
+      <div className="field"><label>무슨 날인가요?</label><input className="input" placeholder="예: 할아버지 기일, 결혼기념일" value={title} onChange={e => setTitle(e.target.value)}/></div>
+      <div className="field"><label>종류</label><div className="chips">{kinds.map(([k, l]) => <button key={k} type="button" className={'chip' + (kind === k ? ' on' : '')} onClick={() => { setKind(k); if (k !== 'event') setYearly(true); }}>{l}</button>)}</div></div>
+      <div className="field"><label>양력 / 음력</label><div className="seg"><button type="button" className={cal === 'solar' ? 'on' : ''} onClick={() => setCal('solar')}>양력</button><button type="button" className={cal === 'lunar' ? 'on' : ''} onClick={() => setCal('lunar')}>음력 (매년 자동 계산)</button></div></div>
+      {cal === 'solar'
+        ? <div className="field"><label>날짜</label><input type="date" className="input" value={date} onChange={e => setDate(e.target.value)}/></div>
+        : <div className="field"><label>음력 날짜</label><div className="row gap">
+            <select className="input" value={lm} onChange={e => setLm(e.target.value)}>{Array.from({ length: 12 }, (_, i) => <option key={i} value={i + 1}>{i + 1}월</option>)}</select>
+            <select className="input" value={ld} onChange={e => setLd(e.target.value)}>{Array.from({ length: 30 }, (_, i) => <option key={i} value={i + 1}>{i + 1}일</option>)}</select>
+          </div>
+          {(() => { const s = solarOfLunar(new Date().getFullYear(), +lm, +ld); const n = s && s < ymd() ? solarOfLunar(new Date().getFullYear() + 1, +lm, +ld) : s; return n ? <p className="small muted" style={{ margin: '6px 2px 0' }}>다음은 양력 {fmtDate(n, true)}이에요.</p> : null; })()}
+        </div>}
+      {cal === 'solar' && <div className="field"><Toggle on={yearly} onChange={setYearly} label="매년 반복" sub="생일·기념일은 켜 두세요"/></div>}
+      <div className="field"><label>누구의 날인가요? <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+        <div className="chips"><button type="button" className={'chip' + (!mid ? ' on' : '')} onClick={() => setMid('')}>가족 모두</button>{C.members.map(m => <button type="button" key={m.id} className={'chip' + (mid === m.id ? ' on' : '')} onClick={() => setMid(m.id)}>{m.emoji} {m.name}</button>)}</div>
+      </div>
+      <p className="small muted">식구 생일은 "식구 → 프로필 고치기"에서 생년월일을 넣으면 달력에 저절로 들어가요.</p>
+    </Sheet>
+  );
+}
+
+/* ═══════════ 편지함 ═══════════ */
+function LettersTab({ onBack }) {
+  const C = useC(); const [fil, setFil] = useState('all'); const [note, setNote] = useState('');
+  const list = C.letters.filter(l => fil === 'all' || (fil === 'in' ? l.receiver_id === C.me : l.sender_id === C.me));
+  const wq = C.weekQ;
+  const year = new Date().getFullYear();
+  const yp = C.posts.filter(p => p.happened_on.startsWith(year + '') && !isLocked(p));
+  const yPhotos = yp.reduce((n, p) => n + photosOf(p).length, 0);
+  const yVoices = C.comments.filter(c => c.audio_url && c.created_at.startsWith(year + '')).length + C.answers.filter(a => a.audio_url && a.created_at.startsWith(year + '')).length;
+  const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
+  return (
+    <>
+      <div className="topbar" style={{ paddingLeft: 4 }}>
+        <div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">편지함</span></div>
+        <button className="iconbtn" onClick={() => C.openLetterCompose({})} aria-label="편지 쓰기"><LIcon name="square-pen" size={26}/></button>
+      </div>
+      {wq && (
+        <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>
+      )}
+      <div className="fil">{[['all', '모두'], ['in', '나에게 온'], ['out', '내가 보낸']].map(([k, l]) => <button key={k} className={'chip' + (fil === k ? ' on' : '')} onClick={() => setFil(k)}>{l}</button>)}</div>
+      {!list.length && <div className="empty">아직 편지가 없어요.<br/>오른쪽 위 연필을 눌러 첫 편지를 써 보세요.</div>}
+      {list.map(l => {
+        const s = C.getM(l.sender_id), r = C.getM(l.receiver_id); const lock = isLocked(l);
+        const isNew = l.receiver_id === C.me && !l.read_at && !lock;
+        return (
+          <button className="lt" key={l.id} onClick={() => C.openLetter(l)}>
+            <div className="env" style={lock ? { background: '#EEE8F7', color: '#6A55A3' } : isNew ? { background: '#FDEBE3', color: '#D0603A' } : { background: '#E3F1E9', color: '#2E7D5B' }}>
+              <LIcon name={lock ? 'lock' : isNew ? 'mail' : 'mail-open'}/>
+            </div>
+            <div className="grow"><b>{s.name} → {r.name}</b><span>{lock ? `🔒 ${fmtDate(l.open_on, true)}에 열려요` : (l.audio_url ? '🎙 ' : '') + (l.title || l.content)}</span></div>
+            {isNew ? <span className="new">새 편지</span> : <span className="tiny muted">{relTime(l.created_at)}</span>}
+          </button>
+        );
+      })}
+      <div className="sec-t">📌 냉장고 메모</div>
+      <div className="notes">
+        {C.notes.map((n, i) => <div key={n.id} className="note" style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}><button className="x" onClick={() => C.deleteNote(n)} aria-label="메모 떼기"><LIcon name="x" size={16}/></button><div className="tiny muted">{C.getM(n.author_id).name}</div>{n.content}</div>)}
+        {!C.notes.length && <p className="small muted">"우유 사 오기" 같은 짧은 쪽지를 붙여 두세요.</p>}
+      </div>
+      <div className="row gap pad">
+        <input className="input grow" placeholder="쪽지 한 줄" value={note} onChange={e => setNote(e.target.value)}/>
+        <button className="btn primary sm" disabled={!note.trim()} onClick={async () => { if (await C.addNote(note.trim())) setNote(''); }}>붙이기</button>
+      </div>
+      <button className="book" onClick={() => C.openBook(year)}>
+        <div className="cv">{year}<br/>우리<br/>가족</div>
+        <div><b>올해 우리 가족 책</b><span>소식 {yp.length}개 · 사진 {yPhotos}장 · 목소리 {yVoices}개<br/>눌러서 한 권으로 미리 보기 · PDF 저장</span></div>
+      </button>
+    </>
+  );
+}
+
+function LetterCompose({ cfg, onClose }) {
+  const C = useC(); const open = !!cfg;
+  const [to, setTo] = useState(''); const [title, setTitle] = useState(''); const [text, setText] = useState('');
+  const [voice, setVoice] = useState(null); const [cap, setCap] = useState(false); const [openOn, setOpenOn] = useState(''); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  useEffect(() => { if (!cfg) return; const first = C.members.find(m => m.id !== C.me); setTo(cfg.to || (first ? first.id : C.me)); setTitle(''); setText(''); setVoice(null); setCap(false); setOpenOn(''); setBusy(false); }, [cfg]);
+  const send = async () => {
+    if (!text.trim() && !voice) { C.toast('편지 내용을 적거나 목소리를 남겨 주세요'); return; }
+    if (cap && !openOn) { C.toast('여는 날을 골라 주세요'); return; }
+    setBusy(true);
+    try {
+      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : null;
+      const body = text.trim() || (voice && voice.text) || '';
+      const ok = await C.write(() => db.add('letters', { sender_id: C.me, receiver_id: to, title: title.trim() || body.slice(0, 24) || '목소리 편지', content: body, audio_url: audio, open_on: cap ? openOn : null }),
+        cap ? `타임캡슐 편지를 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '편지를 보냈어요');
+      if (ok) onClose(); else setBusy(false);
+    } catch (e) { setBusy(false); C.toast('보내지 못했어요: ' + e.message); }
+  };
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title="편지 쓰기" right={<button className="hdbtn" disabled={busy} onClick={send}>{busy ? <span className="spin dark"/> : '보내기'}</button>}>
+      <div className="field"><label>누구에게?</label><div className="chips">{C.members.map(m => <button key={m.id} type="button" className={'chip' + (to === m.id ? ' on' : '')} onClick={() => setTo(m.id)}>{m.emoji} {m.name}{m.id === C.me ? ' (나)' : ''}</button>)}</div></div>
+      <div className="field"><label>제목 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label><input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예: 스무 살의 지우에게"/></div>
+      <div className="field"><label>편지</label><textarea className="input" rows={7} value={text} onChange={e => setText(e.target.value)} placeholder="꾹꾹 눌러 적어 보세요"/><div style={{ marginTop: 8 }}><MicButton dict={dict}/></div></div>
+      <div className="field"><label>목소리도 담을까요?</label>
+        {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>다시</button></div>
+          : <RecordButton label="목소리 편지 녹음" onDone={async r => setVoice(r)}/>}
+      </div>
+      <CapsulePicker on={cap} setOn={setCap} date={openOn} setDate={setOpenOn} member={C.getM(to)}/>
+    </Sheet>
+  );
+}
+
+function LetterView({ l, onClose }) {
+  const C = useC(); const [peek, setPeek] = useState(false);
+  useEffect(() => { setPeek(false); if (l && l.receiver_id === C.me && !l.read_at && !isLocked(l)) C.markRead(l); }, [l && l.id]);
+  const open = !!l;
+  const s = l ? C.getM(l.sender_id) : null, r = l ? C.getM(l.receiver_id) : null;
+  const lock = l && isLocked(l) && !peek;
+  return (
+    <Sheet open={open} onClose={onClose} title="편지" full>
+      {l && (lock ? (
+        <div className="locked" style={{ margin: 0, padding: '40px 20px' }}>
+          <div className="lk"><LIcon name="lock" size={26}/></div>
+          <b>{josa(s.name, '이', '가')} {r.name}에게 남긴 타임캡슐</b>
+          <p>{fmtDate(l.open_on, true)}에 열려요 · {ddayText(dayDiff(ymd(), l.open_on))}</p>
+          <p className="small">{fmtDate(ymd(new Date(l.created_at)), true)}에 잠갔어요</p>
+          {l.sender_id === C.me && <button className="btn sm line" style={{ marginTop: 12, background: '#fff' }} onClick={() => setPeek(true)}>내가 쓴 것 · 미리 보기</button>}
+        </div>
+      ) : (
+        <>
+          <div className="row gap" style={{ marginBottom: 12 }}>
+            <Avatar m={s} size={40}/><div className="grow"><b>{s.name}</b> → {r.name}<div className="small muted">{fmtDate(ymd(new Date(l.created_at)), true)}{l.open_on ? ` · 🎁 ${fmtDate(l.open_on, true)}에 열린 타임캡슐` : ''}</div></div>
+            <button className="iconbtn" onClick={() => C.toggleSpeak('l' + l.id, `${josa(s.name, '이', '가')} ${r.name}에게 쓴 편지. ${l.content}`)} aria-label="읽어 주기"><LIcon name={C.speaking === 'l' + l.id ? 'volume-x' : 'volume-2'}/></button>
+          </div>
+          {l.title && <h3 style={{ margin: '0 0 10px' }}>{l.title}</h3>}
+          {l.audio_url && <div style={{ marginBottom: 10 }}><VoicePlayer src={l.audio_url}/></div>}
+          {l.content && <div className="letter-paper">{l.content}</div>}
+          <div style={{ display: 'grid', gap: 8, marginTop: 18 }}>
+            {l.receiver_id === C.me && l.sender_id !== C.me && <button className="btn primary block" onClick={() => { onClose(); setTimeout(() => C.openLetterCompose({ to: l.sender_id }), 50); }}><LIcon name="send" size={18}/>답장 쓰기</button>}
+            {(l.sender_id === C.me || l.receiver_id === C.me) && <button className="btn soft block danger" onClick={() => C.deleteLetter(l)}><LIcon name="trash-2" size={18}/>편지 지우기</button>}
+          </div>
+        </>
+      ))}
+    </Sheet>
+  );
+}
+
+/* ═══════════ 이번 주 질문 ═══════════ */
+/* ═══════════ 이번 주의 질문: 한 사람이 묻고 온 가족이 답한다 ═══════════
+   - 식구 순서대로 한 주씩 질문자가 돌아간다 (지난 질문자의 다음 식구)
+   - 질문자는 질문 상자에서 고르거나, 글·말로 직접 묻는다. 한마디도 붙일 수 있다
+   - 수요일 아침까지 안 정하면 서버가 상자에서 자동으로 고른다
+   - 다 같이 공개: 모두 답하거나 토요일 밤 9시가 되면 답이 열린다 (그 전엔 내 답만 보임) */
+const nextOf = (order, id) => { const i = order.findIndex(m => m.id === id); return order[(i + 1) % order.length] || order[0]; };
+const revealAt = wk => { const d = parseYmd(wk); d.setDate(d.getDate() + 5); d.setHours(21, 0, 0, 0); return d; };   // 토요일 밤 9시
+function qState(C, q) {
+  const ans = q ? C.answers.filter(a => a.question_id === q.id) : [];
+  const done = [...new Set(ans.map(a => a.member_id))];
+  const isCur = !!q && q.week_start === weekStart();
+  const allDone = C.members.length > 0 && C.members.every(m => done.includes(m.id));
+  return { ans, done, isCur, picking: !!q && !q.text, allDone, revealed: !isCur || allDone || Date.now() >= revealAt(q.week_start) };
+}
+
+/* 이번 주 질문 카드. inline=질문 창 안 (버튼 없음) */
+function QHero({ q, onOpen, inline }) {
+  const C = useC(); const S = qState(C, q); const asker = C.getM(q.asker_id); const iAsk = q.asker_id === C.me;
+  const mine = S.done.includes(C.me);
+  const left = dayDiff(ymd(), ymd(revealAt(q.week_start)));   // 공개일(토요일)까지 남은 날
+  const status = S.picking ? '수요일 아침까지 안 정하면 자동으로 골라요'
+    : S.allDone ? '모두 답했어요! 답이 열렸어요 🎁'
+    : !S.isCur || S.revealed ? `답 ${S.done.length}개 · 답이 열렸어요 🎁`
+    : `답 ${S.done.length}/${C.members.length} · ${left <= 0 ? '오늘' : left === 1 ? '내일' : '토요일'} 밤 9시에 다 같이 공개`;
+  const cta = S.picking ? (iAsk ? ['질문 정하기 →', ''] : ['순서 보기', 'done']) : S.revealed ? ['답 보러 가기 🎁', ''] : mine ? ['내 답 남김 ✓', 'done'] : ['답하기 →', ''];
+  const Tag = inline ? 'div' : 'button';
+  return (
+    <Tag className={'qhero' + (inline ? ' inline' : '')} onClick={inline ? undefined : onOpen}>
+      <div className="qh-top"><span className="pill">{S.isCur ? '이번 주 질문' : `${fmtDate(q.week_start)} 주 질문`} ❓</span>{q.auto && !S.picking && <span className="pill">자동으로 골랐어요</span>}</div>
+      {S.picking
+        ? <div className="qh-q wait">{iAsk ? '이번 주는 내가 온 가족에게 질문할 차례예요 🎤' : `${josa(asker.name, '이', '가')} 온 가족에게 물어볼 질문을 고르는 중이에요 🤔`}</div>
+        : <div className="qh-q">{q.text}</div>}
+      {!S.picking && q.note && <div className="qh-note">💬 “{q.note}”</div>}
+      {!S.picking && q.audio_url && inline && <div style={{ position: 'relative', marginBottom: 10 }}><VoicePlayer src={q.audio_url}/></div>}
+      <div className="qh-by"><Avatar m={asker} size={26}/><span><b>{asker.name}</b>{S.picking ? ' 차례 🎤' : josa(asker.name, '이', '가').slice(asker.name.length) + ' 물어요'}{q.audio_url && !inline ? ' · 🎙' : ''}</span></div>
+      <div className="qh-ft">
+        <span className="qh-faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .35 }}><Avatar m={m} size={24}/></span>)}</span>
+        <span className="qh-st">{status}</span>
+        {!inline && <span className={'qh-cta ' + cta[1]}>{cta[0]}</span>}
+        {inline && !S.picking && <button className="qh-cta done" onClick={e => { e.stopPropagation(); C.toggleSpeak('q' + q.id, `${asker.name}의 질문. ${q.text}`); }}><LIcon name="volume-2" size={16}/>읽어 주기</button>}
+      </div>
+    </Tag>
+  );
+}
+
+/* 순서표: 지난주 · 이번 주 · 다음 주들 */
+function QTurns({ cur, onOrder }) {
+  const C = useC(); const order = C.members;
+  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-2);
+  const items = past.map(q => ({ m: C.getM(q.asker_id), wk: q.week_start, tag: '✓', cls: 'done' }));
+  items.push({ m: C.getM(cur.asker_id), wk: cur.week_start, tag: '🎤', cls: 'now' });
+  let id = cur.asker_id;
+  for (let i = 1; i <= Math.min(3, Math.max(1, order.length - 1)); i++) { const n = nextOf(order, id); id = n && n.id; if (!n) break; items.push({ m: n, wk: ymd(addDays(parseYmd(cur.week_start), 7 * i)), cls: '' }); }
+  const label = (wk, cls) => cls === 'now' ? '이번 주' : wk === ymd(addDays(parseYmd(cur.week_start), 7)) ? '다음 주' : wk === ymd(addDays(parseYmd(cur.week_start), -7)) ? '지난주' : fmtDot(wk).slice(5);
+  return (
+    <div className="turns">
+      <div className="turns-hd"><b>질문 순서</b><button className="linkbtn" style={{ minHeight: 0, padding: 0 }} onClick={onOrder}>순서 바꾸기</button></div>
+      <div className="turns-row">
+        {items.map((x, i) => (
+          <React.Fragment key={x.wk}>
+            {i > 0 && <span className="turns-ar">›</span>}
+            <div className={'turn ' + x.cls}><Avatar m={x.m} size={38}/><b>{x.m.name}{x.tag && <> {x.tag}</>}</b><span>{label(x.wk, x.cls)}</span></div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* 질문 순서 바꾸기 (= 식구 순서) */
+function TurnOrder({ open, onClose }) {
+  const C = useC(); const [list, setList] = useState([]); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) setList(C.members.map(m => m.id)); }, [open]);
+  const move = (i, d) => setList(l => { const n = [...l]; const j = i + d; if (j < 0 || j >= n.length) return l; [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const save = async () => { setBusy(true); const ok = await C.write(() => Promise.all(list.map((id, i) => db.patch('members', id, { sort: i + 1 }))), '질문 순서를 바꿨어요'); setBusy(false); if (ok) onClose(); };
+  return (
+    <Sheet open={open} onClose={onClose} title="질문 순서" right={<button className="hdbtn" disabled={busy} onClick={save}>저장</button>}>
+      <p className="small muted" style={{ marginTop: 0 }}>위에서부터 차례로 한 주씩 질문해요. 이 순서는 식구 목록·스토리 순서와 같아요.</p>
+      {list.map((id, i) => { const m = C.getM(id); return (
+        <div key={id} className="row gap" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+          <b style={{ width: 22, color: 'var(--sub)' }}>{i + 1}</b><Avatar m={m} size={38}/><b className="grow">{m.name}</b>
+          <button className="iconbtn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="위로"><LIcon name="chevron-up"/></button>
+          <button className="iconbtn" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="아래로"><LIcon name="chevron-down"/></button>
+        </div>); })}
+    </Sheet>
+  );
+}
+
+/* 질문자가 질문 정하기: 상자에서 고르기 / 글·말로 쓰기 + 한마디 */
+function QPicker({ cur, onDone }) {
+  const C = useC();
+  const [mode, setMode] = useState('box'); const [text, setText] = useState(cur.text || ''); const [note, setNote] = useState(cur.note || '');
+  const [voice, setVoice] = useState(cur.audio_url || null); const [more, setMore] = useState(false); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t))); const dictN = useDictation(t => setNote(s => joinText(s, t)));
+  const used = new Set(C.questions.filter(q => q.id !== cur.id).map(q => q.text));
+  const pool = C.bank.filter(b => !used.has(b.text)).sort((a, b) => (b.added_by ? 1 : 0) - (a.added_by ? 1 : 0));
+  const shown = more ? pool : pool.slice(0, 8);
+  const submit = async () => {
+    if (!text.trim()) { C.toast('질문을 고르거나 적어 주세요'); return; }
+    setBusy(true);
+    const ok = await C.write(() => db.patch('questions', cur.id, { text: text.trim(), note: note.trim() || null, audio_url: mode === 'write' ? voice : null, auto: false, picked_at: new Date().toISOString() }), '온 가족에게 질문을 냈어요 🎤');
+    setBusy(false); if (ok && onDone) onDone();
+  };
+  return (
+    <div className="qpick">
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button className={mode === 'box' ? 'on' : ''} onClick={() => setMode('box')}>📦 질문 상자에서</button>
+        <button className={mode === 'write' ? 'on' : ''} onClick={() => setMode('write')}>✍️ 직접 쓰기·말하기</button>
+      </div>
+      {mode === 'box' && <>
+        <button className="btn sm soft" style={{ marginBottom: 8 }} onClick={() => { const p = pool[Math.floor(Math.random() * pool.length)]; if (p) setText(p.text); }}>🎲 아무거나 하나 골라 줘</button>
+        <div className="qlist">
+          {shown.map(b => (
+            <button key={b.id} className={'qitem' + (text === b.text ? ' on' : '')} onClick={() => setText(b.text)}>
+              <span>{b.text}</span>{b.added_by && <small>{josa(C.getM(b.added_by).name, "이", "가")} 넣은 질문</small>}
+            </button>
+          ))}
+          {!pool.length && <p className="small muted">상자가 비었어요. 직접 써 주세요.</p>}
+        </div>
+        {pool.length > 8 && <button className="linkbtn" onClick={() => setMore(m => !m)}>{more ? '접기' : `질문 ${pool.length - 8}개 더 보기`}</button>}
+      </>}
+      {mode === 'write' && <>
+        <textarea className="input" rows={3} placeholder="온 가족에게 묻고 싶은 것을 적어 보세요" value={text} onChange={e => setText(e.target.value)}/>
+        <div className="row gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+          <MicButton dict={dict}/>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          {voice ? <div className="row gap"><VoicePlayer src={voice}/><button className="btn sm soft" onClick={() => setVoice(null)}>목소리 빼기</button></div>
+            : <RecordButton block label="🎤 내 목소리로 질문 남기기" onDone={async r => { const url = await uploadVoice(r.blob, r.sec); setVoice(url); if (!text.trim() && r.text) setText(r.text); }}/>}
+          <p className="small muted" style={{ margin: '6px 2px 0' }}>목소리를 남기면 식구들이 내 목소리로 질문을 들어요.</p>
+        </div>
+      </>}
+      <div className="field" style={{ margin: '14px 0 10px' }}>
+        <label>💬 질문자의 한마디 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+        <input className="input" placeholder="예: 어제 옛날 사진 보다가 궁금해졌어요" value={note} onChange={e => setNote(e.target.value)}/>
+        <div style={{ marginTop: 8 }}><MicButton dict={dictN}/></div>
+      </div>
+      {text.trim() && <div className="qpreview">“{text.trim()}”</div>}
+      <button className="btn primary block" disabled={busy || !text.trim()} onClick={submit}>{busy ? <span className="spin"/> : <LIcon name="send" size={18}/>}이 질문을 온 가족에게 내기</button>
+    </div>
+  );
+}
+
+/* 우리 가족 질문 상자: 언젠가 물어보고 싶은 질문 넣어 두기 */
+function QBox() {
+  const C = useC(); const [t, setT] = useState(''); const [open, setOpen] = useState(false);
+  const dict = useDictation(x => setT(s => joinText(s, x)));
+  const used = new Set(C.questions.map(q => q.text));
+  const left = C.bank.filter(b => !used.has(b.text));
+  const mine = C.bank.filter(b => b.added_by).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const add = async () => { const v = t.trim(); if (!v) return; if (C.bank.some(b => b.text === v)) { C.toast('이미 상자에 있는 질문이에요'); return; } if (await C.write(() => db.add('question_bank', { text: v, added_by: C.me }), '질문 상자에 넣었어요 📦')) setT(''); };
+  return (
+    <div className="qbox">
+      <button className="sec-t" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setOpen(o => !o)}>
+        <span>📦 우리 가족 질문 상자 <span className="small muted" style={{ fontWeight: 400 }}>· 남은 질문 {left.length}개</span></span><LIcon name={open ? 'chevron-up' : 'chevron-down'} size={20}/>
+      </button>
+      <p className="small muted" style={{ margin: '0 0 8px' }}>언젠가 온 가족에게 묻고 싶은 질문을 넣어 두세요. 질문자가 고를 때 맨 위에 보이고, 아무도 안 고르면 이것부터 자동으로 나와요.</p>
+      <div className="row gap">
+        <input className="input grow" placeholder="예: 할머니가 처음 받은 선물은?" value={t} onChange={e => setT(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }}/>
+        <button className="iconbtn" style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
+        <button className="btn sm blue" disabled={!t.trim()} onClick={add}>넣기</button>
+      </div>
+      {open && <div style={{ marginTop: 10 }}>
+        {!mine.length && <p className="small muted">아직 식구가 넣은 질문이 없어요. 기본 질문 {C.bank.length}개가 들어 있어요.</p>}
+        {mine.map(b => (
+          <div key={b.id} className="row gap" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <Avatar m={C.getM(b.added_by)} size={28}/><span className="grow" style={{ fontSize: '.95rem' }}>{b.text}{used.has(b.text) && <span className="small muted"> · 이미 나왔어요</span>}</span>
+            {b.added_by === C.me && !used.has(b.text) && <button className="linkbtn" style={{ minHeight: 0 }} onClick={() => C.write(() => db.del('question_bank', `id=eq.${b.id}`), '상자에서 뺐어요')}>빼기</button>}
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+function QuestionSheet({ q, onClose }) {
+  const C = useC(); const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [view, setView] = useState(null);
+  const [editing, setEditing] = useState(false); const [orderOpen, setOrderOpen] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  useEffect(() => { setView(q); setText(''); setEditing(false); }, [q]);
+  const cur = view ? (C.questions.find(x => x.id === view.id) || view) : null;
+  const S = cur ? qState(C, cur) : null;
+  const asker = cur ? C.getM(cur.asker_id) : null;
+  const iAsk = cur && cur.asker_id === C.me;
+  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text);
+  const answer = async row => { setBusy(true); const ok = await C.write(() => db.add('answers', { question_id: cur.id, member_id: C.me, ...row }), '답을 남겼어요'); setBusy(false); return ok; };
+  const showPicker = cur && S.isCur && iAsk && (S.picking || editing);
+  const shownAns = cur ? (S.revealed ? S.ans : S.ans.filter(a => a.member_id === C.me)) : [];
+  const passTo = cur && C.members.length > 1 ? nextOf(C.members, cur.asker_id) : null;
+  return (
+    <Sheet open={!!q} onClose={onClose} full title="이번 주의 질문"
+      footer={cur && !S.picking && !showPicker && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <RecordButton block label="목소리로 답하기" onDone={async r => { const url = await uploadVoice(r.blob, r.sec); await answer({ audio_url: url, content: r.text || '' }); }}/>
+          <div className="row gap">
+            <input className="input grow" placeholder="글로 답하기…" value={text} onChange={e => setText(e.target.value)}/>
+            <button className="iconbtn" style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
+            <button className="btn blue sm" disabled={!text.trim() || busy} onClick={async () => { if (await answer({ content: text.trim() })) setText(''); }}>올리기</button>
+          </div>
+        </div>
+      )}>
+      {cur && (
+        <>
+          {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
+          <QHero q={cur} inline/>
+
+          {showPicker && <QPicker key={cur.id + (editing ? 'e' : '')} cur={cur} onDone={() => setEditing(false)}/>}
+          {S.isCur && iAsk && S.picking && passTo && passTo.id !== C.me && (
+            <button className="linkbtn" onClick={() => { if (window.confirm(`이번 주 질문 차례를 ${passTo.name}에게 넘길까요?\n그다음 차례도 한 칸씩 밀려요.`)) C.write(() => db.patch('questions', cur.id, { asker_id: passTo.id }), `${passTo.name}에게 차례를 넘겼어요`); }}>⏭ 이번 주는 {passTo.name}에게 넘기기</button>
+          )}
+          {S.isCur && iAsk && !S.picking && !editing && !S.ans.length && <button className="linkbtn" onClick={() => setEditing(true)}>✏️ 질문 다시 고르기</button>}
+          {editing && <button className="linkbtn" onClick={() => setEditing(false)}>고치기 그만두기</button>}
+
+          {!S.picking && (
+            <div className="qans">
+              <div className="row gap" style={{ marginBottom: 6 }}>
+                <b className="grow">답 {S.done.length}/{C.members.length}</b>
+                <span className="faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .3 }}><Avatar m={m} size={26}/></span>)}</span>
+              </div>
+              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>토요일 밤 9시</b>가 되면 한꺼번에 열려요.{S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'}</div>}
+              {S.revealed && !S.ans.length && <p className="empty" style={{ padding: 20 }}>아직 답이 없어요. 아래에서 말로 답해 보세요.</p>}
+              {shownAns.map(a => (
+                <div className="cmt" key={a.id}>
+                  <Avatar m={C.getM(a.member_id)} size={32}/>
+                  <div className="body"><b>{C.getM(a.member_id).name}</b>{a.audio_url ? <><VoicePlayer src={a.audio_url}/>{a.content && <div className="small" style={{ color: '#5b4a86' }}>“{a.content}”</div>}</> : <div>{a.content}</div>}
+                    <div className="meta"><span>{relTime(a.created_at)}</span>{a.member_id === C.me && <button onClick={() => C.write(() => db.del('answers', `id=eq.${a.id}`), '답을 지웠어요')}>지우기</button>}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <QBox/>
+          {past.length > 0 && <>
+            <div className="sec-t" style={{ padding: '18px 0 6px' }}>지난 질문들</div>
+            {past.map(x => { const n = C.answers.filter(a => a.question_id === x.id).length; const am = C.getM(x.asker_id); return (
+              <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => { setView(x); setEditing(false); }}>
+                <Avatar m={am} size={36}/><div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {am.name}의 질문 · 답 {n}개</span></div>
+              </button>); })}
+          </>}
+        </>
+      )}
+      <TurnOrder open={orderOpen} onClose={() => setOrderOpen(false)}/>
+    </Sheet>
+  );
+}
+
+/* ═══════════ 함께 기도해요 ═══════════
+   - 기도 제목(request): 글·말·목소리로 나누고, 누구를 위한 기도인지·그날(시험날 등)을 정한다
+   - 목소리 기도(prayer): 식구를 위해 드린 기도를 목소리 그대로 남긴다
+   - 🙏 기도했어요: 하루 한 번씩 쌓인다 (prayer_marks) · ✨ 응답됐어요: 감사 한 줄과 함께 응답 노트로
+   - 그날 아침 8시엔 서버가 온 가족에게 "오늘 함께 기도해요" 알림 */
+const prayFor = (C, p) => p.for_member ? C.getM(p.for_member).name : (p.for_text || '');
+function PrayCard({ p, focus }) {
+  const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
+  const marks = C.pmarks.filter(m => m.prayer_id === p.id);
+  const who = [...new Set(marks.map(m => m.member_id))];
+  const today = ymd(); const todayWho = [...new Set(marks.filter(m => m.day === today).map(m => m.member_id))];
+  const iDid = todayWho.includes(C.me);
+  const fw = prayFor(C, p); const due = p.due_on ? dayDiff(today, p.due_on) : null;
+  const mine = p.author_id === C.me; const voice = p.kind === 'prayer';
+  return (
+    <article ref={ref} className={'pray' + (focus ? ' focus' : '') + (p.answered_at ? ' done' : '')}>
+      <div className="pray-hd">
+        <Avatar m={a} size={38} onClick={() => C.openProfile(a.id)}/>
+        <div className="grow">
+          <div><b>{a.name}</b>{voice ? '의 목소리 기도 🎙' : '의 기도 제목'}</div>
+          <div className="pray-tags">
+            <span>{relTime(p.created_at)}</span>
+            <span className="tag">🙏 {fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'}</span>
+            {p.due_on && !p.answered_at && <span className={'tag' + (due === 0 ? ' today' : '')}>📅 {due === 0 ? '오늘!' : due > 0 ? `${fmtDate(p.due_on)} · D-${due}` : fmtDate(p.due_on)}</span>}
+          </div>
+        </div>
+        {mine && <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>}
+      </div>
+      {p.content && <div className="pray-text">{p.content}</div>}
+      {p.audio_url && <div style={{ padding: '0 16px 8px' }}><VoicePlayer src={p.audio_url}/></div>}
+      {p.answered_at && <div className="pray-ans">✨ <b>응답됐어요</b> · {fmtDate(ymd(new Date(p.answered_at)), true)}{p.answer_note && <div>“{p.answer_note}”</div>}</div>}
+      <div className="pray-ft">
+        <span className="qh-faces">{who.slice(0, 6).map(id => <span key={id}><Avatar m={C.getM(id)} size={24}/></span>)}</span>
+        <span className="grow small muted">{marks.length ? `${marks.length}번 함께 기도했어요${todayWho.length ? ` · 오늘 ${todayWho.map(id => C.getM(id).name).join(', ')}` : ''}` : '아직 아무도 기도하지 않았어요'}</span>
+        {!p.answered_at && <button className={'pray-btn' + (iDid ? ' on' : '')} onClick={() => C.togglePray(p)}>{iDid ? '오늘 기도했어요 ✓' : voice ? '🙏 아멘' : '🙏 기도했어요'}</button>}
+      </div>
+      <Sheet open={menu} onClose={() => setMenu(false)} title={voice ? '목소리 기도' : '기도 제목'}>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {!voice && !p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); setAns(true); }}>✨ 응답됐어요 (감사 나누기)</button>}
+          {p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); C.write(() => db.patch('prayers', p.id, { answered_at: null, answer_note: null }), '다시 기도 중으로 옮겼어요'); }}>다시 기도 중으로 옮기기</button>}
+          <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 기도를 지울까요?')) { C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요'); const id = driveId(p.audio_url); if (id) gw('delete', { id }).catch(() => {}); } }}><LIcon name="trash-2" size={18}/>지우기</button>
+        </div>
+      </Sheet>
+      <PrayAnswer p={ans ? p : null} onClose={() => setAns(false)}/>
+    </article>
+  );
+}
+
+/* ✨ 응답됐어요: 감사 한 줄 */
+function PrayAnswer({ p, onClose }) {
+  const C = useC(); const [t, setT] = useState(''); const dict = useDictation(x => setT(s => joinText(s, x)));
+  useEffect(() => { if (p) setT(''); }, [p]);
+  const save = async () => { if (await C.write(() => db.patch('prayers', p.id, { answered_at: new Date().toISOString(), answer_note: t.trim() || null }), '응답 노트에 담았어요 ✨')) onClose(); };
+  return (
+    <Sheet open={!!p} onClose={onClose} title="✨ 응답됐어요" right={<button className="hdbtn" onClick={save}>저장</button>}>
+      {p && <>
+        <p className="small muted" style={{ marginTop: 0 }}>“{p.content || '목소리 기도'}”</p>
+        <div className="field"><label>감사 한 줄 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+          <textarea className="input" rows={3} placeholder="예: 수술 잘 끝났어요. 함께 기도해 줘서 고마워요" value={t} onChange={e => setT(e.target.value)}/>
+          <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div></div>
+        <p className="small muted">응답 노트에 차곡차곡 쌓이고, 연말 가족 책에도 실려요. 온 가족에게 알림이 가요.</p>
+      </>}
+    </Sheet>
+  );
+}
+
+/* 기도 나누기 (기도 제목 / 목소리 기도) */
+function PrayCompose({ open, onClose }) {
+  const C = useC();
+  const [kind, setKind] = useState('request'); const [text, setText] = useState(''); const [voice, setVoice] = useState(null);
+  const [forWho, setForWho] = useState(''); const [other, setOther] = useState(''); const [due, setDue] = useState(''); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  useEffect(() => { if (open) { setKind('request'); setText(''); setVoice(null); setForWho(''); setOther(''); setDue(''); setBusy(false); } }, [open]);
+  const can = !busy && (kind === 'prayer' ? !!voice : !!(text.trim() || voice));
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : null;
+      const row = { author_id: C.me, kind, content: text.trim() || (kind === 'prayer' && voice && voice.text ? voice.text : ''), audio_url: audio,
+        for_member: forWho && forWho !== 'other' ? forWho : null, for_text: forWho === 'other' ? (other.trim() || null) : null, due_on: kind === 'request' && due ? due : null };
+      if (await C.write(() => db.add('prayers', row), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose(); else setBusy(false);
+    } catch (e) { setBusy(false); C.toast('올리지 못했어요: ' + e.message); }
+  };
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title="기도 나누기" right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : '올리기'}</button>}>
+      <div className="seg" style={{ marginBottom: 16 }}>
+        <button className={kind === 'request' ? 'on' : ''} onClick={() => setKind('request')}>🙏 기도 제목 나누기</button>
+        <button className={kind === 'prayer' ? 'on' : ''} onClick={() => setKind('prayer')}>🎙 목소리 기도 남기기</button>
+      </div>
+      {kind === 'request' ? (
+        <div className="field">
+          <label>어떤 기도가 필요하세요?</label>
+          <textarea className="input" rows={4} placeholder="예: 지온이 수학 시험 잘 보게 / 할머니 무릎 수술 잘 되게" value={text} onChange={e => setText(e.target.value)}/>
+          <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+          <div style={{ marginTop: 10 }}>
+            {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>목소리 빼기</button></div>
+              : <RecordButton label="목소리로도 남기기 (선택)" onDone={async r => { setVoice(r); if (!text.trim() && r.text) setText(r.text); }}/>}
+          </div>
+        </div>
+      ) : (
+        <div className="field">
+          <label>식구를 위해 드리는 기도를 목소리로 남겨요</label>
+          <p className="small muted" style={{ margin: '0 0 8px' }}>할머니·할아버지의 기도는 오래오래 들을 수 있는 보물이 돼요. 내 프로필의 <b>목소리</b>에도 모여요.</p>
+          {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>다시 녹음</button></div>
+            : <RecordButton block label="🎙 기도 녹음하기" onDone={async r => { setVoice(r); }}/>}
+          <input className="input" style={{ marginTop: 10 }} placeholder="한 줄 (선택) 예: 손주들을 위한 아침 기도" value={text} onChange={e => setText(e.target.value)}/>
+        </div>
+      )}
+      <div className="field">
+        <label>누구를 위한 기도인가요?</label>
+        <div className="chips">
+          <button type="button" className={'chip' + (!forWho ? ' on' : '')} onClick={() => setForWho('')}>👨‍👩‍👧‍👦 온 가족</button>
+          {C.members.map(m => <button type="button" key={m.id} className={'chip' + (forWho === m.id ? ' on' : '')} onClick={() => setForWho(m.id)}>{m.emoji} {m.name}{m.id === C.me ? ' (나)' : ''}</button>)}
+          <button type="button" className={'chip' + (forWho === 'other' ? ' on' : '')} onClick={() => setForWho('other')}>다른 사람</button>
+        </div>
+        {forWho === 'other' && <input className="input" style={{ marginTop: 8 }} placeholder="예: 외삼촌, 교회 집사님" value={other} onChange={e => setOther(e.target.value)}/>}
+      </div>
+      {kind === 'request' && (
+        <div className="field">
+          <label>그날이 있나요? <span className="muted" style={{ fontWeight: 400 }}>(선택 · 시험날, 수술날, 면접날)</span></label>
+          <input type="date" className="input" min={ymd()} value={due} onChange={e => setDue(e.target.value)}/>
+          {due && <p className="small muted" style={{ margin: '6px 2px 0' }}>{fmtDate(due, true)} 아침 8시에 온 가족에게 "오늘 함께 기도해요 🙏" 알림이 가요.</p>}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+function PrayTab() {
+  const C = useC(); const [view, setView] = useState('now'); const [compose, setCompose] = useState(false);
+  const all = C.prayers;
+  const now = all.filter(p => !p.answered_at); const done = all.filter(p => p.answered_at).sort((a, b) => b.answered_at.localeCompare(a.answered_at));
+  const today = ymd();
+  const todays = now.filter(p => p.due_on === today);
+  const list = view === 'now' ? [...todays, ...now.filter(p => p.due_on !== today)] : done;
+  const prayedToday = [...new Set(C.pmarks.filter(m => m.day === today).map(m => m.member_id))];
+  useEffect(() => { if (C.prayFocus) { const p = all.find(x => x.id === C.prayFocus); if (p) setView(p.answered_at ? 'done' : 'now'); } }, [C.prayFocus]);
+  return (
+    <>
+      <div className="topbar">
+        <span className="h1">함께 기도해요 🙏</span>
+        <button className="iconbtn" onClick={() => setCompose(true)} aria-label="기도 나누기"><LIcon name="square-pen" size={26}/></button>
+      </div>
+      <div className="pray-hero">
+        <b>기도 제목을 나누고, 서로를 위해 기도해요</b>
+        <span>{prayedToday.length ? `오늘 ${prayedToday.map(id => C.getM(id).name).join(', ')}${josa(C.getM(prayedToday[prayedToday.length - 1]).name, '이', '가').slice(-1)} 함께 기도했어요` : '오늘 첫 번째로 기도해 보세요'}</span>
+        <button className="btn sm primary" onClick={() => setCompose(true)}><LIcon name="hand-heart" size={18}/>기도 나누기</button>
+      </div>
+      <div className="pad" style={{ margin: '2px 0 10px' }}>
+        <div className="seg">
+          <button className={view === 'now' ? 'on' : ''} onClick={() => setView('now')}>🙏 기도 중 {now.length}</button>
+          <button className={view === 'done' ? 'on' : ''} onClick={() => setView('done')}>✨ 응답 노트 {done.length}</button>
+        </div>
+      </div>
+      {!list.length && <div className="empty">{view === 'now' ? <>아직 기도 제목이 없어요.<br/><span className="small">위의 <b>기도 나누기</b>로 첫 기도 제목을 올려 보세요.</span></> : <>아직 응답 노트가 없어요.<br/><span className="small">기도가 이루어지면 그 기도 제목의 ••• → <b>응답됐어요</b>를 눌러 감사를 나눠요.</span></>}</div>}
+      {list.map(p => <PrayCard key={p.id} p={p} focus={C.prayFocus === p.id}/>)}
+      <PrayCompose open={compose} onClose={() => setCompose(false)}/>
+    </>
+  );
+}
+
+/* ═══════════ 알림 (맨 위 ❤ 로 여는 창) ═══════════ */
+function NotiPage({ open, onClose }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return <div className="page" style={{ background: 'var(--bg)' }}><NotiTab onBack={onClose}/></div>;
+}
+function NotiTab({ onBack }) {
+  const C = useC();
+  const fresh = C.activity.filter(x => x.isNew); const old = C.activity.filter(x => !x.isNew);
+  const row = x => (
+    <button key={x.key} className="lt" style={x.isNew ? { background: '#FFF7F3' } : undefined} onClick={x.go}>
+      <Avatar m={C.getM(x.who)} size={46}/>
+      <div className="grow"><b style={{ fontSize: '.98rem', whiteSpace: 'normal' }}>{x.text}</b><span>{relTime(x.t)}</span></div>
+      {x.thumb && <img src={x.thumb} alt="" style={{ width: 50, height: 50, borderRadius: 10, objectFit: 'cover' }}/>}
+    </button>
+  );
+  const soon = C.members.map(m => ({ m, d: C.bdayDays(m.id) })).filter(x => x.d !== null && x.d <= 14).sort((x, y) => x.d - y.d);
+  return (
+    <>
+      <div className="topbar" style={{ paddingLeft: 4 }}><div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">알림</span></div></div>
+      <div className="sheetcard">
+        {soon.map(({ m, d }) => (
+          <button key={m.id} className="lt" onClick={() => C.openProfile(m.id)}>
+            <Avatar m={m} size={46} ring="bday"/>
+            <div className="grow"><b>🎂 {m.name} 생일 {d === 0 ? '오늘이에요!' : `${d}일 남았어요`}</b><span>눌러서 축하 편지 쓰기·사진 보기</span></div>
+          </button>
+        ))}
+        {fresh.length > 0 && <div className="sec-t">새로 온 소식</div>}
+        {fresh.map(row)}
+        {old.length > 0 && <div className="sec-t">지난 2주</div>}
+        {old.map(row)}
+        {!C.activity.length && !soon.length && <div className="empty">아직 알림이 없어요.<br/><span className="small">식구가 소식·댓글·편지를 남기면 여기 모여요.</span></div>}
+      </div>
+    </>
+  );
+}
+
+/* ═══════════ 내 프로필 (+ 우리 식구) ═══════════ */
+function MeTab() {
+  const C = useC();
+  return (
+    <>
+      <div className="topbar">
+        <span className="h1">내 프로필</span>
+        <div className="row">
+          <button className="iconbtn" onClick={() => C.openMemberEdit(C.getM(C.me))} aria-label="프로필 고치기"><LIcon name="pencil" size={22}/></button>
+          <button className="iconbtn" onClick={C.openSettings} aria-label="설정"><LIcon name="settings"/></button>
+        </div>
+      </div>
+      <div className="sheetcard" style={{ paddingTop: 6 }}>
+        <div className="sec-t" style={{ paddingTop: 8 }}>우리 식구 <span className="small muted" style={{ fontWeight: 400 }}>누르면 그 사람의 사진·연표·목소리</span></div>
+        <div className="famrow">
+          {C.members.filter(m => m.id !== C.me).map(m => {
+            const bd = C.bdayDays(m.id);
+            return (
+              <button key={m.id} className="fm" onClick={() => C.openProfile(m.id)}>
+                <Avatar m={m} size={60} ring={C.storyRing(m.id) || 'plain'}/>
+                <b>{m.name}</b>
+                <span>{bd !== null && bd <= 30 ? `🎂 ${ddayText(bd)}` : m.role || ' '}</span>
+              </button>
+            );
+          })}
+          <button className="fm" onClick={() => C.openMemberEdit({})}><span className="fm-add"><LIcon name="user-plus" size={26}/></span><b>식구 더하기</b><span> </span></button>
+        </div>
+      </div>
+      <div className="sheetcard" style={{ paddingBottom: 6 }}><ProfileBody mid={C.me}/></div>
+    </>
+  );
+}
+
+/* ═══════════ 해시태그 모아 보기 ═══════════ */
+function TagPage({ tag, onClose }) {
+  const C = useC();
+  const list = tag ? C.posts.filter(p => p.kind !== 'daily' && !isLocked(p) && tagsOf(p.content).includes(tag)) : [];
+  return (
+    <Page open={!!tag} onClose={onClose} title={tag || ''}>
+      <p className="small muted pad" style={{ margin: '4px 0 10px' }}>{tag} 소식 {list.length}개</p>
+      <div className="tagfeed">{list.map(p => <PostCard key={p.id} p={p}/>)}</div>
+    </Page>
+  );
+}
+
+/* 편지함은 맨 위 종이비행기로 여는 창 */
+function LettersPage({ open, onClose }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return <div className="page"><LettersTab onBack={onClose}/></div>;
+}
+
+function ProfilePage({ mid, onClose }) {
+  const C = useC(); const m = mid ? C.getM(mid) : null;
+  return (
+    <Page open={!!m} onClose={onClose} title={m ? m.name : ''} right={m && <button className="iconbtn" onClick={() => C.openMemberEdit(m)} aria-label="프로필 고치기"><LIcon name="pencil" size={20}/></button>}>
+      {m && <ProfileBody mid={mid}/>}
+    </Page>
+  );
+}
+
+function ProfileBody({ mid, top = 56 }) {
+  const C = useC(); const [tab, setTab] = useState('ph'); const [detail, setDetail] = useState(null);
+  useEffect(() => { setTab('ph'); }, [mid]);
+  const m = mid ? C.getM(mid) : null; const today = ymd();
+  const posts = m ? C.posts.filter(p => (p.author_id === m.id || (p.tagged || []).includes(m.id)) && !isLocked(p)) : [];
+  const photoPosts = posts.filter(p => photosOf(p).length || p.kind === 'post');
+  const byYear = {}; photoPosts.forEach(p => (byYear[p.happened_on.slice(0, 4)] = byYear[p.happened_on.slice(0, 4)] || []).push(p));
+  const years = Object.keys(byYear).sort().reverse();
+  const bd = m ? C.bdayDays(m.id) : null;
+  const tl = useMemo(() => {
+    if (!m) return [];
+    const out = [];
+    C.posts.forEach(p => {
+      if (p.author_id === m.id) out.push({ d: p.happened_on, t: p.created_at, ic: p.kind === 'daily' ? 'camera' : photosOf(p).length ? 'image' : 'pencil', bg: '#FFF1E8', c: '#D0603A', title: isLocked(p) ? '🔒 타임캡슐 소식을 남김' : p.kind === 'daily' ? '오늘의 한 장' : (p.content || '사진 소식').slice(0, 40), sub: isLocked(p) ? `${fmtDate(p.open_on, true)}에 열려요` : `소식 · 사진 ${photosOf(p).length}장`, p: isLocked(p) ? null : p });
+      else if ((p.tagged || []).includes(m.id) && !isLocked(p)) out.push({ d: p.happened_on, t: p.created_at, ic: 'users', bg: '#EAF3FF', c: '#2d5c9e', title: `${C.getM(p.author_id).name}의 사진에 함께`, sub: (p.content || '').slice(0, 40), p });
+    });
+    C.letters.forEach(l => {
+      const lock = isLocked(l); const d = ymd(new Date(l.created_at));
+      if (l.sender_id === m.id) out.push({ d, t: l.created_at, ic: lock ? 'lock' : 'send', bg: '#F3EEFF', c: '#6a3fc8', title: `${C.getM(l.receiver_id).name}에게 편지`, sub: lock ? `🔒 ${fmtDate(l.open_on, true)}에 열려요` : (l.title || l.content).slice(0, 40), l });
+      else if (l.receiver_id === m.id) out.push({ d, t: l.created_at, ic: lock ? 'lock' : 'mail', bg: '#F3EEFF', c: '#6a3fc8', title: `${C.getM(l.sender_id).name}에게 편지 받음`, sub: lock ? `🔒 ${fmtDate(l.open_on, true)}에 열려요` : (l.title || l.content).slice(0, 40), l });
+    });
+    C.answers.filter(a => a.member_id === m.id).forEach(a => { const q = C.questions.find(x => x.id === a.question_id); out.push({ d: ymd(new Date(a.created_at)), t: a.created_at, ic: 'circle-help', bg: '#FFF5E2', c: '#B5861C', title: `질문에 답: ${q ? q.text : ''}`.slice(0, 44), sub: a.audio_url ? '🎙 목소리 답' : a.content.slice(0, 40), q }); });
+    if (m.birth_date) out.push({ d: m.birth_date, t: '', ic: 'cake', bg: '#FDEBE3', c: '#D0603A', title: `${m.name} 태어난 날`, sub: m.bday_lunar && lunarOf(parseYmd(m.birth_date)) ? `음력 ${lunarOf(parseYmd(m.birth_date)).m}월 ${lunarOf(parseYmd(m.birth_date)).d}일` : '' });
+    return out.sort((a, b) => (b.d + b.t).localeCompare(a.d + a.t));
+  }, [m, C.posts, C.letters, C.answers]);
+  const voices = m ? [
+    ...C.comments.filter(c => c.author_id === m.id && c.audio_url).map(c => { const p = C.posts.find(x => x.id === c.post_id); return { id: c.id, src: c.audio_url, t: c.created_at, text: c.content, ctx: p ? `${C.getM(p.author_id).name}의 소식에 남긴 목소리` : '목소리 댓글' }; }),
+    ...C.answers.filter(a => a.member_id === m.id && a.audio_url).map(a => { const q = C.questions.find(x => x.id === a.question_id); return { id: a.id, src: a.audio_url, t: a.created_at, text: a.content, ctx: q ? `질문 “${q.text}”에 답` : '질문에 답' }; }),
+    ...C.prayers.filter(p => p.author_id === m.id && p.audio_url).map(p => ({ id: p.id, src: p.audio_url, t: p.created_at, text: p.content, ctx: p.kind === 'prayer' ? '목소리 기도' : '기도 제목' })),
+    ...C.letters.filter(l => l.sender_id === m.id && l.audio_url && !isLocked(l)).map(l => ({ id: l.id, src: l.audio_url, t: l.created_at, text: l.content, ctx: `${C.getM(l.receiver_id).name}에게 보낸 목소리 편지` }))
+  ].sort((a, b) => b.t.localeCompare(a.t)) : [];
+  const mine = m && m.id === C.me;
+  const ageLabel = m && m.birth_date ? `${ageOn(m.birth_date, today)}살` : null;
+  const saved = mine ? C.posts.filter(p => C.isSaved(p.id) && !isLocked(p)) : [];
+  return (
+    <>
+      {m && <>
+        <div className="prof">
+          <div className="row" style={{ gap: 16 }}>
+            <Avatar m={m} size={86} ring={C.storyRing(m.id) || 'plain'} onClick={C.dailyToday(m.id).length ? () => C.openStory(C.dailyToday(m.id)) : undefined}/>
+            <div className="cnts">
+              <div><b>{C.posts.filter(p => p.author_id === m.id && p.kind !== 'daily').length}</b><span>소식</span></div>
+              <div><b>{C.letters.filter(l => l.receiver_id === m.id).length}</b><span>받은 편지</span></div>
+              <div><b>{ageLabel || posts.reduce((n, p) => n + photosOf(p).length, 0)}</b><span>{ageLabel ? '나이' : '사진'}</span></div>
+            </div>
+          </div>
+          <h3>{m.name}{m.role ? ` · ${m.role}` : ''}</h3>
+          <p>
+            {m.birth_date ? <>{fmtDate(m.birth_date, true)}생{m.bday_lunar ? ' (생일은 음력)' : ''}{bd !== null && <> · 🎂 생일까지 {bd === 0 ? '오늘!' : `${bd}일`}</>}<br/></> : <span className="muted">생일을 넣으면 나이와 생일 알림이 보여요<br/></span>}
+            {m.likes && <>좋아하는 것: {m.likes}</>}
+          </p>
+          <div className="pbtns">
+            {mine ? <>
+              <button className="btn soft" onClick={() => C.openMemberEdit(m)}><LIcon name="pencil" size={18}/>프로필 고치기</button>
+              <button className="btn soft" onClick={() => C.openComposer({ mode: 'daily' })}><LIcon name="camera" size={18}/>오늘의 한 장</button>
+            </> : <>
+              <button className="btn soft" onClick={() => C.openLetterCompose({ to: m.id })}>💌 편지 쓰기</button>
+              <button className="btn soft" onClick={() => C.openLetterCompose({ to: m.id })}>🎤 말 남기기</button>
+            </>}
+          </div>
+        </div>
+        <div className="ptabs" style={{ top }}>
+          <button className={tab === 'ph' ? 'on' : ''} onClick={() => setTab('ph')}><LIcon name="grid-3x3" size={18}/>사진</button>
+          <button className={tab === 'tl' ? 'on' : ''} onClick={() => setTab('tl')}><LIcon name="git-commit-vertical" size={18}/>연표</button>
+          <button className={tab === 'vo' ? 'on' : ''} onClick={() => setTab('vo')}><LIcon name="audio-lines" size={18}/>목소리</button>
+          {mine && <button className={tab === 'sv' ? 'on' : ''} onClick={() => setTab('sv')}><LIcon name="bookmark" size={18}/>보관</button>}
+        </div>
+        {tab === 'sv' && (<>
+          {!saved.length && <div className="empty">보관한 소식이 없어요.<br/><span className="small">소식 오른쪽 아래 <b>책갈피</b>를 누르면 여기 모여요.</span></div>}
+          <div className="grid">{saved.map(p => { const ph = photosOf(p)[0]; return (
+            <button key={p.id} onClick={() => setDetail(p)} aria-label="소식 보기">
+              {ph ? <img src={ph.thumb || ph.url} alt="" loading="lazy"/> : <div className="txt">{(p.content || '').slice(0, 40)}</div>}
+              {photosOf(p).length > 1 && <span className="multi"><LIcon name="copy" size={18} stroke="#fff"/></span>}
+            </button>); })}</div>
+        </>)}
+        {tab === 'ph' && (<>
+          {!years.length && <div className="empty">아직 {m.name}의 사진이 없어요.<br/><span className="small">소식을 올릴 때 "사진에 누가 나왔나요?"에서 {josa(m.name, '을', '를')} 고르면 여기 모여요.</span></div>}
+          {years.map(y => { const ps = byYear[y]; const last = ps.map(p => p.happened_on).sort().pop(); const cnt = ps.reduce((n, p) => n + photosOf(p).length, 0); return (
+            <div key={y}>
+              <div className="yr">{y}년{m.birth_date && last >= m.birth_date ? ` · ${ageOn(m.birth_date, last)}살` : ''} <span>사진 {cnt}장</span></div>
+              <div className="grid">{ps.map(p => { const ph = photosOf(p)[0]; return (
+                <button key={p.id} onClick={() => setDetail(p)} aria-label="소식 보기">
+                  {ph ? <img src={ph.thumb || ph.url} alt="" loading="lazy"/> : <div className="txt">{(p.content || '').slice(0, 40)}</div>}
+                  {photosOf(p).length > 1 && <span className="multi"><LIcon name="copy" size={18} stroke="#fff"/></span>}
+                </button>); })}</div>
+            </div>); })}
+        </>)}
+        {tab === 'tl' && (
+          <div className="tl">
+            {!tl.length && <div className="empty">아직 기록이 없어요.</div>}
+            {tl.map((x, i) => (
+              <button key={i} className="tl-item" style={{ width: '100%', textAlign: 'left' }} onClick={() => { if (x.p) setDetail(x.p); else if (x.l) C.openLetter(x.l); else if (x.q) C.openQuestion(x.q); }}>
+                <div className="tl-ic" style={{ background: x.bg, color: x.c }}><LIcon name={x.ic} size={20}/></div>
+                <div className="grow"><span>{fmtDate(x.d, true)}</span><b>{x.title}</b><span>{x.sub}</span></div>
+              </button>
+            ))}
+          </div>
+        )}
+        {tab === 'vo' && (
+          <div className="tl">
+            {!voices.length && <div className="empty">아직 {m.name}의 목소리가 없어요.<br/><span className="small">댓글·질문 답·편지를 목소리로 남기면 여기 모여서 오래 남아요.</span></div>}
+            {voices.map(v => <div key={v.id} className="tl-item"><div className="tl-ic" style={{ background: '#F4F1FF', color: '#7b4bd1' }}><LIcon name="audio-lines" size={20}/></div><div className="grow"><span>{fmtDate(ymd(new Date(v.t)), true)} · {v.ctx}</span><VoicePlayer src={v.src}/>{v.text && <span style={{ color: '#5b4a86' }}>“{v.text}”</span>}</div></div>)}
+          </div>
+        )}
+      </>}
+      <Page open={!!detail} onClose={() => setDetail(null)} title="소식">{detail && (C.posts.find(x => x.id === detail.id) ? <PostCard p={C.posts.find(x => x.id === detail.id)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
+    </>
+  );
+}
+
+function MemberEdit({ m, onClose }) {
+  const C = useC(); const open = !!m; const isNew = m && !m.id;
+  const [f, setF] = useState({}); const [busy, setBusy] = useState(false); const pick = useRef(null);
+  useEffect(() => { if (m) setF({ name: m.name || '', emoji: m.emoji || '🙂', role: m.role || '', birth_date: m.birth_date || '', bday_lunar: !!m.bday_lunar, likes: m.likes || '', color: m.color || '#F0603A', avatar: m.avatar || '' }); }, [m]);
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const emojis = ['👵','👴','👩','👨','🧒','👧','👦','👶','🧑','👱‍♀️','🐶','🐱'];
+  const colors = ['#F0603A','#D9407A','#6a3fc8','#2F7BF6','#2E7D5B','#B5861C','#555555'];
+  const save = async () => {
+    if (!f.name.trim()) { C.toast('이름을 적어 주세요'); return; }
+    const row = { name: f.name.trim(), emoji: f.emoji || '🙂', role: f.role.trim(), birth_date: f.birth_date || null, bday_lunar: !!f.bday_lunar, likes: f.likes.trim(), color: f.color, avatar: f.avatar || '' };
+    const ok = await C.write(() => isNew ? db.add('members', { ...row, sort: Math.max(0, ...C.members.map(x => x.sort || 0)) + 1 }) : db.patch('members', m.id, row), isNew ? '식구를 더했어요' : '프로필을 고쳤어요');
+    if (ok) onClose();
+  };
+  const l = f.birth_date ? lunarOf(parseYmd(f.birth_date)) : null;
+  return (
+    <Sheet open={open} onClose={onClose} full title={isNew ? '식구 더하기' : '프로필 고치기'} right={<button className="hdbtn" disabled={busy} onClick={save}>저장</button>}>
+      {open && <>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <Avatar m={{ ...f }} size={96}/>
+          <div className="row gap" style={{ justifyContent: 'center', marginTop: 10 }}>
+            <button className="btn sm soft" disabled={busy} onClick={() => pick.current.click()}>{busy ? <span className="spin dark"/> : <LIcon name="camera" size={18}/>}사진으로</button>
+            {f.avatar && <button className="btn sm soft" onClick={() => set('avatar', '')}>사진 빼기</button>}
+          </div>
+          <input ref={pick} type="file" accept="image/*" hidden onChange={async e => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; setBusy(true); try { const r = await uploadPhoto(file, 480); set('avatar', r.thumb); } catch (err) { C.toast('사진을 올리지 못했어요: ' + err.message); } setBusy(false); }}/>
+        </div>
+        <div className="field"><label>이름·호칭</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="예: 할머니, 지우"/></div>
+        {!f.avatar && <div className="field"><label>얼굴 그림</label><div className="chips">{emojis.map(x => <button key={x} type="button" className={'chip' + (f.emoji === x ? ' on' : '')} style={{ fontSize: '1.3rem' }} onClick={() => set('emoji', x)}>{x}</button>)}</div></div>}
+        <div className="field"><label>한 줄 소개</label><input className="input" value={f.role} onChange={e => set('role', e.target.value)} placeholder="예: 막내 손주, 텃밭 대장"/></div>
+        <div className="field"><label>생년월일 (양력)</label><input type="date" className="input" max={ymd()} value={f.birth_date} onChange={e => set('birth_date', e.target.value)}/>
+          {l && <p className="small muted" style={{ margin: '6px 2px 0' }}>음력으로는 {l.leap ? '윤' : ''}{l.m}월 {l.d}일이에요.</p>}</div>
+        {f.birth_date && <div className="field"><Toggle on={f.bday_lunar} onChange={v => set('bday_lunar', v)} label="생일을 음력으로 쇠요" sub={l ? `켜면 매년 음력 ${l.m}월 ${l.d}일에 맞춰 달력에 들어가요` : ''}/></div>}
+        <div className="field"><label>좋아하는 것</label><input className="input" value={f.likes} onChange={e => set('likes', e.target.value)} placeholder="예: 김밥, 공룡, 할머니 텃밭"/></div>
+        <div className="field"><label>내 색깔 (달력 표시)</label><div className="chips">{colors.map(c => <button key={c} type="button" aria-label={c} onClick={() => set('color', c)} style={{ width: 40, height: 40, borderRadius: '50%', background: c, border: f.color === c ? '3px solid #1a1a1a' : '3px solid #fff', boxShadow: '0 0 0 1px #ddd' }}/>)}</div></div>
+        {!isNew && <button className="btn soft block danger" style={{ marginTop: 10 }} onClick={() => C.deleteMember(m)}><LIcon name="trash-2" size={18}/>명단에서 빼기</button>}
+      </>}
+    </Sheet>
+  );
+}
+
+function SettingsSheet({ open, onClose }) {
+  const C = useC(); const [ko, setKo] = useState(''); const [kn, setKn] = useState(''); const [bk, setBk] = useState(null); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!open) return; setBk(null); gwVersion().then(v => { if (v >= 2) gw('bkinfo').then(setBk).catch(() => setBk({ err: true })); else setBk({ old: true, v }); }); }, [open]);
+  const fs = C.fontSize;
+  return (
+    <Sheet open={open} onClose={onClose} full title="설정">
+      {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
+      <div className="field"><label>🔔 새 소식 알림</label><PushSettings/></div>
+      <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
+      <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
+      <div className="field">
+        <label>☁️ 자동 백업 (내 구글 드라이브)</label>
+        <div style={{ background: '#f6f6f6', borderRadius: 14, padding: 12, fontSize: '.95rem' }}>
+          {!bk && <div className="row gap"><span className="spin dark"/>확인하는 중…</div>}
+          {bk && bk.old && <div>사진 창구 스크립트를 <b>새 버전으로 한 번 배포</b>해야 백업이 시작돼요. (지금 버전 {bk.v || '연결 안 됨'})</div>}
+          {bk && bk.err && <div>백업 상태를 읽지 못했어요.</div>}
+          {bk && bk.count !== undefined && <div>마지막 백업: <b>{bk.last ? fmtDate(bk.last, true) : '아직 없음'}</b> · 쌓인 백업 {bk.count}개<br/><span className="small muted">매일 처음 열 때 저절로 저장돼요. 지난 날 백업은 지우지 않고 쌓아 둬요.</span></div>}
+          {bk && bk.count !== undefined && <div className="row gap" style={{ marginTop: 10 }}>
+            <button className="btn sm primary" disabled={busy} onClick={async () => { setBusy(true); const ok = await C.runBackup(true); if (ok) setBk(await gw('bkinfo')); setBusy(false); }}>{busy ? <span className="spin"/> : <LIcon name="cloud-upload" size={18}/>}지금 백업</button>
+            {bk.folder && <a className="btn sm soft" href={bk.folder} target="_blank" rel="noopener" style={{ textDecoration: 'none', color: 'inherit' }}>드라이브 폴더 열기</a>}
+          </div>}
+        </div>
+      </div>
+      <form className="field" onSubmit={async e => { e.preventDefault(); if (await C.changeKey(ko, kn)) { setKo(''); setKn(''); } }}>
+        <label>🔒 가족 암호 바꾸기</label>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <input type="password" className="input" autoComplete="current-password" placeholder="지금 암호" value={ko} onChange={e => setKo(e.target.value)}/>
+          <input type="password" className="input" autoComplete="new-password" placeholder="새 암호 (6자 이상)" value={kn} onChange={e => setKn(e.target.value)}/>
+          <button className="btn soft" type="submit">암호 바꾸기</button>
+          <span className="small muted">바꾸면 다른 식구 폰은 새 암호를 다시 넣어야 해요.</span>
+        </div>
+      </form>
+      <button className="btn soft block danger" onClick={() => { if (window.confirm('이 폰에서 나갈까요? 다시 들어오려면 가족 암호가 필요해요.')) { onClose(); C.leave(); } }}><LIcon name="log-out" size={18}/>이 폰에서 나가기</button>
+    </Sheet>
+  );
+}
+
+/* 지난번 이후 새 소식 */
+/* ═══════════ 연말 가족 책 ═══════════ */
+function BookView({ year, onClose }) {
+  const C = useC(); const [y, setY] = useState(year); const [withLetters, setWithLetters] = useState(false);
+  useLayer(!!year, onClose);
+  useEffect(() => { if (year) setY(year); }, [year]);
+  if (!year) return null;
+  const years = [...new Set([new Date().getFullYear(), ...C.posts.map(p => +p.happened_on.slice(0, 4))])].sort((a, b) => b - a);
+  const posts = C.posts.filter(p => p.happened_on.startsWith(y + '') && !isLocked(p)).sort((a, b) => a.happened_on.localeCompare(b.happened_on) || a.created_at.localeCompare(b.created_at));
+  const months = {}; posts.forEach(p => (months[+p.happened_on.slice(5, 7)] = months[+p.happened_on.slice(5, 7)] || []).push(p));
+  const qs = C.questions.filter(q => q.week_start.startsWith(y + '')).sort((a, b) => a.week_start.localeCompare(b.week_start));
+  const letters = C.letters.filter(l => !isLocked(l) && (l.open_on || ymd(new Date(l.created_at))).startsWith(y + ''));
+  const nPhotos = posts.reduce((n, p) => n + photosOf(p).length, 0);
+  return (
+    <div className="bookpage">
+      <div className="bookbar">
+        <button className="iconbtn" onClick={onClose} aria-label="닫기"><LIcon name="x"/></button>
+        <select className="input" style={{ width: 'auto', minHeight: 40 }} value={y} onChange={e => setY(+e.target.value)}>{years.map(x => <option key={x} value={x}>{x}년</option>)}</select>
+        <label className="row gap small" style={{ minHeight: 40 }}><input type="checkbox" checked={withLetters} onChange={e => setWithLetters(e.target.checked)} style={{ width: 20, height: 20 }}/>편지도 넣기</label>
+        <span className="grow"/>
+        <button className="btn sm primary" onClick={() => window.print()}><LIcon name="printer" size={18}/>PDF로 저장 · 인쇄</button>
+      </div>
+      <div className="bk">
+        <div className="bk-cover">
+          <div className="y">{y}</div>
+          <h1>우리 가족 이야기</h1>
+          <div style={{ fontSize: 28, margin: '14px 0' }}>{C.members.map(m => m.emoji).join(' ')}</div>
+          <div>{C.members.map(m => m.name).join(' · ')}</div>
+          <div style={{ color: '#888', marginTop: 10, fontSize: 14 }}>소식 {posts.length}개 · 사진 {nPhotos}장 · 질문 {qs.length}개</div>
+        </div>
+        {!posts.length && <p style={{ textAlign: 'center', color: '#888' }}>{y}년에는 아직 소식이 없어요.</p>}
+        {Object.keys(months).sort((a, b) => a - b).map(mo => (
+          <div key={mo}>
+            <h2>{mo}월</h2>
+            {months[mo].map(p => { const ph = photosOf(p).slice(0, 4); const ans = C.commentsOf(p.id).filter(c => c.is_answer); return (
+              <div key={p.id} className="bk-post">
+                <div className="m">{fmtDate(p.happened_on, true)} · {C.getM(p.author_id).name}{p.kind === 'daily' ? ' · 오늘의 한 장' : ''}{(p.tagged || []).length ? ` · 함께: ${(p.tagged || []).map(id => C.getM(id).name).join(', ')}` : ''}</div>
+                {ph.length > 0 && <div className={'bk-ph' + (ph.length === 1 ? ' one' : '')}>{ph.map((x, i) => <img key={i} src={x.url} alt=""/>)}</div>}
+                {p.content && <div style={{ whiteSpace: 'pre-wrap' }}>{p.content}</div>}
+                {p.ask_to && <div style={{ marginTop: 6, color: '#8a4a2a' }}>Q. {C.getM(p.ask_to).name}께 — {p.ask_text}{ans.map(a => <div key={a.id} style={{ color: '#333' }}>A. {C.getM(a.author_id).name}: {a.content || '(목소리 답)'}</div>)}</div>}
+              </div>); })}
+          </div>
+        ))}
+        {qs.length > 0 && <>
+          <h2>이번 주의 질문</h2>
+          {qs.filter(q => q.text).map(q => <div key={q.id} className="bk-post"><div className="m">{fmtDate(q.week_start, true)} 주 · 질문자 {C.getM(q.asker_id).name}{q.audio_url ? ' 🎙' : ''}</div><b>Q. {q.text}</b>{q.note && <div className="m">💬 {q.note}</div>}
+            {C.answers.filter(a => a.question_id === q.id).map(a => <div key={a.id}>A. {C.getM(a.member_id).name}: {a.content || '(목소리로 답함)'}{a.audio_url && a.content ? ' 🎙' : ''}</div>)}</div>)}
+        </>}
+        {C.prayers.some(p => p.answered_at && p.answered_at.startsWith(y + '')) && <>
+          <h2>✨ 응답 노트</h2>
+          {C.prayers.filter(p => p.answered_at && p.answered_at.startsWith(y + '')).map(p => <div key={p.id} className="bk-post"><div className="m">{fmtDate(ymd(new Date(p.created_at)), true)} · {C.getM(p.author_id).name}의 기도 제목{prayFor(C, p) ? ` · ${prayFor(C, p)}을(를) 위해` : ''}</div><b>🙏 {p.content || '목소리 기도'}</b><div>✨ {fmtDate(ymd(new Date(p.answered_at)), true)} 응답{p.answer_note ? ` — ${p.answer_note}` : ''}</div></div>)}
+        </>}
+        {withLetters && letters.length > 0 && <>
+          <h2>편지</h2>
+          {letters.map(l => <div key={l.id} className="bk-post"><div className="m">{fmtDate(ymd(new Date(l.created_at)), true)} · {C.getM(l.sender_id).name} → {C.getM(l.receiver_id).name}</div>{l.title && <b>{l.title}</b>}<div style={{ whiteSpace: 'pre-wrap' }}>{l.content}</div></div>)}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function AgoPage({ items, onClose }) {
+  const today = ymd();
+  return (
+    <Page open={!!items} onClose={onClose} title="N년 전 오늘">
+      {items && items.sort((a, b) => b.happened_on.localeCompare(a.happened_on)).map(p => (
+        <div key={p.id}><div className="sec-t" style={{ color: '#8a6d2a' }}>{+today.slice(0, 4) - +p.happened_on.slice(0, 4)}년 전 · {fmtDate(p.happened_on, true)}</div><PostCard p={p}/></div>
+      ))}
+    </Page>
+  );
+}
+
+/* ═══════════ 첫 화면들 ═══════════ */
+function Gate({ onEnter }) {
+  const [mode, setMode] = useState('checking'); const [pw, setPw] = useState(''); const [pw2, setPw2] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { familyKey = ''; db.rpc('family_ready').then(r => setMode(r ? 'enter' : 'setup')).catch(() => { setErr('가족 공간에 연결하지 못했어요. 인터넷을 확인하고 다시 열어 주세요.'); setMode('error'); }); }, []);
+  const submit = async e => {
+    e.preventDefault(); setErr('');
+    const k = pw.trim();
+    if (k.length < 6) { setErr('가족 암호는 6자 이상이에요.'); return; }
+    if (mode === 'setup' && k !== pw2.trim()) { setErr('두 번 적은 암호가 서로 달라요.'); return; }
+    setBusy(true);
+    try {
+      if (mode === 'setup') await db.rpc('set_family_key', { new_key: k });
+      familyKey = k;
+      if (!(await db.rpc('is_family'))) { familyKey = ''; throw new Error('암호가 맞지 않아요. 다시 확인해 주세요.'); }
+      store.set('fz_key', k); onEnter();
+    } catch (e2) { setErr(e2.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="gate">
+      <div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
+      <p className="muted" style={{ margin: '6px 0 26px' }}>우리 식구끼리만 보는 공간</p>
+      {mode === 'checking' && <p className="muted">가족 공간을 찾는 중…</p>}
+      {mode === 'error' && <p style={{ color: '#c33' }}>{err}</p>}
+      {(mode === 'setup' || mode === 'enter') && (
+        <form onSubmit={submit} style={{ width: '100%', display: 'grid', gap: 10 }}>
+          <p style={{ textAlign: 'center', margin: '0 0 6px' }}>{mode === 'setup' ? <>처음 오셨네요. 우리 가족만 들어올 수 있게<br/><b>가족 암호</b>를 정해 주세요.</> : <><b>가족 암호</b>를 넣어 주세요.</>}</p>
+          <input type="password" className="input" autoComplete={mode === 'setup' ? 'new-password' : 'current-password'} placeholder="가족 암호 (6자 이상)" value={pw} onChange={e => setPw(e.target.value)}/>
+          {mode === 'setup' && <input type="password" className="input" autoComplete="new-password" placeholder="한 번 더" value={pw2} onChange={e => setPw2(e.target.value)}/>}
+          {err && <p style={{ color: '#c33', textAlign: 'center', margin: 0 }}>{err}</p>}
+          <button className="btn primary block" disabled={busy}>{busy ? '확인하는 중…' : mode === 'setup' ? '가족 암호 정하기' : '들어가기'}</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function PickMe({ members, onPick, onLeave }) {
+  return (
+    <div className="gate">
+      <div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
+      <h2 style={{ margin: '18px 0 4px', fontSize: '1.3rem' }}>이 폰은 누구의 것인가요?</h2>
+      <p className="small muted" style={{ marginTop: 0 }}>고른 이름으로 소식과 편지가 올라가요. 나중에 바꿀 수 있어요.</p>
+      <div className="famgrid" style={{ width: '100%', padding: 0 }}>
+        {members.map(m => <button key={m.id} className="famcard" onClick={() => onPick(m.id)}><Avatar m={m} size={68}/><b>{m.name}</b><span>{m.role}</span></button>)}
+      </div>
+      <button className="linkbtn" style={{ marginTop: 18 }} onClick={onLeave}>이 폰에서 나가기</button>
+    </div>
+  );
+}
+
+/* ═══════════ 앱 ═══════════ */
+function App() {
+  const [hasKey, setHasKey] = useState(!!familyKey);
+  const [me, setMeState] = useState(store.get('fz_me') || '');
+  const [loaded, setLoaded] = useState(false); const [loadErr, setLoadErr] = useState('');
+  const [tab, setTab] = useState('home');
+  const [toastMsg, setToastMsg] = useState('');
+  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [] });
+  const [speaking, setSpeaking] = useState(null);
+  const [fontSize, setFontSizeState] = useState(store.get('fz_fs') || 'm');
+  const [seen, setSeen] = useState(() => { try { return JSON.parse(store.get('fz_story') || '[]'); } catch (e) { return []; } });
+  const [prevSeen, setPrevSeen] = useState(() => store.get('fz_seen') || new Date(Date.now() - 3 * 864e5).toISOString());
+  /* 창들 */
+  const [composer, setComposer] = useState(null); const [cmtPost, setCmtPost] = useState(null); const [cmtMode, setCmtMode] = useState('');
+  const [profile, setProfile] = useState(null); const [story, setStory] = useState(null); const [letterCfg, setLetterCfg] = useState(null);
+  const [letterView, setLetterView] = useState(null); const [question, setQuestion] = useState(null); const [book, setBook] = useState(null);
+  const [postView, setPostView] = useState(null); const [notiOpen, setNotiOpen] = useState(false); const [prayFocus, setPrayFocus] = useState(null);
+  /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
+  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
+  const [settings, setSettings] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
+  const toastTimer = useRef(null);
+  const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
+
+  useEffect(() => { document.documentElement.style.fontSize = { m: '16px', l: '18px', xl: '20px' }[fontSize] || '16px'; }, [fontSize]);
+
+  const loadAll = async () => {
+    try {
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk] = await Promise.all([
+        db.list('members', 'select=*&order=sort,created_at,id'),
+        db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
+        db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
+        db.list('comments', 'select=*&order=created_at,id'),
+        db.list('notes', 'select=*&order=created_at,id'),
+        db.list('events', 'select=*&order=event_date,id'),
+        db.list('letters', 'select=*&order=created_at.desc,id'),
+        db.list('questions', 'select=*&order=week_start.desc,id'),
+        db.list('answers', 'select=*&order=created_at,id'),
+        db.list('question_bank', 'select=*&order=created_at,id').catch(() => []),
+        db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []),
+        db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => [])
+      ]);
+      if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
+      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk });
+      setLoaded(true); setLoadErr('');
+      return { ms, qs };
+    } catch (e) { setLoadErr(navigator.onLine === false ? '인터넷이 끊겨 있어요' : e.message); toast(navigator.onLine === false ? '인터넷 연결을 확인해 주세요' : '가족 공간을 읽지 못했어요: ' + e.message); }
+  };
+  const write = async (fn, okMsg) => {
+    try { await fn(); if (okMsg) toast(okMsg); await loadAll(); return true; }
+    catch (e) { toast('저장하지 못했어요: ' + e.message); return false; }
+  };
+
+  /* 이번 주 질문이 없으면 만든다 (식구가 돌아가며 받는다) */
+  /* 이번 주 질문 줄이 없으면 서버 함수가 만든다 (지난 질문자의 다음 식구가 질문자) */
+  const ensureWeekly = async (ms, qs) => {
+    if (!ms || !ms.length || qs.some(q => q.week_start === weekStart())) return;
+    try { await db.rpc('ensure_week_q'); await loadAll(); } catch (e) {}
+  };
+  /* 매일 한 번 드라이브로 백업 (창구 v2 이상일 때만) */
+  const runBackup = async manual => {
+    try {
+      if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : undefined).catch(() => [])));
+      const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
+      tables.forEach((t, i) => data[t] = all[i]);
+      await gw('backup', { day: ymd(), data: JSON.stringify(data) });
+      store.set('fz_bk', ymd());
+      if (manual) toast('드라이브에 백업했어요');
+      return true;
+    } catch (e) { if (manual) toast('백업하지 못했어요: ' + e.message); return false; }
+  };
+
+  useEffect(() => {
+    if (!hasKey) return;
+    loadAll().then(r => {
+      if (!r) return;
+      ensureWeekly(r.ms, r.qs);
+      if (store.get('fz_bk') !== ymd()) setTimeout(() => runBackup(false), 4000);
+    });
+  }, [hasKey]);
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && familyKey) clearBadge();
+      if (document.visibilityState === 'hidden') { store.set('fz_seen', new Date().toISOString()); if (window.speechSynthesis) window.speechSynthesis.cancel(); }
+      if (document.visibilityState === 'visible' && familyKey) { setPrevSeen(store.get('fz_seen') || prevSeen); loadAll(); }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    const onOnline = () => { if (familyKey) loadAll(); };   // 인터넷이 다시 연결되면 새로 불러오기
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pagehide', () => store.set('fz_seen', new Date().toISOString()));
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('online', onOnline); };
+  }, []);
+
+  const setMe = id => { store.set('fz_me', id); setMeState(id); };
+  const leave = msg => { store.del('fz_key'); store.del('fz_me'); familyKey = ''; setMeState(''); setLoaded(false); setHasKey(false); if (msg) toast(msg); };
+
+  /* ── 계산해 두는 것들 ── */
+  const today = ymd();
+  const memberMap = useMemo(() => { const m = {}; D.members.forEach(x => m[x.id] = x); return m; }, [D.members]);
+  const getM = id => memberMap[id] || { id, name: '(떠난 식구)', emoji: '👤', color: '#999' };
+  /* 반응 표 하나에 좋아요와 보관(🔖)을 함께 적는다 */
+  const likesMap = useMemo(() => { const m = {}; D.reactions.filter(r => r.emoji !== SAVE).forEach(r => (m[r.post_id] = m[r.post_id] || []).includes(r.member_id) || m[r.post_id].push(r.member_id)); return m; }, [D.reactions]);
+  const savedSet = useMemo(() => new Set(D.reactions.filter(r => r.emoji === SAVE && r.member_id === me).map(r => r.post_id)), [D.reactions, me]);
+  const cmtMap = useMemo(() => { const m = {}; D.comments.forEach(c => (m[c.post_id] = m[c.post_id] || []).push(c)); return m; }, [D.comments]);
+  const posts = useMemo(() => D.posts.map(p => ({ ...p, isNew: p.author_id !== me && p.created_at > prevSeen })), [D.posts, me, prevSeen]);
+  const allEvents = useMemo(() => [...D.events, ...D.members.map(birthdayEvent).filter(Boolean)], [D.events, D.members]);
+  const dailyToday = id => posts.filter(p => p.kind === 'daily' && p.author_id === id && p.happened_on === today).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const bdayDays = id => { const m = memberMap[id]; const ev = m && birthdayEvent(m); const n = ev && nextOccur(ev, today); return n ? dayDiff(today, n) : null; };
+  const storyRing = id => {
+    const bd = bdayDays(id); if (bd !== null && bd <= 7) return 'bday';
+    const ds = dailyToday(id); if (!ds.length) return null;
+    return ds.every(p => seen.includes(p.id)) ? 'seen' : 'new';
+  };
+  const unread = D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).length;
+  const weekQ = D.questions.find(q => q.week_start === weekStart()) || null;
+  const activity = useMemo(() => {
+    const out = []; const two = new Date(Date.now() - 14 * 864e5).toISOString(); const since = prevSeen < two ? prevSeen : two;
+    posts.filter(p => p.author_id !== me && p.created_at > since && !isLocked(p)).forEach(p => out.push({ key: 'p' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'daily' ? '오늘의 한 장을' : '새 소식을'} 올렸어요`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => p.kind === 'daily' ? setStory(dailyToday(p.author_id)) : setCmtPost(p) }));
+    D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
+    D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
+    D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, unread: true, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
+    D.prayers.filter(p => p.author_id !== me && p.created_at > since).forEach(p => out.push({ key: 'pr' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏'}${p.content ? ` “${p.content.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
+    D.prayers.filter(p => p.answered_at && p.author_id !== me && p.answered_at > since).forEach(p => out.push({ key: 'pa' + p.id, who: p.author_id, t: p.answered_at, text: `✨ ${getM(p.author_id).name}의 기도가 응답됐어요${p.answer_note ? ` “${p.answer_note.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
+    D.pmarks.filter(k => k.member_id !== me && k.created_at > since).forEach(k => { const p = D.prayers.find(x => x.id === k.prayer_id); if (p && p.author_id === me) out.push({ key: 'pk' + k.prayer_id + k.member_id + k.day, who: k.member_id, t: k.created_at, text: `${josa(getM(k.member_id).name, '이', '가')} 내 기도 제목으로 함께 기도했어요 🙏`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }); });
+    D.questions.filter(q => q.text && q.asker_id && q.asker_id !== me && q.picked_at && q.picked_at > since).forEach(q => out.push({ key: 'q' + q.id, who: q.asker_id, t: q.picked_at, text: `${josa(getM(q.asker_id).name, '이', '가')} 이번 주 질문을 냈어요 ❓ “${q.text.slice(0, 30)}”`, go: () => setQuestion(q) }));
+    D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
+    return out.map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
+  }, [posts, D, me, prevSeen]);
+  const newCount = activity.filter(x => x.isNew).length;
+
+  const C = {
+    me, members: D.members, posts, comments: D.comments, notes: D.notes, letters: D.letters, questions: D.questions, answers: D.answers,
+    allEvents, getM, unread, weekQ, activity, speaking, fontSize, bank: D.bank,
+    likesOf: id => likesMap[id] || [], commentsOf: id => cmtMap[id] || [],
+    dailyToday, bdayDays, storyRing, toast, write, setTab: t => goTab(t), runBackup, newCount,
+    markSeen: id => setSeen(s => { if (s.includes(id)) return s; const n = [...s, id].slice(-300); store.set('fz_story', JSON.stringify(n)); return n; }),
+    setFontSize: k => { store.set('fz_fs', k); setFontSizeState(k); },
+    toggleSpeak: (key, text) => { if (speaking === key) { window.speechSynthesis && window.speechSynthesis.cancel(); setSpeaking(null); return; } if (speak(text, () => setSpeaking(s => s === key ? null : s))) setSpeaking(key); },
+    toggleLike: async p => {
+      const had = (likesMap[p.id] || []).includes(me);
+      setD(d => ({ ...d, reactions: had ? d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me)) : [...d.reactions, { post_id: p.id, member_id: me, emoji: '❤️', created_at: new Date().toISOString() }] }));
+      try { if (had) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=neq.${encodeURIComponent(SAVE)}`); else await db.add('reactions', { post_id: p.id, member_id: me, emoji: '❤️' }); }
+      catch (e) { toast('좋아요를 저장하지 못했어요'); loadAll(); }
+    },
+    isSaved: id => savedSet.has(id),
+    toggleSave: async p => {
+      const had = savedSet.has(p.id);
+      setD(d => ({ ...d, reactions: had ? d.reactions.filter(r => !(r.post_id === p.id && r.member_id === me && r.emoji === SAVE)) : [...d.reactions, { post_id: p.id, member_id: me, emoji: SAVE, created_at: new Date().toISOString() }] }));
+      toast(had ? '보관함에서 뺐어요' : '보관했어요 · 내 프로필 → 보관에서 다시 볼 수 있어요');
+      try { if (had) await db.del('reactions', `post_id=eq.${p.id}&member_id=eq.${me}&emoji=eq.${encodeURIComponent(SAVE)}`); else await db.add('reactions', { post_id: p.id, member_id: me, emoji: SAVE }); }
+      catch (e) { toast('보관하지 못했어요'); loadAll(); }
+    },
+    /* 보내기: 폰의 공유 창(카톡 등)으로 글과 사진 주소를 보낸다 */
+    sharePost: async p => {
+      const a = getM(p.author_id); const ph = photosOf(p)[0];
+      const text = `${a.name}의 소식${p.title ? ` · ${p.title}` : ''}\n${p.content || ''}`.trim();
+      try {
+        if (navigator.share) { await navigator.share({ title: 'Familygram', text, url: ph ? ph.url : undefined }); return; }
+        await navigator.clipboard.writeText(ph ? `${text}\n${ph.url}` : text); toast('글을 복사했어요. 카톡에 붙여 넣으세요');
+      } catch (e) { if (e && e.name !== 'AbortError') toast('보내지 못했어요'); }
+    },
+    addComment: row => write(() => db.add('comments', row)),
+    deleteComment: c => { if (window.confirm('이 댓글을 지울까요?')) { write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요'); const id = driveId(c.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
+    deletePost: async p => {
+      if (!window.confirm('이 소식을 지울까요? 사진과 댓글도 함께 지워져요.')) return;
+      const files = [...photosOf(p).map(x => x.id), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
+      if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) files.forEach(id => gw('delete', { id }).catch(() => {}));
+    },
+    addNote: content => write(() => db.add('notes', { author_id: me, content, color: '#FFF6B8', angle: +(Math.random() * 4 - 2).toFixed(1) })),
+    deleteNote: n => write(() => db.del('notes', `id=eq.${n.id}`)),
+    deleteEvent: ev => { if (window.confirm(`"${ev.title}" 일정을 지울까요?`)) write(() => db.del('events', `id=eq.${ev.id}`), '일정을 지웠어요'); },
+    markRead: l => db.patch('letters', l.id, { read_at: new Date().toISOString() }).then(loadAll).catch(() => {}),
+    deleteLetter: async l => { if (!window.confirm('이 편지를 지울까요?')) return; setLetterView(null); if (await write(() => db.del('letters', `id=eq.${l.id}`), '편지를 지웠어요')) { const id = driveId(l.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
+    deleteMember: async m => {
+      if (D.members.length <= 1) { toast('마지막 한 명은 뺄 수 없어요'); return; }
+      if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n쓴 소식과 편지는 남아요.`)) return;
+      if (await write(() => db.del('members', `id=eq.${m.id}`), `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) { setMemberEdit(null); setProfile(null); }
+    },
+    changeKey: async (ko, kn) => {
+      const k = kn.trim(); if (k.length < 6) { toast('새 암호는 6자 이상이에요'); return false; }
+      try { await db.rpc('set_family_key', { new_key: k, old_key: ko.trim() }); familyKey = k; store.set('fz_key', k); toast('가족 암호를 바꿨어요. 다른 폰은 새 암호를 넣어야 해요.'); return true; }
+      catch (e) { toast(e.message); return false; }
+    },
+    leave: () => leave(), changeMe: () => setMe(''),
+    openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
+    openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
+    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true),
+    openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
+    openPray: id => { setTab('pray'); setPrayFocus(id); },
+    /* 🙏 기도했어요: 오늘 한 번 (다시 누르면 취소) */
+    togglePray: async p => {
+      const day = ymd(); const had = D.pmarks.some(m => m.prayer_id === p.id && m.member_id === me && m.day === day);
+      setD(d => ({ ...d, pmarks: had ? d.pmarks.filter(m => !(m.prayer_id === p.id && m.member_id === me && m.day === day)) : [...d.pmarks, { prayer_id: p.id, member_id: me, day, created_at: new Date().toISOString() }] }));
+      if (!had) toast('함께 기도했어요 🙏');
+      try { if (had) await db.del('prayer_marks', `prayer_id=eq.${p.id}&member_id=eq.${me}&day=eq.${day}`); else await db.add('prayer_marks', { prayer_id: p.id, member_id: me, day }); }
+      catch (e) { toast('저장하지 못했어요'); loadAll(); }
+    }, openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
+  };
+
+  /* 알림: 앱을 열면 숫자 지우기 / 이 폰 주인이 바뀌면 알림 주소의 식구도 바꾸기 / 알림 눌러 열기 */
+  useEffect(() => {
+    if (!loaded || !me) return;
+    clearBadge();
+    pushSub().then(sub => { if (sub) return savePushSub(me, sub); }).catch(() => {});
+  }, [loaded, me]);
+  useEffect(() => {
+    if (!PUSH_OK) return;
+    const f = e => { if (e.data && e.data.type === 'fz-open') loadAll().then(() => setLinkReq(new URL(e.data.url).search)); };
+    navigator.serviceWorker.addEventListener('message', f);
+    return () => navigator.serviceWorker.removeEventListener('message', f);
+  }, []);
+  useEffect(() => {
+    if (!loaded || !linkReq || !D.members.some(m => m.id === me)) return;
+    const q = new URLSearchParams(linkReq); setLinkReq('');
+    history.replaceState(history.state, '', location.pathname);
+    const post = q.get('post') && posts.find(p => p.id === q.get('post'));
+    if (post) { if (q.get('c')) { setCmtMode(''); setCmtPost(post); } else setPostView(post.id); }
+    const l = q.get('letter') && D.letters.find(x => x.id === q.get('letter')); if (l) setLetterView(l);
+    const qq = q.get('q') && D.questions.find(x => x.id === q.get('q')); if (qq) setQuestion(qq);
+    const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
+    const pid = q.get('pray'); if (pid) { setTab('pray'); setPrayFocus(pid); }
+  }, [loaded, linkReq, me, D]);
+
+  if (!hasKey) return <Gate onEnter={() => setHasKey(true)}/>;
+  if (!loaded) return (
+    <div className="gate"><div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
+      {loadErr
+        ? <div style={{ textAlign: 'center' }}><p style={{ margin: '14px 0 4px', fontWeight: 700 }}>가족 소식을 불러오지 못했어요</p><p className="small muted" style={{ margin: '0 0 14px' }}>{loadErr}. 인터넷 연결을 확인한 뒤 다시 눌러 주세요.</p><button className="btn primary" onClick={() => { setLoadErr(''); loadAll(); }}>다시 불러오기</button></div>
+        : <p className="muted"><span className="spin dark"/> 가족 소식을 펼치는 중…</p>}
+    </div>);
+  if (!D.members.some(m => m.id === me)) return <PickMe members={D.members} onPick={id => setMe(id)} onLeave={() => leave()}/>;
+
+  /* 알림 탭을 떠날 때 "여기까지 봤어요" 로 적는다 */
+  const goTab = t => { setTab(t); if (t !== 'pray') setPrayFocus(null); };
+  /* 알림 창을 닫을 때 "여기까지 봤어요" 로 적는다 */
+  const closeNoti = () => { setNotiOpen(false); const now = new Date().toISOString(); store.set('fz_seen', now); setPrevSeen(now); };
+  const me0 = getM(me);
+  return (
+    <Ctx.Provider value={C}>
+      <div className="app">
+        {tab === 'home' && <HomeTab/>}
+        {tab === 'cal' && <CalendarTab/>}
+        {tab === 'pray' && <PrayTab/>}
+        {tab === 'me' && <MeTab/>}
+        <nav className="tabbar">
+          <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab('home'); }}><LIcon name="house" size={26} fill={tab === 'home' ? '#1a1a1a' : undefined}/>홈</button>
+          <button className={tab === 'cal' ? 'on' : ''} onClick={() => goTab('cal')}><LIcon name="calendar-days" size={26} sw={tab === 'cal' ? 2.4 : undefined}/>달력</button>
+          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>추가</button>
+          <button className={tab === 'pray' ? 'on' : ''} onClick={() => goTab('pray')}><LIcon name="hand-heart" size={26} sw={tab === 'pray' ? 2.4 : undefined}/>기도</button>
+          <button className={tab === 'me' ? 'on' : ''} onClick={() => goTab('me')}>{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={26} sw={tab === 'me' ? 2.4 : undefined}/>}내 프로필</button>
+        </nav>
+      </div>
+      <ProfilePage mid={profile} onClose={() => setProfile(null)}/>
+      <AgoPage items={ago} onClose={() => setAgo(null)}/>
+      <Composer cfg={composer} onClose={() => setComposer(null)}/>
+      <CommentsSheet post={cmtPost} mode={cmtMode} onClose={() => setCmtPost(null)}/>
+      <LetterCompose cfg={letterCfg} onClose={() => setLetterCfg(null)}/>
+      <LetterView l={letterView} onClose={() => setLetterView(null)}/>
+      <QuestionSheet q={question} onClose={() => setQuestion(null)}/>
+      <MemberEdit m={memberEdit} onClose={() => setMemberEdit(null)}/>
+      <SettingsSheet open={settings} onClose={() => setSettings(false)}/>
+      <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
+      <TagPage tag={tagView} onClose={() => setTagView(null)}/>
+      <NotiPage open={notiOpen} onClose={closeNoti}/>
+      <Page open={!!postView} onClose={() => setPostView(null)} title="소식">{postView && (posts.find(p => p.id === postView) ? <PostCard p={posts.find(p => p.id === postView)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
+      <StoryViewer items={story} onClose={() => setStory(null)}/>
+      <BookView year={book} onClose={() => setBook(null)}/>
+      {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
+    </Ctx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);

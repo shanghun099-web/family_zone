@@ -1,0 +1,7 @@
+{
+  "name": "familygram",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": { "@babel/standalone": "7.23.9" }
+}
