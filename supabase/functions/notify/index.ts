@@ -253,6 +253,19 @@ Deno.serve(async req => {
       if (!done || done >= (ms || []).length) return json({ sent: 0, done });   // 아무도 안 했거나 이미 모두 답해서 열림
       return json({ sent: await deliver({ to: (ms || []).map((m: { id: string }) => m.id), pref: "letter", title: "이번 주 답이 다 같이 열렸어요 🎁", body: `“${cut(wq.text, 60)}” · 답 ${done}개`, url: `${APP}?q=${wq.id}`, tag: `ans-${wq.id}` }) });
     }
+    if (mode === "monthly") {   // 매달 1일 아침 9시(cron points-monthly): 지난달 가족 포인트 1등
+      const d = kst(); const y = d.getUTCFullYear(), m = d.getUTCMonth();
+      const from = ymdUTC(new Date(Date.UTC(y, m - 1, 1))), to = ymdUTC(new Date(Date.UTC(y, m, 0)));
+      const { data: pts, error } = await sb.rpc("family_points", { p_from: from, p_to: to });
+      if (error) throw error;
+      const { data: ms } = await sb.from("members").select("id,name");
+      const nm = (id: string) => ((ms || []).find((x: { id: string }) => x.id === id) || { name: "식구" }).name;
+      const rows = ((pts || []) as { member_id: string; points: number }[]).filter(r => r.points > 0);
+      if (!rows.length) return json({ sent: 0, rows: 0 });
+      const mon = m === 0 ? 12 : m;
+      const body = rows.slice(1, 3).map((r, i) => `${i + 2}등 ${nm(r.member_id)} ${r.points}점`).join(" · ");
+      return json({ sent: await deliver({ to: (ms || []).map((x: { id: string }) => x.id), pref: "post", title: `🏆 ${mon}월 가족 포인트 1등은 ${nm(rows[0].member_id)}! (${rows[0].points}점)`, body: body || "축하해요!", url: APP, tag: `points-${from}` }) });
+    }
     const body = await req.json();
     if (mode === "test") {   // 시험: 한 식구에게 바로 한 통 (밤에도)
       const { data } = await sb.from("push_subs").select("*").eq("member_id", body.member_id);

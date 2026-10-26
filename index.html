@@ -283,6 +283,29 @@
   .lt .new{background:#F0403A;color:#fff;font-size:.72rem;border-radius:10px;padding:1px 8px;font-weight:700;flex-shrink:0}
   .letter-paper{background:#FFFDF8;border:1px solid #efe6d6;border-radius:16px;padding:18px;font-size:1.05rem;line-height:1.8;white-space:pre-wrap}
   .notes{display:flex;gap:10px;overflow-x:auto;padding:4px 14px 12px}
+  .adm{background:#fff;border-radius:18px;padding:14px;margin:0 0 12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .adm-t{font-weight:800;font-size:1rem;margin-bottom:8px}
+  .adm-r{display:flex;align-items:center;gap:10px;padding:6px 0}
+  .adm-r .warn{color:#d0402a;font-weight:700}
+  .adm-go{border:2px solid #F3D27A}
+  .adm-go .bic{background:#FFF5D6;font-size:22px}
+  .att{display:grid;grid-template-columns:44px repeat(7,1fr);gap:5px;align-items:center;margin-bottom:5px}
+  .att .h{font-size:.75rem;color:var(--sub);text-align:center}.att .h.td{color:#D0603A;font-weight:800}
+  .att .nm{font-size:.85rem;font-weight:700}
+  .att i{height:22px;border-radius:6px;background:#F1EFEA}.att i.on{background:#2FA57A}.att i.fu{background:#F8F7F4;border:1px dashed #e4e0d8}
+  .rank{display:flex;align-items:center;gap:8px;width:100%;padding:7px 0;border:0;background:none;text-align:left;font-family:inherit;color:inherit;border-bottom:1px solid #f2efeb}
+  .rank .no{width:26px;text-align:center;font-weight:800;font-size:1.05rem}.rank .nm{width:54px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rank .bar{flex:1;height:10px;border-radius:5px;background:#F3EFE8;overflow:hidden}.rank .bar i{display:block;height:100%;background:linear-gradient(90deg,#F0603A,#F3A33A);border-radius:5px}
+  .rank b{width:58px;text-align:right}
+  .atb{width:100%;border-collapse:collapse;font-size:.88rem;table-layout:fixed}
+  .atb th{font-weight:600;color:var(--sub);font-size:.75rem;padding:4px 0}.atb td{text-align:center;padding:8px 0;border-top:1px solid #f2efeb}
+  .atb td:first-child,.atb th:first-child{text-align:left;width:48px;font-weight:700}
+  .rule{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f2efeb}
+  .rule .pt{min-width:56px;text-align:right;color:#B0461F}
+  .rule input.pt{width:72px;min-width:0;padding:6px 8px;text-align:center}
+  .pill{font-size:.78rem;font-weight:800;border-radius:10px;padding:2px 9px}.pill.ok{background:#E3F4EA;color:#227a52}.pill.no{background:#FDEDE3;color:#b2502c}
+  .seen{padding:8px 0;border-bottom:1px solid #f2efeb}.seen:last-child{border-bottom:0}
+  .ell{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
   .feed-band{display:flex;align-items:center;justify-content:space-between;width:100%;padding:9px 14px;font-weight:800;font-size:.92rem;border:0;text-align:left;font-family:inherit}
   .feed-band .go{display:flex;align-items:center;gap:2px;font-weight:600;font-size:.82rem;opacity:.8}
   .feed-band.pr{background:linear-gradient(90deg,#EEF0FF,#F5EDFF);color:#5b4a86}
@@ -368,6 +391,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=1d1c80a7"></script>
+<script src="app.js?v=5ba4c68a"></script>
 </body>
 </html>

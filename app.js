@@ -1494,6 +1494,8 @@ function PostCard({
   const barT = useRef(0);
   const press = useRef(null);
   const lastTap = useRef(0);
+  const vref = useRef(null);
+  useViewed(vref, isLocked(p) ? null : p.id, 'post', p.author_id);
   useEffect(() => () => {
     clearTimeout(barT.current);
     clearTimeout(press.current);
@@ -1570,7 +1572,8 @@ function PostCard({
   const speakKey = 'p' + p.id;
   const openedToday = p.open_on && p.open_on === ymd();
   return /*#__PURE__*/React.createElement("article", {
-    className: "post"
+    className: "post",
+    ref: vref
   }, /*#__PURE__*/React.createElement("div", {
     className: "post-hd"
   }, /*#__PURE__*/React.createElement(Avatar, {
@@ -4022,6 +4025,7 @@ function PrayCard({
       block: 'center'
     }), 200);
   }, [focus]);
+  useViewed(ref, p.id, 'pray', p.author_id);
   const marks = C.pmarks.filter(m => m.prayer_id === p.id);
   const who = [...new Set(marks.map(m => m.member_id))];
   const today = ymd();
@@ -4581,6 +4585,444 @@ function NotiTab({
   }, "\uC2DD\uAD6C\uAC00 \uC18C\uC2DD\xB7\uB313\uAE00\xB7\uD3B8\uC9C0\uB97C \uB0A8\uAE30\uBA74 \uC5EC\uAE30 \uBAA8\uC5EC\uC694."))));
 }
 
+/* ═══════════ 관리자 · 가족 포인트 (관리자 폰에서만) ═══════════ */
+/* 방문: 앱을 열 때·10분 넘게 쉬었다 다시 볼 때 한 번 (점수는 하루 1번만) */
+const logVisit = member => {
+  if (!member || !familyKey) return;
+  const t = Date.now(),
+    key = `${member}|${ymd()}`;
+  if (store.get('fz_vis_k') === key && t - +(store.get('fz_vis_t') || 0) < 10 * 60e3) return;
+  store.set('fz_vis_k', key);
+  store.set('fz_vis_t', String(t));
+  db.rpc('log_visit', {
+    p_member: member
+  }).catch(() => {});
+};
+/* 조회: 남의 소식·기도가 화면에 1초 넘게 보이면 한 번 (같은 건 다시 안 셈) */
+const viewed = new Set((() => {
+  try {
+    return JSON.parse(store.get('fz_viewed') || '[]');
+  } catch (e) {
+    return [];
+  }
+})());
+const markViewed = (me, id, kind) => {
+  const k = me + ':' + id;
+  if (viewed.has(k)) return;
+  viewed.add(k);
+  store.set('fz_viewed', JSON.stringify([...viewed].slice(-3000)));
+  db.addOnce('views', {
+    item_id: id,
+    member_id: me,
+    kind
+  }, 'item_id,member_id').catch(() => viewed.delete(k));
+};
+function useViewed(ref, id, kind, author) {
+  const C = useC();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !id || !C.me || author === C.me || viewed.has(C.me + ':' + id) || !window.IntersectionObserver) return;
+    let t = 0;
+    const io = new IntersectionObserver(es => {
+      clearTimeout(t);
+      if (es[0].isIntersecting) t = setTimeout(() => {
+        io.disconnect();
+        markViewed(C.me, id, kind);
+      }, 1000);
+    }, {
+      threshold: 0.35
+    });
+    io.observe(el);
+    return () => {
+      clearTimeout(t);
+      io.disconnect();
+    };
+  }, [id, C.me]);
+}
+
+/* 점수 규칙 (서버 family_points 와 같은 기본값) */
+const POINT_DEF = {
+  visit: 2,
+  post: 10,
+  daily: 5,
+  answer: 10,
+  comment: 3,
+  comment_cap: 10,
+  letter: 5,
+  prayer: 5,
+  pmark: 2,
+  react: 1,
+  view: 1
+};
+const POINT_ROWS = [['visit', '앱 들어오기', 'visits', '하루 1번만'], ['post', '새 소식 올리기', 'posts'], ['daily', '오늘의 한 장', 'daily'], ['answer', '이번 주 질문에 답', 'answers'], ['comment', '댓글', 'comments', '하루 최대 개수까지'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks'], ['react', '마음(이모지) 남기기', 'reacts', '남의 소식에만'], ['view', '소식 보기 (조회)', 'views', '하나당 1번']];
+const dayAdd = (s, n) => {
+  const d = parseYmd(s);
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+};
+function periodOf(k) {
+  const t = ymd(),
+    d = parseYmd(t);
+  if (k === 'week') return [dayAdd(t, -((d.getDay() + 6) % 7)), t];
+  if (k === 'last') return [ymd(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymd(new Date(d.getFullYear(), d.getMonth(), 0))];
+  if (k === 'year') return [`${d.getFullYear()}-01-01`, t];
+  return [t.slice(0, 8) + '01', t];
+}
+function AdminSheet({
+  open,
+  onClose
+}) {
+  const C = useC();
+  const today = ymd();
+  const [D, setD] = useState(null);
+  const [per, setPer] = useState('month');
+  const [pts, setPts] = useState(null);
+  const [rules, setRules] = useState(POINT_DEF);
+  const [edit, setEdit] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const recent = useMemo(() => [...C.posts.filter(p => !isLocked(p)).map(p => ({
+    id: p.id,
+    kind: 'post',
+    author: p.author_id,
+    t: p.created_at,
+    text: p.kind === 'daily' ? `오늘의 한 장${p.content ? ' · ' + p.content : ''}` : p.title || p.content || `사진 ${photosOf(p).length}장`
+  })), ...C.prayers.map(p => ({
+    id: p.id,
+    kind: 'pray',
+    author: p.author_id,
+    t: p.created_at,
+    text: `🙏 ${p.content || '목소리 기도'}`
+  }))].sort((a, b) => b.t.localeCompare(a.t)).slice(0, 6), [C.posts, C.prayers]);
+  const load = async () => {
+    const since = dayAdd(today, -40);
+    const ids = recent.map(x => x.id);
+    const [vs, ws, ps, st, first] = await Promise.all([db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []), ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [], db.list('push_subs', 'select=member_id&order=member_id').catch(() => []), db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []), sb('visits?select=day&order=day.asc&limit=1').catch(() => [])]);
+    setRules({
+      ...POINT_DEF,
+      ...(st[0] && st[0].v || {})
+    });
+    setD({
+      vs,
+      ws,
+      ps,
+      first: first[0] && first[0].day
+    });
+  };
+  const loadPts = async k => {
+    setPts(null);
+    const [a, b] = periodOf(k);
+    try {
+      setPts((await db.rpc('family_points', {
+        p_from: a,
+        p_to: b
+      })) || []);
+    } catch (e) {
+      setPts([]);
+    }
+  };
+  useEffect(() => {
+    if (open) {
+      setD(null);
+      load();
+      loadPts(per);
+    }
+  }, [open]);
+  const pick = k => {
+    setPer(k);
+    loadPts(k);
+  };
+  const saveRules = async () => {
+    const v = {};
+    Object.keys(POINT_DEF).forEach(k => {
+      v[k] = Math.max(0, Math.round(+edit[k] || 0));
+    });
+    if (await C.write(() => db.upsert('app_settings', {
+      k: 'points',
+      v,
+      updated_at: new Date().toISOString()
+    }, 'k'), '점수 규칙을 바꿨어요')) {
+      setRules(v);
+      setEdit(null);
+      loadPts(per);
+    }
+  };
+  const ms = C.members;
+  const vs = D ? D.vs : [];
+  const lastOf = id => vs.filter(v => v.member_id === id).sort((a, b) => a.last_at.localeCompare(b.last_at)).pop();
+  const [w0] = periodOf('week');
+  const week = [...Array(7)].map((_, i) => dayAdd(w0, i));
+  const pushOn = new Set(D ? D.ps.map(p => p.member_id) : []);
+  const rows = (pts || []).map(r => ({
+    ...r,
+    m: C.getM(r.member_id)
+  })).filter(r => ms.some(m => m.id === r.member_id));
+  const top = rows.length ? Math.max(1, rows[0].points) : 1;
+  const medal = ['🥇', '🥈', '🥉'];
+  return /*#__PURE__*/React.createElement(Sheet, {
+    open: open,
+    onClose: onClose,
+    full: true,
+    title: "\uD83C\uDFC6 \uAD00\uB9AC\uC790 \xB7 \uAC00\uC871 \uD3EC\uC778\uD2B8"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      marginTop: 0
+    }
+  }, "\uAD00\uB9AC\uC790 \uD3F0\uC5D0\uC11C\uB9CC \uBCF4\uC5EC\uC694.", D && D.first ? ` 방문·조회는 ${fmtDate(D.first, true)}부터 세고 있어요.` : ' 방문·조회는 오늘부터 세기 시작해요.'), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uC624\uB298 \uB204\uAC00 \uB4E4\uC5B4\uC654\uB098"), !D ? /*#__PURE__*/React.createElement("div", {
+    className: "row gap small muted"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  }), "\uBD88\uB7EC\uC624\uB294 \uC911\u2026") : ms.map(m => {
+    const l = lastOf(m.id);
+    const td = vs.find(v => v.member_id === m.id && v.day === today);
+    const gap = l ? dayDiff(l.day, today) : null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "adm-r",
+      key: m.id
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      m: m,
+      size: 32
+    }), /*#__PURE__*/React.createElement("b", {
+      className: "grow"
+    }, m.name), td ? /*#__PURE__*/React.createElement("span", {
+      className: "small muted"
+    }, relTime(td.last_at), " \xB7 \uC624\uB298 ", td.opens, "\uBC88") : l ? /*#__PURE__*/React.createElement("span", {
+      className: 'small' + (gap >= 3 ? ' warn' : ' muted')
+    }, gap === 1 ? '어제' : `${gap}일째 안 들어왔어요`) : /*#__PURE__*/React.createElement("span", {
+      className: "small muted"
+    }, "\uC544\uC9C1 \uAE30\uB85D \uC5C6\uC5B4\uC694"), (!l || gap >= 3) && m.id !== C.me && /*#__PURE__*/React.createElement("button", {
+      className: "btn sm soft",
+      onClick: () => {
+        onClose();
+        C.openLetterCompose({
+          to: m.id
+        });
+      }
+    }, "\uD83D\uDC8C"));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uC774\uBC88 \uC8FC \uCD9C\uC11D\uBD80"), /*#__PURE__*/React.createElement("div", {
+    className: "att"
+  }, /*#__PURE__*/React.createElement("span", null), week.map((d, i) => /*#__PURE__*/React.createElement("span", {
+    key: d,
+    className: 'h' + (d === today ? ' td' : '')
+  }, '월화수목금토일'[i]))), ms.map(m => /*#__PURE__*/React.createElement("div", {
+    className: "att",
+    key: m.id
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "nm"
+  }, m.name), week.map(d => /*#__PURE__*/React.createElement("i", {
+    key: d,
+    className: vs.some(v => v.member_id === m.id && v.day === d) ? 'on' : d > today ? 'fu' : ''
+  }))))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uD3EC\uC778\uD2B8 \uC21C\uC704"), /*#__PURE__*/React.createElement("div", {
+    className: "chips",
+    style: {
+      marginBottom: 8
+    }
+  }, [['week', '이번 주'], ['month', '이번 달'], ['last', '지난달'], ['year', '올해']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: 'chip' + (per === k ? ' on' : ''),
+    onClick: () => pick(k)
+  }, l))), /*#__PURE__*/React.createElement("div", {
+    className: "small muted",
+    style: {
+      marginBottom: 6
+    }
+  }, (() => {
+    const [a, b] = periodOf(per);
+    return `${fmtDate(a, true)} ~ ${fmtDate(b, true)}`;
+  })()), !pts ? /*#__PURE__*/React.createElement("div", {
+    className: "row gap small muted"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  }), "\uACC4\uC0B0\uD558\uB294 \uC911\u2026") : rows.map((r, i) => /*#__PURE__*/React.createElement("button", {
+    className: "rank",
+    key: r.member_id,
+    onClick: () => setDetail(r)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "no"
+  }, r.points > 0 && medal[i] ? medal[i] : i + 1), /*#__PURE__*/React.createElement(Avatar, {
+    m: r.m,
+    size: 28
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "nm"
+  }, r.m.name), /*#__PURE__*/React.createElement("span", {
+    className: "bar"
+  }, /*#__PURE__*/React.createElement("i", {
+    style: {
+      width: `${Math.round(r.points / top * 100)}%`
+    }
+  })), /*#__PURE__*/React.createElement("b", null, r.points, "\uC810"))), pts && rows.length > 0 && /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '6px 2px 0'
+    }
+  }, "\uC774\uB984\uC744 \uB204\uB974\uBA74 \uC810\uC218\uAC00 \uC5B4\uB5BB\uAC8C \uB098\uC654\uB294\uC9C0 \uBCF4\uC5EC\uC694. \uB9E4\uB2EC 1\uC77C \uC544\uCE68 9\uC2DC\uC5D0 \uC9C0\uB09C\uB2EC 1\uB4F1\uC744 \uC628 \uAC00\uC871\uC5D0\uAC8C \uC54C\uB824\uC694.")), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uC2DD\uAD6C\uBCC4 \uAE30\uB85D ", /*#__PURE__*/React.createElement("span", {
+    className: "small muted",
+    style: {
+      fontWeight: 400
+    }
+  }, "(", {
+    week: '이번 주',
+    month: '이번 달',
+    last: '지난달',
+    year: '올해'
+  }[per], ")")), /*#__PURE__*/React.createElement("table", {
+    className: "atb"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "\uBC29\uBB38"), /*#__PURE__*/React.createElement("th", null, "\uC870\uD68C"), /*#__PURE__*/React.createElement("th", null, "\uC0C8 \uAE00"), /*#__PURE__*/React.createElement("th", null, "\uB313\uAE00"), /*#__PURE__*/React.createElement("th", null, "\uB9C8\uC74C"), /*#__PURE__*/React.createElement("th", null, "\uAE30\uB3C4"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.member_id,
+    onClick: () => setDetail(r)
+  }, /*#__PURE__*/React.createElement("td", null, r.m.name), /*#__PURE__*/React.createElement("td", null, r.visits), /*#__PURE__*/React.createElement("td", null, r.views), /*#__PURE__*/React.createElement("td", null, r.posts + r.daily), /*#__PURE__*/React.createElement("td", null, r.comments), /*#__PURE__*/React.createElement("td", null, r.reacts), /*#__PURE__*/React.createElement("td", null, r.prayers + r.pmarks)))))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t row",
+    style: {
+      justifyContent: 'space-between'
+    }
+  }, "\uC810\uC218 \uADDC\uCE59", !edit && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: () => setEdit({
+      ...rules
+    })
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "pencil",
+    size: 16
+  }), "\uBC14\uAFB8\uAE30")), POINT_ROWS.map(([k, l,, note]) => /*#__PURE__*/React.createElement("div", {
+    className: "rule",
+    key: k
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, l, note && /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, " \xB7 ", k === 'comment' ? `하루 ${rules.comment_cap}개까지` : note)), edit ? /*#__PURE__*/React.createElement("input", {
+    className: "input pt",
+    type: "number",
+    inputMode: "numeric",
+    min: "0",
+    value: edit[k],
+    onChange: e => setEdit(x => ({
+      ...x,
+      [k]: e.target.value
+    }))
+  }) : /*#__PURE__*/React.createElement("b", {
+    className: "pt"
+  }, "+", rules[k]))), edit && /*#__PURE__*/React.createElement("div", {
+    className: "rule"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, "\uB313\uAE00 \uC810\uC218 \uD558\uB8E8 \uCD5C\uB300 \uAC1C\uC218"), /*#__PURE__*/React.createElement("input", {
+    className: "input pt",
+    type: "number",
+    inputMode: "numeric",
+    min: "0",
+    value: edit.comment_cap,
+    onChange: e => setEdit(x => ({
+      ...x,
+      comment_cap: e.target.value
+    }))
+  })), edit && /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    onClick: () => setEdit(null)
+  }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    onClick: saveRules
+  }, "\uC800\uC7A5"))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uD3F0 \uC54C\uB9BC"), D && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "adm-r"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pill ok"
+  }, "\uCF1C\uC9D0"), /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, ms.filter(m => pushOn.has(m.id)).map(m => m.name).join(', ') || '없음')), /*#__PURE__*/React.createElement("div", {
+    className: "adm-r"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pill no"
+  }, "\uAEBC\uC9D0"), /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, ms.filter(m => !pushOn.has(m.id)).map(m => m.name).join(', ') || '없음 · 모두 켜져 있어요')), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '4px 2px 0'
+    }
+  }, "\uAEBC\uC9C4 \uC2DD\uAD6C\uB294 \uC571\uC744 \uD55C \uBC88 \uC5F4\uACE0 \"\uC54C\uB9BC \uBC1B\uAE30\"\uB97C \uB20C\uB7EC\uC57C \uC18C\uC2DD \uC54C\uB9BC\uC774 \uAC00\uC694."))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uCD5C\uADFC \uC18C\uC2DD \xB7 \uBCF8 \uC0AC\uB78C"), D && recent.map(x => {
+    const saw = D.ws.filter(w => w.item_id === x.id).map(w => w.member_id);
+    const not = ms.filter(m => m.id !== x.author && !saw.includes(m.id));
+    return /*#__PURE__*/React.createElement("div", {
+      className: "seen",
+      key: x.id
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "row gap"
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      m: C.getM(x.author),
+      size: 24
+    }), /*#__PURE__*/React.createElement("b", {
+      className: "grow ell"
+    }, C.getM(x.author).name, " \xB7 ", x.text), /*#__PURE__*/React.createElement("span", {
+      className: "small muted"
+    }, saw.length, "\uBA85 \uBD04")), /*#__PURE__*/React.createElement("div", {
+      className: "small",
+      style: {
+        paddingLeft: 32
+      }
+    }, saw.length > 0 && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDC40 ", saw.map(id => C.getM(id).name).join(', ')), not.length > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, saw.length ? ' · ' : '', "\uC544\uC9C1: ", not.map(m => m.name).join(', '))));
+  })), /*#__PURE__*/React.createElement(Sheet, {
+    open: !!detail,
+    onClose: () => setDetail(null),
+    title: detail ? `${detail.m.name} · 점수 자세히` : ''
+  }, detail && /*#__PURE__*/React.createElement(React.Fragment, null, POINT_ROWS.map(([k, l, f]) => /*#__PURE__*/React.createElement("div", {
+    className: "rule",
+    key: k
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, l), /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, detail[f], "\uBC88 \xD7 ", rules[k]), /*#__PURE__*/React.createElement("b", {
+    className: "pt"
+  }, detail[f] * rules[k], "\uC810"))), /*#__PURE__*/React.createElement("div", {
+    className: "rule",
+    style: {
+      borderTop: '2px solid #222'
+    }
+  }, /*#__PURE__*/React.createElement("b", {
+    className: "grow"
+  }, "\uD569\uACC4"), /*#__PURE__*/React.createElement("b", {
+    className: "pt",
+    style: {
+      fontSize: '1.2rem'
+    }
+  }, detail.points, "\uC810")), /*#__PURE__*/React.createElement("p", {
+    className: "small muted"
+  }, "\uC571\uC740 ", detail.opens, "\uBC88 \uC5F4\uC5C8\uC5B4\uC694 (\uC810\uC218\uB294 \uD558\uB8E8 1\uBC88\uB9CC). \uB313\uAE00\uC740 \uD558\uB8E8 ", rules.comment_cap, "\uAC1C\uAE4C\uC9C0\uB9CC \uC138\uC694."))));
+}
+
 /* ═══════════ 내 프로필 (+ 우리 식구) ═══════════ */
 function MeTab() {
   const C = useC();
@@ -4590,7 +5032,14 @@ function MeTab() {
     className: "h1"
   }, "\uB0B4 \uD504\uB85C\uD544"), /*#__PURE__*/React.createElement("div", {
     className: "row"
-  }, /*#__PURE__*/React.createElement("button", {
+  }, C.isAdmin && /*#__PURE__*/React.createElement("button", {
+    className: "iconbtn",
+    onClick: C.openAdmin,
+    "aria-label": "\uAD00\uB9AC\uC790 \xB7 \uAC00\uC871 \uD3EC\uC778\uD2B8"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "trophy",
+    size: 23
+  })), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: () => C.openMemberEdit(C.getM(C.me)),
     "aria-label": "\uD504\uB85C\uD544 \uACE0\uCE58\uAE30"
@@ -4603,7 +5052,16 @@ function MeTab() {
     "aria-label": "\uC124\uC815"
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "settings"
-  })))), /*#__PURE__*/React.createElement("div", {
+  })))), C.isAdmin && /*#__PURE__*/React.createElement("button", {
+    className: "banner adm-go",
+    onClick: C.openAdmin
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "bic"
+  }, "\uD83C\uDFC6"), /*#__PURE__*/React.createElement("div", {
+    className: "grow"
+  }, /*#__PURE__*/React.createElement("b", null, "\uAD00\uB9AC\uC790 \xB7 \uAC00\uC871 \uD3EC\uC778\uD2B8"), /*#__PURE__*/React.createElement("span", null, "\uC21C\uC704 \xB7 \uBC29\uBB38 \xB7 \uC870\uD68C \xB7 \uC54C\uB9BC \uC0C1\uD0DC \uBCF4\uAE30")), /*#__PURE__*/React.createElement(LIcon, {
+    name: "chevron-right"
+  })), /*#__PURE__*/React.createElement("div", {
     className: "sheetcard",
     style: {
       paddingTop: 6
@@ -5242,7 +5700,12 @@ function SettingsSheet({
     inSettings: true
   })), /*#__PURE__*/React.createElement("div", {
     className: "field"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDD14 \uC0C8 \uC18C\uC2DD \uC54C\uB9BC"), /*#__PURE__*/React.createElement(PushSettings, null)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDD14 \uC0C8 \uC18C\uC2DD \uC54C\uB9BC"), /*#__PURE__*/React.createElement(PushSettings, null)), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '-6px 2px 14px'
+    }
+  }, "\uD83C\uDFC6 \uAC00\uC871 \uD3EC\uC778\uD2B8 \uB300\uD68C \uC911\uC774\uC5D0\uC694. \uC571 \uBC29\uBB38\xB7\uC18C\uC2DD \uBCF4\uAE30\xB7\uAE00\xB7\uB313\uAE00\uC774 \uC810\uC218\uB85C \uC313\uC5EC\uC694."), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\uAE00\uC528 \uD06C\uAE30"), /*#__PURE__*/React.createElement("div", {
     className: "seg seg3"
@@ -5714,6 +6177,7 @@ function App() {
   /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
   const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
   const [settings, setSettings] = useState(false);
+  const [admin, setAdmin] = useState(false);
   const [lettersOpen, setLettersOpen] = useState(false);
   const [tagView, setTagView] = useState(null);
   const [memberEdit, setMemberEdit] = useState(null);
@@ -5795,8 +6259,8 @@ function App() {
         if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요');
         return false;
       }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : undefined).catch(() => [])));
       const data = {
         app: 'THE FAMILY ZONE',
         saved_at: new Date().toISOString(),
@@ -5828,6 +6292,7 @@ function App() {
       if (document.visibilityState === 'visible' && familyKey) {
         clearBadge();
         ensurePush(store.get('fz_me'));
+        logVisit(store.get('fz_me'));
       }
       if (document.visibilityState === 'hidden') {
         store.set('fz_seen', new Date().toISOString());
@@ -6238,6 +6703,8 @@ function App() {
     openQuestion: q => setQuestion(q),
     openBook: y => setBook(y),
     openSettings: () => setSettings(true),
+    openAdmin: () => setAdmin(true),
+    isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true),
     openNoti: () => setNotiOpen(true),
     prayers: D.prayers,
@@ -6282,6 +6749,7 @@ function App() {
     if (!loaded || !me) return;
     clearBadge();
     ensurePush(me);
+    logVisit(me);
   }, [loaded, me]);
   useEffect(() => {
     if (!PUSH_OK) return;
@@ -6465,6 +6933,9 @@ function App() {
   }), /*#__PURE__*/React.createElement(SettingsSheet, {
     open: settings,
     onClose: () => setSettings(false)
+  }), /*#__PURE__*/React.createElement(AdminSheet, {
+    open: admin,
+    onClose: () => setAdmin(false)
   }), /*#__PURE__*/React.createElement(LettersPage, {
     open: lettersOpen,
     onClose: () => setLettersOpen(false)

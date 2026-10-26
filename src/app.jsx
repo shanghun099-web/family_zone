@@ -668,7 +668,8 @@ function PostCard({ p }) {
   const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
   const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false);
   const [bar, setBar] = useState(false); const barT = useRef(0); const press = useRef(null);
-  const lastTap = useRef(0);
+  const lastTap = useRef(0); const vref = useRef(null);
+  useViewed(vref, isLocked(p) ? null : p.id, 'post', p.author_id);
   useEffect(() => () => { clearTimeout(barT.current); clearTimeout(press.current); }, []);
   if (isLocked(p) && !peek) return <LockedCard p={p} onPeek={p.author_id === C.me ? () => setPeek(true) : null}/>;
   const photos = photosOf(p);
@@ -695,7 +696,7 @@ function PostCard({ p }) {
   const speakKey = 'p' + p.id;
   const openedToday = p.open_on && p.open_on === ymd();
   return (
-    <article className="post">
+    <article className="post" ref={vref}>
       <div className="post-hd">
         <Avatar m={a} size={42} ring={C.storyRing(a.id)} onClick={() => C.openProfile(a.id)}/>
         <div className="grow">
@@ -1546,6 +1547,7 @@ function PrayCard({ p, focus, feed }) {
   const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false); const [editing, setEditing] = useState(false);
   const ref = useRef(null);
   useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
+  useViewed(ref, p.id, 'pray', p.author_id);
   const marks = C.pmarks.filter(m => m.prayer_id === p.id);
   const who = [...new Set(marks.map(m => m.member_id))];
   const today = ymd(); const todayWho = [...new Set(marks.filter(m => m.day === today).map(m => m.member_id))];
@@ -1752,6 +1754,184 @@ function NotiTab({ onBack }) {
   );
 }
 
+/* ═══════════ 관리자 · 가족 포인트 (관리자 폰에서만) ═══════════ */
+/* 방문: 앱을 열 때·10분 넘게 쉬었다 다시 볼 때 한 번 (점수는 하루 1번만) */
+const logVisit = member => {
+  if (!member || !familyKey) return;
+  const t = Date.now(), key = `${member}|${ymd()}`;
+  if (store.get('fz_vis_k') === key && t - +(store.get('fz_vis_t') || 0) < 10 * 60e3) return;
+  store.set('fz_vis_k', key); store.set('fz_vis_t', String(t));
+  db.rpc('log_visit', { p_member: member }).catch(() => {});
+};
+/* 조회: 남의 소식·기도가 화면에 1초 넘게 보이면 한 번 (같은 건 다시 안 셈) */
+const viewed = new Set((() => { try { return JSON.parse(store.get('fz_viewed') || '[]'); } catch (e) { return []; } })());
+const markViewed = (me, id, kind) => {
+  const k = me + ':' + id; if (viewed.has(k)) return;
+  viewed.add(k); store.set('fz_viewed', JSON.stringify([...viewed].slice(-3000)));
+  db.addOnce('views', { item_id: id, member_id: me, kind }, 'item_id,member_id').catch(() => viewed.delete(k));
+};
+function useViewed(ref, id, kind, author) {
+  const C = useC();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !id || !C.me || author === C.me || viewed.has(C.me + ':' + id) || !window.IntersectionObserver) return;
+    let t = 0;
+    const io = new IntersectionObserver(es => { clearTimeout(t); if (es[0].isIntersecting) t = setTimeout(() => { io.disconnect(); markViewed(C.me, id, kind); }, 1000); }, { threshold: 0.35 });
+    io.observe(el); return () => { clearTimeout(t); io.disconnect(); };
+  }, [id, C.me]);
+}
+
+/* 점수 규칙 (서버 family_points 와 같은 기본값) */
+const POINT_DEF = { visit: 2, post: 10, daily: 5, answer: 10, comment: 3, comment_cap: 10, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1 };
+const POINT_ROWS = [['visit', '앱 들어오기', 'visits', '하루 1번만'], ['post', '새 소식 올리기', 'posts'], ['daily', '오늘의 한 장', 'daily'], ['answer', '이번 주 질문에 답', 'answers'],
+  ['comment', '댓글', 'comments', '하루 최대 개수까지'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks'],
+  ['react', '마음(이모지) 남기기', 'reacts', '남의 소식에만'], ['view', '소식 보기 (조회)', 'views', '하나당 1번']];
+const dayAdd = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
+function periodOf(k) {
+  const t = ymd(), d = parseYmd(t);
+  if (k === 'week') return [dayAdd(t, -((d.getDay() + 6) % 7)), t];
+  if (k === 'last') return [ymd(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymd(new Date(d.getFullYear(), d.getMonth(), 0))];
+  if (k === 'year') return [`${d.getFullYear()}-01-01`, t];
+  return [t.slice(0, 8) + '01', t];
+}
+
+function AdminSheet({ open, onClose }) {
+  const C = useC(); const today = ymd();
+  const [D, setD] = useState(null); const [per, setPer] = useState('month'); const [pts, setPts] = useState(null);
+  const [rules, setRules] = useState(POINT_DEF); const [edit, setEdit] = useState(null); const [detail, setDetail] = useState(null);
+  const recent = useMemo(() => [
+    ...C.posts.filter(p => !isLocked(p)).map(p => ({ id: p.id, kind: 'post', author: p.author_id, t: p.created_at, text: p.kind === 'daily' ? `오늘의 한 장${p.content ? ' · ' + p.content : ''}` : (p.title || p.content || `사진 ${photosOf(p).length}장`) })),
+    ...C.prayers.map(p => ({ id: p.id, kind: 'pray', author: p.author_id, t: p.created_at, text: `🙏 ${p.content || '목소리 기도'}` }))
+  ].sort((a, b) => b.t.localeCompare(a.t)).slice(0, 6), [C.posts, C.prayers]);
+  const load = async () => {
+    const since = dayAdd(today, -40);
+    const ids = recent.map(x => x.id);
+    const [vs, ws, ps, st, first] = await Promise.all([
+      db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []),
+      ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [],
+      db.list('push_subs', 'select=member_id&order=member_id').catch(() => []),
+      db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []),
+      sb('visits?select=day&order=day.asc&limit=1').catch(() => [])
+    ]);
+    setRules({ ...POINT_DEF, ...((st[0] && st[0].v) || {}) });
+    setD({ vs, ws, ps, first: first[0] && first[0].day });
+  };
+  const loadPts = async k => { setPts(null); const [a, b] = periodOf(k); try { setPts(await db.rpc('family_points', { p_from: a, p_to: b }) || []); } catch (e) { setPts([]); } };
+  useEffect(() => { if (open) { setD(null); load(); loadPts(per); } }, [open]);
+  const pick = k => { setPer(k); loadPts(k); };
+  const saveRules = async () => {
+    const v = {}; Object.keys(POINT_DEF).forEach(k => { v[k] = Math.max(0, Math.round(+edit[k] || 0)); });
+    if (await C.write(() => db.upsert('app_settings', { k: 'points', v, updated_at: new Date().toISOString() }, 'k'), '점수 규칙을 바꿨어요')) { setRules(v); setEdit(null); loadPts(per); }
+  };
+  const ms = C.members;
+  const vs = D ? D.vs : [];
+  const lastOf = id => vs.filter(v => v.member_id === id).sort((a, b) => a.last_at.localeCompare(b.last_at)).pop();
+  const [w0] = periodOf('week'); const week = [...Array(7)].map((_, i) => dayAdd(w0, i));
+  const pushOn = new Set(D ? D.ps.map(p => p.member_id) : []);
+  const rows = (pts || []).map(r => ({ ...r, m: C.getM(r.member_id) })).filter(r => ms.some(m => m.id === r.member_id));
+  const top = rows.length ? Math.max(1, rows[0].points) : 1;
+  const medal = ['🥇', '🥈', '🥉'];
+  return (
+    <Sheet open={open} onClose={onClose} full title="🏆 관리자 · 가족 포인트">
+      <p className="small muted" style={{ marginTop: 0 }}>관리자 폰에서만 보여요.{D && D.first ? ` 방문·조회는 ${fmtDate(D.first, true)}부터 세고 있어요.` : ' 방문·조회는 오늘부터 세기 시작해요.'}</p>
+
+      <div className="adm">
+        <div className="adm-t">오늘 누가 들어왔나</div>
+        {!D ? <div className="row gap small muted"><span className="spin dark"/>불러오는 중…</div> : ms.map(m => {
+          const l = lastOf(m.id); const td = vs.find(v => v.member_id === m.id && v.day === today);
+          const gap = l ? dayDiff(l.day, today) : null;
+          return (
+            <div className="adm-r" key={m.id}>
+              <Avatar m={m} size={32}/><b className="grow">{m.name}</b>
+              {td ? <span className="small muted">{relTime(td.last_at)} · 오늘 {td.opens}번</span>
+                : l ? <span className={'small' + (gap >= 3 ? ' warn' : ' muted')}>{gap === 1 ? '어제' : `${gap}일째 안 들어왔어요`}</span>
+                : <span className="small muted">아직 기록 없어요</span>}
+              {(!l || gap >= 3) && m.id !== C.me && <button className="btn sm soft" onClick={() => { onClose(); C.openLetterCompose({ to: m.id }); }}>💌</button>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">이번 주 출석부</div>
+        <div className="att"><span/>{week.map((d, i) => <span key={d} className={'h' + (d === today ? ' td' : '')}>{'월화수목금토일'[i]}</span>)}</div>
+        {ms.map(m => (
+          <div className="att" key={m.id}><span className="nm">{m.name}</span>{week.map(d => <i key={d} className={vs.some(v => v.member_id === m.id && v.day === d) ? 'on' : d > today ? 'fu' : ''}/>)}</div>
+        ))}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">포인트 순위</div>
+        <div className="chips" style={{ marginBottom: 8 }}>{[['week', '이번 주'], ['month', '이번 달'], ['last', '지난달'], ['year', '올해']].map(([k, l]) => <button key={k} className={'chip' + (per === k ? ' on' : '')} onClick={() => pick(k)}>{l}</button>)}</div>
+        <div className="small muted" style={{ marginBottom: 6 }}>{(() => { const [a, b] = periodOf(per); return `${fmtDate(a, true)} ~ ${fmtDate(b, true)}`; })()}</div>
+        {!pts ? <div className="row gap small muted"><span className="spin dark"/>계산하는 중…</div> : rows.map((r, i) => (
+          <button className="rank" key={r.member_id} onClick={() => setDetail(r)}>
+            <span className="no">{r.points > 0 && medal[i] ? medal[i] : i + 1}</span><Avatar m={r.m} size={28}/><span className="nm">{r.m.name}</span>
+            <span className="bar"><i style={{ width: `${Math.round(r.points / top * 100)}%` }}/></span><b>{r.points}점</b>
+          </button>
+        ))}
+        {pts && rows.length > 0 && <p className="small muted" style={{ margin: '6px 2px 0' }}>이름을 누르면 점수가 어떻게 나왔는지 보여요. 매달 1일 아침 9시에 지난달 1등을 온 가족에게 알려요.</p>}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">식구별 기록 <span className="small muted" style={{ fontWeight: 400 }}>({{ week: '이번 주', month: '이번 달', last: '지난달', year: '올해' }[per]})</span></div>
+        <table className="atb">
+          <thead><tr><th/><th>방문</th><th>조회</th><th>새 글</th><th>댓글</th><th>마음</th><th>기도</th></tr></thead>
+          <tbody>{rows.map(r => <tr key={r.member_id} onClick={() => setDetail(r)}><td>{r.m.name}</td><td>{r.visits}</td><td>{r.views}</td><td>{r.posts + r.daily}</td><td>{r.comments}</td><td>{r.reacts}</td><td>{r.prayers + r.pmarks}</td></tr>)}</tbody>
+        </table>
+      </div>
+
+      <div className="adm">
+        <div className="adm-t row" style={{ justifyContent: 'space-between' }}>점수 규칙{!edit && <button className="btn sm soft" onClick={() => setEdit({ ...rules })}><LIcon name="pencil" size={16}/>바꾸기</button>}</div>
+        {POINT_ROWS.map(([k, l, , note]) => (
+          <div className="rule" key={k}>
+            <span className="grow">{l}{note && <span className="small muted"> · {k === 'comment' ? `하루 ${rules.comment_cap}개까지` : note}</span>}</span>
+            {edit ? <input className="input pt" type="number" inputMode="numeric" min="0" value={edit[k]} onChange={e => setEdit(x => ({ ...x, [k]: e.target.value }))}/> : <b className="pt">+{rules[k]}</b>}
+          </div>
+        ))}
+        {edit && <div className="rule"><span className="grow">댓글 점수 하루 최대 개수</span><input className="input pt" type="number" inputMode="numeric" min="0" value={edit.comment_cap} onChange={e => setEdit(x => ({ ...x, comment_cap: e.target.value }))}/></div>}
+        {edit && <div className="row gap" style={{ marginTop: 10 }}><button className="btn soft grow" onClick={() => setEdit(null)}>그만두기</button><button className="btn primary grow" onClick={saveRules}>저장</button></div>}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">폰 알림</div>
+        {D && <>
+          <div className="adm-r"><span className="pill ok">켜짐</span><span className="grow">{ms.filter(m => pushOn.has(m.id)).map(m => m.name).join(', ') || '없음'}</span></div>
+          <div className="adm-r"><span className="pill no">꺼짐</span><span className="grow">{ms.filter(m => !pushOn.has(m.id)).map(m => m.name).join(', ') || '없음 · 모두 켜져 있어요'}</span></div>
+          <p className="small muted" style={{ margin: '4px 2px 0' }}>꺼진 식구는 앱을 한 번 열고 "알림 받기"를 눌러야 소식 알림이 가요.</p>
+        </>}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">최근 소식 · 본 사람</div>
+        {D && recent.map(x => {
+          const saw = D.ws.filter(w => w.item_id === x.id).map(w => w.member_id);
+          const not = ms.filter(m => m.id !== x.author && !saw.includes(m.id));
+          return (
+            <div className="seen" key={x.id}>
+              <div className="row gap"><Avatar m={C.getM(x.author)} size={24}/><b className="grow ell">{C.getM(x.author).name} · {x.text}</b><span className="small muted">{saw.length}명 봄</span></div>
+              <div className="small" style={{ paddingLeft: 32 }}>
+                {saw.length > 0 && <span>👀 {saw.map(id => C.getM(id).name).join(', ')}</span>}
+                {not.length > 0 && <span className="muted">{saw.length ? ' · ' : ''}아직: {not.map(m => m.name).join(', ')}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Sheet open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.m.name} · 점수 자세히` : ''}>
+        {detail && <>
+          {POINT_ROWS.map(([k, l, f]) => (
+            <div className="rule" key={k}><span className="grow">{l}</span><span className="small muted">{detail[f]}번 × {rules[k]}</span><b className="pt">{detail[f] * rules[k]}점</b></div>
+          ))}
+          <div className="rule" style={{ borderTop: '2px solid #222' }}><b className="grow">합계</b><b className="pt" style={{ fontSize: '1.2rem' }}>{detail.points}점</b></div>
+          <p className="small muted">앱은 {detail.opens}번 열었어요 (점수는 하루 1번만). 댓글은 하루 {rules.comment_cap}개까지만 세요.</p>
+        </>}
+      </Sheet>
+    </Sheet>
+  );
+}
+
 /* ═══════════ 내 프로필 (+ 우리 식구) ═══════════ */
 function MeTab() {
   const C = useC();
@@ -1760,10 +1940,12 @@ function MeTab() {
       <div className="topbar">
         <span className="h1">내 프로필</span>
         <div className="row">
+          {C.isAdmin && <button className="iconbtn" onClick={C.openAdmin} aria-label="관리자 · 가족 포인트"><LIcon name="trophy" size={23}/></button>}
           <button className="iconbtn" onClick={() => C.openMemberEdit(C.getM(C.me))} aria-label="프로필 고치기"><LIcon name="pencil" size={22}/></button>
           <button className="iconbtn" onClick={C.openSettings} aria-label="설정"><LIcon name="settings"/></button>
         </div>
       </div>
+      {C.isAdmin && <button className="banner adm-go" onClick={C.openAdmin}><span className="bic">🏆</span><div className="grow"><b>관리자 · 가족 포인트</b><span>순위 · 방문 · 조회 · 알림 상태 보기</span></div><LIcon name="chevron-right"/></button>}
       <div className="sheetcard" style={{ paddingTop: 6 }}>
         <div className="sec-t" style={{ paddingTop: 8 }}>우리 식구 <span className="small muted" style={{ fontWeight: 400 }}>누르면 그 사람의 사진·연표·목소리</span></div>
         <div className="famrow">
@@ -1972,6 +2154,7 @@ function SettingsSheet({ open, onClose }) {
     <Sheet open={open} onClose={onClose} full title="설정">
       {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
       <div className="field"><label>🔔 새 소식 알림</label><PushSettings/></div>
+      <p className="small muted" style={{ margin: '-6px 2px 14px' }}>🏆 가족 포인트 대회 중이에요. 앱 방문·소식 보기·글·댓글이 점수로 쌓여요.</p>
       <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
       <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
       <div className="field">
@@ -2142,7 +2325,7 @@ function App() {
   const [postView, setPostView] = useState(null); const [notiOpen, setNotiOpen] = useState(false); const [prayFocus, setPrayFocus] = useState(null);
   /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
   const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
-  const [settings, setSettings] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
+  const [settings, setSettings] = useState(false); const [admin, setAdmin] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
   const toastTimer = useRef(null);
   const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
 
@@ -2185,8 +2368,8 @@ function App() {
   const runBackup = async manual => {
     try {
       if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : undefined).catch(() => [])));
       const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
       tables.forEach((t, i) => data[t] = all[i]);
       await gw('backup', { day: ymd(), data: JSON.stringify(data) });
@@ -2206,7 +2389,7 @@ function App() {
   }, [hasKey]);
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === 'visible' && familyKey) { clearBadge(); ensurePush(store.get('fz_me')); }
+      if (document.visibilityState === 'visible' && familyKey) { clearBadge(); ensurePush(store.get('fz_me')); logVisit(store.get('fz_me')); }
       if (document.visibilityState === 'hidden') { store.set('fz_seen', new Date().toISOString()); if (window.speechSynthesis) window.speechSynthesis.cancel(); }
       if (document.visibilityState === 'visible' && familyKey) { setPrevSeen(store.get('fz_seen') || prevSeen); loadAll(); }
     };
@@ -2320,7 +2503,7 @@ function App() {
     leave: () => leave(), changeMe: () => setMe(''),
     openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
     openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
-    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true),
+    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true), openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
     openPray: id => { setTab('pray'); setPrayFocus(id); },
     /* 🙏 기도했어요: 오늘 한 번 (다시 누르면 취소) */
@@ -2337,7 +2520,7 @@ function App() {
   useEffect(() => {
     if (!loaded || !me) return;
     clearBadge();
-    ensurePush(me);
+    ensurePush(me); logVisit(me);
   }, [loaded, me]);
   useEffect(() => {
     if (!PUSH_OK) return;
@@ -2399,6 +2582,7 @@ function App() {
       <QuestionSheet q={question} onClose={() => setQuestion(null)}/>
       <MemberEdit m={memberEdit} onClose={() => setMemberEdit(null)}/>
       <SettingsSheet open={settings} onClose={() => setSettings(false)}/>
+      <AdminSheet open={admin} onClose={() => setAdmin(false)}/>
       <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
       <TagPage tag={tagView} onClose={() => setTagView(null)}/>
       <NotiPage open={notiOpen} onClose={closeNoti}/>
