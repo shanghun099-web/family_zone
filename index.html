@@ -1303,7 +1303,7 @@ function HomeTab() {
         </button>
       )}
       <div style={{ height: 4 }}/>
-      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>오른쪽 위 <b>＋</b>를 눌러 첫 소식을 올려 보세요.</div>}
+      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 추가</b>를 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
       {feed.slice(0, shown).map(p => <PostCard key={p.id} p={p}/>)}
       {shown < feed.length
         ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
