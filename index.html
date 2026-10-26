@@ -191,8 +191,8 @@
   /* 프로필 */
   .prof{padding:6px 16px 0}
   .prof .cnts{display:flex;flex:1;justify-content:space-around;text-align:center}
-  .prof .cnts b{display:block;font-size:1.2rem}.prof .cnts span{font-size:.8rem;color:var(--sub)}
-  .prof h3{margin:12px 0 0;font-size:1.1rem}
+  .prof .cnts>div{display:flex;flex-direction:column;align-items:center;gap:2px}
+  .prof .cnts b{display:block;font-size:1.25rem}.prof .cnts span{font-size:.8rem;color:var(--sub)}  .prof h3{margin:12px 0 0;font-size:1.1rem}
   .prof p{margin:2px 0 10px;font-size:.95rem;color:#444;line-height:1.55}
   .pbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
   .ptabs{display:flex;border-top:1px solid var(--line);position:sticky;top:56px;background:#fff;z-index:5}
@@ -368,6 +368,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=60a6b073"></script>
+<script src="app.js?v=1d1c80a7"></script>
 </body>
 </html>

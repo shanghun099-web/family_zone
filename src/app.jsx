@@ -1845,7 +1845,7 @@ function ProfileBody({ mid, top = 56 }) {
     ...C.letters.filter(l => l.sender_id === m.id && l.audio_url && !isLocked(l)).map(l => ({ id: l.id, src: l.audio_url, t: l.created_at, text: l.content, ctx: `${C.getM(l.receiver_id).name}에게 보낸 목소리 편지` }))
   ].sort((a, b) => b.t.localeCompare(a.t)) : [];
   const mine = m && m.id === C.me;
-  const ageLabel = m && m.birth_date ? `${ageOn(m.birth_date, today)}살` : null;
+  const age = m && m.birth_date ? ageOn(m.birth_date, today) : null;
   const saved = mine ? C.posts.filter(p => C.isSaved(p.id) && !isLocked(p)) : [];
   return (
     <>
@@ -1854,9 +1854,11 @@ function ProfileBody({ mid, top = 56 }) {
           <div className="row" style={{ gap: 16 }}>
             <Avatar m={m} size={86} ring={C.storyRing(m.id) || 'plain'} onClick={C.dailyToday(m.id).length ? () => C.openStory(C.dailyToday(m.id)) : undefined}/>
             <div className="cnts">
-              <div><b>{C.posts.filter(p => p.author_id === m.id && p.kind !== 'daily').length}</b><span>소식</span></div>
-              <div><b>{C.letters.filter(l => l.receiver_id === m.id).length}</b><span>받은 편지</span></div>
-              <div><b>{ageLabel || posts.reduce((n, p) => n + photosOf(p).length, 0)}</b><span>{ageLabel ? '나이' : '사진'}</span></div>
+              <div><span>소식</span><b>{C.posts.filter(p => p.author_id === m.id && p.kind !== 'daily').length}</b></div>
+              <div><span>받은 편지</span><b>{C.letters.filter(l => l.receiver_id === m.id).length}</b></div>
+              {age !== null
+                ? <div><span>나이</span><b>{age}</b></div>
+                : <div><span>사진</span><b>{posts.reduce((n, p) => n + photosOf(p).length, 0)}</b></div>}
             </div>
           </div>
           <h3>{m.name}{m.role ? ` · ${m.role}` : ''}</h3>
