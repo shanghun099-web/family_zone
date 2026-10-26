@@ -1257,7 +1257,7 @@ function QHero({ q, onOpen, inline }) {
         : <div className="qh-q">{q.text}</div>}
       {!S.picking && q.note && <div className="qh-note">💬 “{q.note}”</div>}
       {!S.picking && q.audio_url && inline && <div style={{ position: 'relative', marginBottom: 10 }}><VoicePlayer src={q.audio_url}/></div>}
-      <div className="qh-by"><Avatar m={asker} size={26}/><span><b>{asker.name}</b>{S.picking ? ' 차례 🎤' : josa(asker.name, '이', '가').slice(asker.name.length) + ' 물어요'}{q.audio_url && !inline ? ' · 🎙' : ''}</span></div>
+      {!q.asker_id ? <div className="qh-by" style={{ paddingLeft: 12 }}><span>예전 방식 질문</span></div> : <div className="qh-by"><Avatar m={asker} size={26}/><span><b>{asker.name}</b>{S.picking ? ' 차례 🎤' : josa(asker.name, '이', '가').slice(asker.name.length) + ' 물어요'}{q.audio_url && !inline ? ' · 🎙' : ''}</span></div>}
       <div className="qh-ft">
         <span className="qh-faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .35 }}><Avatar m={m} size={24}/></span>)}</span>
         <span className="qh-st">{status}</span>
@@ -1271,11 +1271,11 @@ function QHero({ q, onOpen, inline }) {
 /* 순서표: 지난주 · 이번 주 · 다음 주들 */
 function QTurns({ cur, onOrder }) {
   const C = useC(); const order = C.members;
-  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-2);
+  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id && q.asker_id !== cur.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-1);
   const items = past.map(q => ({ m: C.getM(q.asker_id), wk: q.week_start, tag: '✓', cls: 'done' }));
   items.push({ m: C.getM(cur.asker_id), wk: cur.week_start, tag: '🎤', cls: 'now' });
   let id = cur.asker_id;
-  for (let i = 1; i <= Math.min(3, Math.max(1, order.length - 1)); i++) { const n = nextOf(order, id); id = n && n.id; if (!n) break; items.push({ m: n, wk: ymd(addDays(parseYmd(cur.week_start), 7 * i)), cls: '' }); }
+  for (let i = 1; i <= Math.min(6, Math.max(1, order.length - 1)); i++) { const n = nextOf(order, id); id = n && n.id; if (!n) break; items.push({ m: n, wk: ymd(addDays(parseYmd(cur.week_start), 7 * i)), cls: '' }); }
   const label = (wk, cls) => cls === 'now' ? '이번 주' : wk === ymd(addDays(parseYmd(cur.week_start), 7)) ? '다음 주' : wk === ymd(addDays(parseYmd(cur.week_start), -7)) ? '지난주' : fmtDot(wk).slice(5);
   return (
     <div className="turns">
@@ -1459,7 +1459,7 @@ function QuestionSheet({ q, onClose }) {
             <div className="sec-t" style={{ padding: '18px 0 6px' }}>지난 질문들</div>
             {past.map(x => { const n = C.answers.filter(a => a.question_id === x.id).length; const am = C.getM(x.asker_id); return (
               <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => { setView(x); setEditing(false); }}>
-                <Avatar m={am} size={36}/><div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {am.name}의 질문 · 답 {n}개</span></div>
+                {x.asker_id ? <Avatar m={am} size={36}/> : <div className="bic" style={{ width: 36, height: 36, background: '#F3EEFF', color: '#6a3fc8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>❓</div>}<div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {x.asker_id ? `${am.name}의 질문` : '예전 방식 질문'} · 답 {n}개</span></div>
               </button>); })}
           </>}
         </>
@@ -2276,6 +2276,10 @@ function App() {
     const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
     const pid = q.get('pray'); if (pid) { setTab('pray'); setPrayFocus(pid); }
   }, [loaded, linkReq, me, D]);
+
+  /* 폰 뒤로가기: 홈이 아닌 탭(달력·기도·내 프로필)에서는 홈으로, 홈에서는 앱이 닫힌다.
+     홈이 아닌 탭을 창 하나처럼 쌓아 두면, 뒤로가기가 열린 창 → 탭 → (홈이면 기록이 없어) 앱 종료 순으로 간다 */
+  useLayer(tab !== 'home', () => { setTab('home'); window.scrollTo(0, 0); });
 
   if (!hasKey) return <Gate onEnter={() => setHasKey(true)}/>;
   if (!loaded) return (

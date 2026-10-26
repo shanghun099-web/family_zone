@@ -3229,7 +3229,12 @@ function QHero({
     }
   }, /*#__PURE__*/React.createElement(VoicePlayer, {
     src: q.audio_url
-  })), /*#__PURE__*/React.createElement("div", {
+  })), !q.asker_id ? /*#__PURE__*/React.createElement("div", {
+    className: "qh-by",
+    style: {
+      paddingLeft: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\uC608\uC804 \uBC29\uC2DD \uC9C8\uBB38")) : /*#__PURE__*/React.createElement("div", {
     className: "qh-by"
   }, /*#__PURE__*/React.createElement(Avatar, {
     m: asker,
@@ -3269,7 +3274,7 @@ function QTurns({
 }) {
   const C = useC();
   const order = C.members;
-  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-2);
+  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id && q.asker_id !== cur.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-1);
   const items = past.map(q => ({
     m: C.getM(q.asker_id),
     wk: q.week_start,
@@ -3283,7 +3288,7 @@ function QTurns({
     cls: 'now'
   });
   let id = cur.asker_id;
-  for (let i = 1; i <= Math.min(3, Math.max(1, order.length - 1)); i++) {
+  for (let i = 1; i <= Math.min(6, Math.max(1, order.length - 1)); i++) {
     const n = nextOf(order, id);
     id = n && n.id;
     if (!n) break;
@@ -3799,16 +3804,28 @@ function QuestionSheet({
         setView(x);
         setEditing(false);
       }
-    }, /*#__PURE__*/React.createElement(Avatar, {
+    }, x.asker_id ? /*#__PURE__*/React.createElement(Avatar, {
       m: am,
       size: 36
-    }), /*#__PURE__*/React.createElement("div", {
+    }) : /*#__PURE__*/React.createElement("div", {
+      className: "bic",
+      style: {
+        width: 36,
+        height: 36,
+        background: '#F3EEFF',
+        color: '#6a3fc8',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }
+    }, "\u2753"), /*#__PURE__*/React.createElement("div", {
       className: "grow"
     }, /*#__PURE__*/React.createElement("b", {
       style: {
         fontSize: '.95rem'
       }
-    }, x.text), /*#__PURE__*/React.createElement("span", null, fmtDate(x.week_start), " \uC8FC \xB7 ", am.name, "\uC758 \uC9C8\uBB38 \xB7 \uB2F5 ", n, "\uAC1C")));
+    }, x.text), /*#__PURE__*/React.createElement("span", null, fmtDate(x.week_start), " \uC8FC \xB7 ", x.asker_id ? `${am.name}의 질문` : '예전 방식 질문', " \xB7 \uB2F5 ", n, "\uAC1C")));
   }))), /*#__PURE__*/React.createElement(TurnOrder, {
     open: orderOpen,
     onClose: () => setOrderOpen(false)
@@ -6088,6 +6105,13 @@ function App() {
       setPrayFocus(pid);
     }
   }, [loaded, linkReq, me, D]);
+
+  /* 폰 뒤로가기: 홈이 아닌 탭(달력·기도·내 프로필)에서는 홈으로, 홈에서는 앱이 닫힌다.
+     홈이 아닌 탭을 창 하나처럼 쌓아 두면, 뒤로가기가 열린 창 → 탭 → (홈이면 기록이 없어) 앱 종료 순으로 간다 */
+  useLayer(tab !== 'home', () => {
+    setTab('home');
+    window.scrollTo(0, 0);
+  });
   if (!hasKey) return /*#__PURE__*/React.createElement(Gate, {
     onEnter: () => setHasKey(true)
   });
