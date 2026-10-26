@@ -2154,7 +2154,6 @@ function SettingsSheet({ open, onClose }) {
     <Sheet open={open} onClose={onClose} full title="설정">
       {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
       <div className="field"><label>🔔 새 소식 알림</label><PushSettings/></div>
-      <p className="small muted" style={{ margin: '-6px 2px 14px' }}>🏆 가족 포인트 대회 중이에요. 앱 방문·소식 보기·글·댓글이 점수로 쌓여요.</p>
       <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
       <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
       <div className="field">

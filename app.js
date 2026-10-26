@@ -5700,12 +5700,7 @@ function SettingsSheet({
     inSettings: true
   })), /*#__PURE__*/React.createElement("div", {
     className: "field"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDD14 \uC0C8 \uC18C\uC2DD \uC54C\uB9BC"), /*#__PURE__*/React.createElement(PushSettings, null)), /*#__PURE__*/React.createElement("p", {
-    className: "small muted",
-    style: {
-      margin: '-6px 2px 14px'
-    }
-  }, "\uD83C\uDFC6 \uAC00\uC871 \uD3EC\uC778\uD2B8 \uB300\uD68C \uC911\uC774\uC5D0\uC694. \uC571 \uBC29\uBB38\xB7\uC18C\uC2DD \uBCF4\uAE30\xB7\uAE00\xB7\uB313\uAE00\uC774 \uC810\uC218\uB85C \uC313\uC5EC\uC694."), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDD14 \uC0C8 \uC18C\uC2DD \uC54C\uB9BC"), /*#__PURE__*/React.createElement(PushSettings, null)), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\uAE00\uC528 \uD06C\uAE30"), /*#__PURE__*/React.createElement("div", {
     className: "seg seg3"
