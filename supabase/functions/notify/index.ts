@@ -220,7 +220,7 @@ Deno.serve(async req => {
     }
     if (req.headers.get("x-push-secret") !== c.secret) return json({ error: "no" }, 401);
     if (mode === "morning") return json(await morning());
-    if (mode === "reveal") {   // 일요일 밤 9시: 다 같이 공개
+    if (mode === "reveal") {   // 토요일 밤 9시(cron q-reveal): 다 같이 공개
       const { data: wq } = await sb.from("questions").select("id,text").eq("week_start", weekKST()).maybeSingle();
       if (!wq || !wq.text) return json({ sent: 0 });
       const { data: as } = await sb.from("answers").select("member_id").eq("question_id", wq.id);

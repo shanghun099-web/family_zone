@@ -1552,9 +1552,9 @@ function LetterView({ l, onClose }) {
    - 식구 순서대로 한 주씩 질문자가 돌아간다 (지난 질문자의 다음 식구)
    - 질문자는 질문 상자에서 고르거나, 글·말로 직접 묻는다. 한마디도 붙일 수 있다
    - 수요일 아침까지 안 정하면 서버가 상자에서 자동으로 고른다
-   - 다 같이 공개: 모두 답하거나 일요일 밤 9시가 되면 답이 열린다 (그 전엔 내 답만 보임) */
+   - 다 같이 공개: 모두 답하거나 토요일 밤 9시가 되면 답이 열린다 (그 전엔 내 답만 보임) */
 const nextOf = (order, id) => { const i = order.findIndex(m => m.id === id); return order[(i + 1) % order.length] || order[0]; };
-const revealAt = wk => { const d = parseYmd(wk); d.setDate(d.getDate() + 6); d.setHours(21, 0, 0, 0); return d; };
+const revealAt = wk => { const d = parseYmd(wk); d.setDate(d.getDate() + 5); d.setHours(21, 0, 0, 0); return d; };   // 토요일 밤 9시
 function qState(C, q) {
   const ans = q ? C.answers.filter(a => a.question_id === q.id) : [];
   const done = [...new Set(ans.map(a => a.member_id))];
@@ -1567,11 +1567,11 @@ function qState(C, q) {
 function QHero({ q, onOpen, inline }) {
   const C = useC(); const S = qState(C, q); const asker = C.getM(q.asker_id); const iAsk = q.asker_id === C.me;
   const mine = S.done.includes(C.me);
-  const left = dayDiff(ymd(), ymd(revealAt(q.week_start)));   // 공개일(일요일)까지 남은 날
+  const left = dayDiff(ymd(), ymd(revealAt(q.week_start)));   // 공개일(토요일)까지 남은 날
   const status = S.picking ? '수요일 아침까지 안 정하면 자동으로 골라요'
     : S.allDone ? '모두 답했어요! 답이 열렸어요 🎁'
     : !S.isCur || S.revealed ? `답 ${S.done.length}개 · 답이 열렸어요 🎁`
-    : `답 ${S.done.length}/${C.members.length} · ${left <= 0 ? '오늘' : left === 1 ? '내일' : '일요일'} 밤 9시에 다 같이 공개`;
+    : `답 ${S.done.length}/${C.members.length} · ${left <= 0 ? '오늘' : left === 1 ? '내일' : '토요일'} 밤 9시에 다 같이 공개`;
   const cta = S.picking ? (iAsk ? ['질문 정하기 →', ''] : ['순서 보기', 'done']) : S.revealed ? ['답 보러 가기 🎁', ''] : mine ? ['내 답 남김 ✓', 'done'] : ['답하기 →', ''];
   const Tag = inline ? 'div' : 'button';
   return (
@@ -1771,7 +1771,7 @@ function QuestionSheet({ q, onClose }) {
                 <b className="grow">답 {S.done.length}/{C.members.length}</b>
                 <span className="faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .3 }}><Avatar m={m} size={26}/></span>)}</span>
               </div>
-              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>일요일 밤 9시</b>가 되면 한꺼번에 열려요.{S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'}</div>}
+              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>토요일 밤 9시</b>가 되면 한꺼번에 열려요.{S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'}</div>}
               {S.revealed && !S.ans.length && <p className="empty" style={{ padding: 20 }}>아직 답이 없어요. 아래에서 말로 답해 보세요.</p>}
               {shownAns.map(a => (
                 <div className="cmt" key={a.id}>
