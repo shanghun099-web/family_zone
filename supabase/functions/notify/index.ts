@@ -27,6 +27,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const kst = () => new Date(Date.now() + 9 * 3600e3);
 const ymdUTC = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 const todayKST = () => ymdUTC(kst());
+const weekKST = () => { const d = kst(); return ymdUTC(new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 864e5)); };   // 이번 주 월요일
 const isQuiet = () => { const h = kst().getUTCHours(); return h >= 22 || h < 8; };
 const fmtDate = (s: string) => { const [y, m, d] = s.split("-").map(Number); return `${y}년 ${m}월 ${d}일`; };
 const josa = (w: string, a: string, b: string) => { const c = w.charCodeAt(w.length - 1); return w + (c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? a : b); };
@@ -96,7 +97,7 @@ async function deliver(m: Msg) {
 
 /* ── 새 줄 → 누구에게 무슨 알림 ── */
 // deno-lint-ignore no-explicit-any
-async function build(table: string, r: any): Promise<Msg[]> {
+async function build(table: string, r: any, op = "INSERT", old: any = null): Promise<Msg[]> {
   const { data: ms } = await sb.from("members").select("id,name");
   const all = (ms || []) as { id: string; name: string }[];
   const name = (id: string) => (all.find(x => x.id === id) || { name: "식구" }).name;
@@ -133,8 +134,25 @@ async function build(table: string, r: any): Promise<Msg[]> {
     return [{ to: [r.receiver_id], pref: "letter", title: `${josa(s, "이", "가")} 편지를 보냈어요 💌`, body: cut(r.title || r.content) || (r.audio_url ? "🎙 목소리 편지" : ""), url: `${APP}?letter=${r.id}`, tag: `letter-${r.id}` }];
   }
   if (table === "answers") {
+    // 다 같이 공개: 답 내용은 알림에 안 넣고, 모두 답하면 "답이 열렸어요"
     const { data: q } = await sb.from("questions").select("id,text").eq("id", r.question_id).maybeSingle();
-    return [{ to: others(r.member_id), pref: "letter", title: `${josa(name(r.member_id), "이", "가")} 이번 주 질문에 답했어요`, body: q ? `“${cut(q.text, 60)}”` : "", url: `${APP}?q=${r.question_id}`, tag: `ans-${r.question_id}` }];
+    const { data: as } = await sb.from("answers").select("member_id").eq("question_id", r.question_id);
+    const done = new Set((as || []).map((a: { member_id: string }) => a.member_id)).size;
+    if (done >= all.length) return [{ to: all.map(x => x.id), pref: "letter", title: "모두 답했어요! 이번 주 답이 열렸어요 🎁", body: q ? `“${cut(q.text, 60)}”` : "", url: `${APP}?q=${r.question_id}`, tag: `ans-${r.question_id}` }];
+    return [{ to: others(r.member_id), pref: "letter", title: `${josa(name(r.member_id), "이", "가")} 이번 주 질문에 답했어요`, body: `답 ${done}/${all.length} · 모두 답하면 다 같이 열려요`, url: `${APP}?q=${r.question_id}`, tag: `ans-${r.question_id}` }];
+  }
+  if (table === "questions") {
+    if (!r.asker_id) return [];
+    const who = name(r.asker_id);
+    const url = `${APP}?q=${r.id}`;
+    if (!r.text) {   // 질문자가 아직 고르는 중: 새 주가 시작됐거나 차례가 넘어왔을 때 질문자에게만
+      if (op === "INSERT") return [{ to: [r.asker_id], pref: "letter", title: `이번 주는 ${josa(who, "이", "가")} 질문할 차례예요 🎤`, body: "질문 상자에서 고르거나, 글이나 말로 직접 물어보세요", url, tag: `q-${r.id}` }];
+      if (old && old.asker_id !== r.asker_id) return [{ to: [r.asker_id], pref: "letter", title: `차례가 넘어왔어요 🎤 이번 주 질문자는 ${who}`, body: `${old.asker_id ? name(old.asker_id) : "식구"}에게서 차례를 받았어요. 온 가족에게 물어볼 질문을 정해 주세요`, url, tag: `q-${r.id}` }];
+      return [];
+    }
+    if (op === "UPDATE" && old && old.text === r.text) return [];
+    const title = r.auto ? `이번 주 질문이 나왔어요 ❓ (${who} 차례 · 자동)` : `${josa(who, "이", "가")} 이번 주 질문을 냈어요 ❓`;
+    return [{ to: r.auto ? all.map(x => x.id) : others(r.asker_id), pref: "letter", title, body: `“${cut(r.text, 70)}”${r.note ? ` · ${cut(r.note, 30)}` : ""}`, url, tag: `q-${r.id}` }];
   }
   return [];
 }
@@ -152,6 +170,21 @@ async function morning() {
       else for (const x of items) sent += await send(sub as Sub, x.msg);
     }
     await sb.from("push_outbox").delete().in("id", items.map(x => x.id));
+  }
+  // 이번 주 질문: 월요일엔 질문자 차례 줄 만들기(트리거가 질문자에게 알림), 수요일부터 아직 비어 있으면 상자에서 자동으로
+  const dow = kst().getUTCDay();
+  if (dow === 1) await sb.rpc("ensure_week_q");
+  if (dow >= 3 || dow === 0) {
+    const { data: wq } = await sb.from("questions").select("id,text").eq("week_start", weekKST()).maybeSingle();
+    if (wq && !wq.text) {
+      const { data: used } = await sb.from("questions").select("text");
+      const usedSet = new Set((used || []).map((x: { text: string }) => x.text));
+      const { data: bank } = await sb.from("question_bank").select("text,added_by");
+      const pool = (bank || []).filter((b: { text: string }) => !usedSet.has(b.text));
+      const fam = pool.filter((b: { added_by: string | null }) => b.added_by);   // 식구가 넣은 질문 먼저
+      const pick = (fam.length ? fam : pool)[Math.floor(Math.random() * (fam.length || pool.length))];
+      if (pick) await sb.from("questions").update({ text: pick.text, auto: true, picked_at: new Date().toISOString() }).eq("id", wq.id);
+    }
   }
   // 내일 생일·행사
   const tomorrow = ymdUTC(new Date(kst().getTime() + 864e5));
@@ -187,13 +220,22 @@ Deno.serve(async req => {
     }
     if (req.headers.get("x-push-secret") !== c.secret) return json({ error: "no" }, 401);
     if (mode === "morning") return json(await morning());
+    if (mode === "reveal") {   // 일요일 밤 9시: 다 같이 공개
+      const { data: wq } = await sb.from("questions").select("id,text").eq("week_start", weekKST()).maybeSingle();
+      if (!wq || !wq.text) return json({ sent: 0 });
+      const { data: as } = await sb.from("answers").select("member_id").eq("question_id", wq.id);
+      const { data: ms } = await sb.from("members").select("id");
+      const done = new Set((as || []).map((a: { member_id: string }) => a.member_id)).size;
+      if (!done || done >= (ms || []).length) return json({ sent: 0, done });   // 아무도 안 했거나 이미 모두 답해서 열림
+      return json({ sent: await deliver({ to: (ms || []).map((m: { id: string }) => m.id), pref: "letter", title: "이번 주 답이 다 같이 열렸어요 🎁", body: `“${cut(wq.text, 60)}” · 답 ${done}개`, url: `${APP}?q=${wq.id}`, tag: `ans-${wq.id}` }) });
+    }
     const body = await req.json();
     if (mode === "test") {   // 시험: 한 식구에게 바로 한 통 (밤에도)
       const { data } = await sb.from("push_subs").select("*").eq("member_id", body.member_id);
       let n = 0; for (const s of (data || []) as Sub[]) n += await send(s, { title: body.title || "Familygram 알림 시험", body: body.body || "알림이 잘 와요 👍", url: APP, tag: "test" });
       return json({ sent: n, subs: (data || []).length });
     }
-    const msgs = await build(body.table, body.record || {});
+    const msgs = await build(body.table, body.record || {}, body.op || "INSERT", body.old || null);
     let sent = 0; for (const m of msgs) sent += await deliver(m);
     return json({ sent, msgs: msgs.length });
   } catch (e) {

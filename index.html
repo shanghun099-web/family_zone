@@ -217,6 +217,23 @@
   .qcard small{font-size:.8rem;font-weight:700;color:#b2502c}
   .qcard .qt{display:block;font-size:1.2rem;font-weight:900;margin:6px 0 10px;line-height:1.45}
   .qcard .qa{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;color:#7a4a3a}
+  .qnote{font-size:.95rem;color:#7a4a3a;margin:-4px 0 10px;line-height:1.5}
+  .turns{background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px 12px 12px;margin-bottom:12px}
+  .turns-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:.92rem}
+  .turns-row{display:flex;align-items:flex-start;gap:4px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  .turns-row::-webkit-scrollbar{display:none}
+  .turn{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:58px;padding:6px 4px;border-radius:12px;text-align:center;flex-shrink:0}
+  .turn b{font-size:.8rem;white-space:nowrap}.turn span{font-size:.7rem;color:var(--sub)}
+  .turn.now{background:#FFEFE8}.turn.now b{color:#c2502c}.turn.done{opacity:.55}
+  .turns-ar{color:#c9c3bc;font-size:1.2rem;padding-top:14px;flex-shrink:0}
+  .qpick{background:#FFFAF5;border:1px solid #F3DDCC;border-radius:16px;padding:12px;margin-bottom:12px}
+  .qlist{display:grid;gap:6px}
+  .qitem{text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.97rem;display:flex;flex-direction:column;gap:2px}
+  .qitem small{font-size:.75rem;color:#b2502c}
+  .qitem.on{border-color:#F0603A;background:#FFF1EA;font-weight:700}
+  .qpreview{background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-weight:700;border:1px dashed #F0B49A}
+  .qans{margin-bottom:6px}
+  .qlock{background:#F3EEFF;color:#5b4a86;border-radius:12px;padding:10px 12px;font-size:.92rem;margin-bottom:8px}
   .qcard .rec{background:#fff;border-radius:20px;padding:6px 13px;font-weight:700;color:#d2502c;display:flex;align-items:center;gap:5px;white-space:nowrap}
   .fil{display:flex;gap:7px;padding:8px 14px 4px}
   .lt{display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);width:100%;text-align:left}
@@ -503,27 +520,7 @@ function holidays(Y) {
   return holCache[Y] = h;
 }
 
-/* ── 이번 주의 질문 (매주 한 식구에게 돌아가며) ── */
-const QUESTION_BANK = [
-  '어릴 때 가장 좋아했던 놀이는 무엇이었나요?','처음 받은 월급(또는 용돈)으로 무엇을 했나요?','가장 기억에 남는 생일은 언제였나요?',
-  '우리 가족에게 고마웠던 순간 하나를 말해 주세요.','지금까지 가 본 곳 중 가장 좋았던 곳은 어디인가요?','학교 다닐 때 제일 좋아한 과목과 그 이유는?',
-  '어릴 때 꿈은 무엇이었나요?','가장 자신 있는 요리, 또는 제일 좋아하는 음식은?','요즘 가장 즐거운 일은 무엇인가요?',
-  '10년 뒤 우리 가족은 어떤 모습일까요?','가장 많이 웃었던 날은 언제였나요?','부모님께 배운 가장 소중한 것은 무엇인가요?',
-  '첫 친구는 누구였고 어떻게 만났나요?','살면서 가장 잘한 결정은 무엇인가요?','다시 돌아가고 싶은 나이는 몇 살인가요? 왜요?',
-  '우리 집만의 특별한 음식이나 습관이 있다면?','가장 아끼는 물건과 그 물건에 얽힌 이야기는?','힘들 때 힘이 되었던 말 한마디는?',
-  '좋아하는 노래와 그 노래에 얽힌 추억은?','명절에 가장 기억나는 장면은 무엇인가요?','어릴 때 살던 집은 어떤 모습이었나요?',
-  '가장 맛있게 먹었던 음식은 언제, 어디서였나요?','올해 꼭 해 보고 싶은 일은 무엇인가요?','가장 기억에 남는 선생님은 누구인가요?',
-  '비 오는 날 생각나는 추억이 있나요?','기억나는 가장 오래된 기억은 무엇인가요?','받은 선물 중 가장 감동적이었던 것은?',
-  '우리 가족 자랑 하나만 해 주세요.','어릴 때 혼났던 일 중 지금 생각하면 웃긴 일은?','가장 좋아하는 계절과 그 이유는?',
-  '꼭 다시 가 보고 싶은 곳은 어디인가요?','인생에서 가장 바빴던 시절은 언제였나요?','손주(또는 자식)에게 꼭 전하고 싶은 말은?',
-  '결혼식이나 큰 행사 날 기억나는 장면은?','가장 좋아했던 TV 프로그램이나 만화는?','처음 가 본 여행은 어디였나요?',
-  '가장 친한 친구를 소개해 주세요.','지금 이 순간 가장 감사한 것 세 가지는?','가족과 꼭 함께 해 보고 싶은 일은?',
-  '어른이 되어서야 알게 된 것 하나는?','내가 만든 것 중 가장 멋진 것은?','우리 동네에서 가장 좋아하는 장소는?',
-  '올해 가장 기억에 남는 일은 무엇인가요?','처음 자전거(또는 무언가)를 배운 날 이야기를 해 주세요.','가장 무서웠던 기억은 무엇인가요?',
-  '처음 이 집(동네)에 왔을 때 기억나는 것은?','가족 중 누구를 가장 닮았다고 생각하나요?','요즘 마음에 걸리는 일이 있다면?',
-  '어릴 때 즐겨 먹던 군것질은 무엇이었나요?','나에게 가장 큰 영향을 준 사람은 누구인가요?'
-];
-const weekNo = s => Math.floor(parseYmd(s).getTime() / (7 * 864e5));
+/* 이번 주의 질문: 질문 상자(기본 50개 + 식구가 넣은 것)는 DB question_bank 표에 있다 */
 
 /* ── 휴대폰 뒤로가기 = 맨 위 창 닫기 ── */
 /* 창을 열면 기록 한 칸을 쌓고, 화면에서 닫으면 그 칸을 되돌린다.
@@ -1227,7 +1224,8 @@ function HomeTab() {
   const agoYears = [...new Set(ago.map(p => +today.slice(0, 4) - +p.happened_on.slice(0, 4)))].sort((a, b) => a - b);
   const agoPhotos = ago.flatMap(p => photosOf(p)).slice(0, 3);
   const askedMe = C.posts.filter(p => p.ask_to === C.me && !isLocked(p) && !C.commentsOf(p.id).some(c => c.is_answer && c.author_id === C.me));
-  const wq = C.weekQ; const wqMine = wq && wq.target_id === C.me && !C.answers.some(x => x.question_id === wq.id && x.member_id === C.me);
+  const wq = C.weekQ; const wqPick = wq && !wq.text; const wqAsker = wq && C.getM(wq.asker_id);
+  const wqMine = wq && ((wqPick && wq.asker_id === C.me) || (!wqPick && !C.answers.some(x => x.question_id === wq.id && x.member_id === C.me)));
   return (
     <>
       <div className="topbar brand-hd">
@@ -1267,8 +1265,10 @@ function HomeTab() {
       )}
       {wqMine && (
         <button className="banner" onClick={() => C.openQuestion(wq)}>
-          <div className="bic" style={{ background: '#F3EEFF', color: '#6a3fc8' }}><LIcon name="circle-help"/></div>
-          <div className="grow"><b>이번 주 질문이 와 있어요</b><span>“{wq.text}”</span></div>
+          <div className="bic" style={{ background: '#FFEFE8', color: '#D0603A' }}><LIcon name="mic"/></div>
+          {wqPick
+            ? <div className="grow"><b>이번 주는 내가 질문할 차례예요 🎤</b><span>질문 상자에서 고르거나, 글·말로 온 가족에게 물어보세요</span></div>
+            : <div className="grow"><b>이번 주 질문자 · {wqAsker.name}</b><span>“{wq.text}”</span></div>}
           <LIcon name="chevron-right"/>
         </button>
       )}
@@ -1438,11 +1438,11 @@ function LettersTab({ onBack }) {
       </div>
       {wq && (
         <button className="qcard" onClick={() => C.openQuestion(wq)}>
-          <small>이번 주의 질문 · {C.getM(wq.target_id).name}께</small>
-          <span className="qt">“{wq.text}”</span>
+          <small>🎤 이번 주 질문자 · {C.getM(wq.asker_id).name}</small>
+          <span className="qt">{wq.text ? `“${wq.text}”` : wq.asker_id === C.me ? '내가 질문할 차례예요! 눌러서 질문 정하기' : `${josa(C.getM(wq.asker_id).name, '이', '가')} 질문을 고르는 중이에요 🤔`}</span>
           <div className="qa">
-            <span>{wqAns.length ? `${josa([...new Set(wqAns.map(a => C.getM(a.member_id).name))].join('·'), '이', '가')} 답했어요` : '아직 답이 없어요'}</span>
-            <span className="rec"><LIcon name="mic" size={16}/>{wq.target_id === C.me ? '답하기' : '보기·답하기'}</span>
+            <span>{wq.text ? `답 ${new Set(wqAns.map(a => a.member_id)).size}/${C.members.length} · 모두 답하면 다 같이 열려요` : '수요일 아침까지 안 정하면 자동으로 골라요'}</span>
+            <span className="rec"><LIcon name="mic" size={16}/>{wq.text ? '보기·답하기' : wq.asker_id === C.me ? '질문 정하기' : '순서 보기'}</span>
           </div>
         </button>
       )}
@@ -1546,18 +1546,168 @@ function LetterView({ l, onClose }) {
 }
 
 /* ═══════════ 이번 주 질문 ═══════════ */
+/* ═══════════ 이번 주의 질문: 한 사람이 묻고 온 가족이 답한다 ═══════════
+   - 식구 순서대로 한 주씩 질문자가 돌아간다 (지난 질문자의 다음 식구)
+   - 질문자는 질문 상자에서 고르거나, 글·말로 직접 묻는다. 한마디도 붙일 수 있다
+   - 수요일 아침까지 안 정하면 서버가 상자에서 자동으로 고른다
+   - 다 같이 공개: 모두 답하거나 일요일 밤 9시가 되면 답이 열린다 (그 전엔 내 답만 보임) */
+const nextOf = (order, id) => { const i = order.findIndex(m => m.id === id); return order[(i + 1) % order.length] || order[0]; };
+const revealAt = wk => { const d = parseYmd(wk); d.setDate(d.getDate() + 6); d.setHours(21, 0, 0, 0); return d; };
+function qState(C, q) {
+  const ans = q ? C.answers.filter(a => a.question_id === q.id) : [];
+  const done = [...new Set(ans.map(a => a.member_id))];
+  const isCur = !!q && q.week_start === weekStart();
+  const allDone = C.members.length > 0 && C.members.every(m => done.includes(m.id));
+  return { ans, done, isCur, picking: !!q && !q.text, allDone, revealed: !isCur || allDone || Date.now() >= revealAt(q.week_start) };
+}
+
+/* 순서표: 지난주 · 이번 주 · 다음 주들 */
+function QTurns({ cur, onOrder }) {
+  const C = useC(); const order = C.members;
+  const past = C.questions.filter(q => q.week_start < cur.week_start && q.asker_id).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-2);
+  const items = past.map(q => ({ m: C.getM(q.asker_id), wk: q.week_start, tag: '✓', cls: 'done' }));
+  items.push({ m: C.getM(cur.asker_id), wk: cur.week_start, tag: '🎤', cls: 'now' });
+  let id = cur.asker_id;
+  for (let i = 1; i <= Math.min(3, Math.max(1, order.length - 1)); i++) { const n = nextOf(order, id); id = n && n.id; if (!n) break; items.push({ m: n, wk: ymd(addDays(parseYmd(cur.week_start), 7 * i)), cls: '' }); }
+  const label = (wk, cls) => cls === 'now' ? '이번 주' : wk === ymd(addDays(parseYmd(cur.week_start), 7)) ? '다음 주' : wk === ymd(addDays(parseYmd(cur.week_start), -7)) ? '지난주' : fmtDot(wk).slice(5);
+  return (
+    <div className="turns">
+      <div className="turns-hd"><b>질문 순서</b><button className="linkbtn" style={{ minHeight: 0, padding: 0 }} onClick={onOrder}>순서 바꾸기</button></div>
+      <div className="turns-row">
+        {items.map((x, i) => (
+          <React.Fragment key={x.wk}>
+            {i > 0 && <span className="turns-ar">›</span>}
+            <div className={'turn ' + x.cls}><Avatar m={x.m} size={38}/><b>{x.m.name}{x.tag && <> {x.tag}</>}</b><span>{label(x.wk, x.cls)}</span></div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* 질문 순서 바꾸기 (= 식구 순서) */
+function TurnOrder({ open, onClose }) {
+  const C = useC(); const [list, setList] = useState([]); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) setList(C.members.map(m => m.id)); }, [open]);
+  const move = (i, d) => setList(l => { const n = [...l]; const j = i + d; if (j < 0 || j >= n.length) return l; [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const save = async () => { setBusy(true); const ok = await C.write(() => Promise.all(list.map((id, i) => db.patch('members', id, { sort: i + 1 }))), '질문 순서를 바꿨어요'); setBusy(false); if (ok) onClose(); };
+  return (
+    <Sheet open={open} onClose={onClose} title="질문 순서" right={<button className="hdbtn" disabled={busy} onClick={save}>저장</button>}>
+      <p className="small muted" style={{ marginTop: 0 }}>위에서부터 차례로 한 주씩 질문해요. 이 순서는 식구 목록·스토리 순서와 같아요.</p>
+      {list.map((id, i) => { const m = C.getM(id); return (
+        <div key={id} className="row gap" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+          <b style={{ width: 22, color: 'var(--sub)' }}>{i + 1}</b><Avatar m={m} size={38}/><b className="grow">{m.name}</b>
+          <button className="iconbtn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="위로"><LIcon name="chevron-up"/></button>
+          <button className="iconbtn" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="아래로"><LIcon name="chevron-down"/></button>
+        </div>); })}
+    </Sheet>
+  );
+}
+
+/* 질문자가 질문 정하기: 상자에서 고르기 / 글·말로 쓰기 + 한마디 */
+function QPicker({ cur, onDone }) {
+  const C = useC();
+  const [mode, setMode] = useState('box'); const [text, setText] = useState(cur.text || ''); const [note, setNote] = useState(cur.note || '');
+  const [voice, setVoice] = useState(cur.audio_url || null); const [more, setMore] = useState(false); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t))); const dictN = useDictation(t => setNote(s => joinText(s, t)));
+  const used = new Set(C.questions.filter(q => q.id !== cur.id).map(q => q.text));
+  const pool = C.bank.filter(b => !used.has(b.text)).sort((a, b) => (b.added_by ? 1 : 0) - (a.added_by ? 1 : 0));
+  const shown = more ? pool : pool.slice(0, 8);
+  const submit = async () => {
+    if (!text.trim()) { C.toast('질문을 고르거나 적어 주세요'); return; }
+    setBusy(true);
+    const ok = await C.write(() => db.patch('questions', cur.id, { text: text.trim(), note: note.trim() || null, audio_url: mode === 'write' ? voice : null, auto: false, picked_at: new Date().toISOString() }), '온 가족에게 질문을 냈어요 🎤');
+    setBusy(false); if (ok && onDone) onDone();
+  };
+  return (
+    <div className="qpick">
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button className={mode === 'box' ? 'on' : ''} onClick={() => setMode('box')}>📦 질문 상자에서</button>
+        <button className={mode === 'write' ? 'on' : ''} onClick={() => setMode('write')}>✍️ 직접 쓰기·말하기</button>
+      </div>
+      {mode === 'box' && <>
+        <button className="btn sm soft" style={{ marginBottom: 8 }} onClick={() => { const p = pool[Math.floor(Math.random() * pool.length)]; if (p) setText(p.text); }}>🎲 아무거나 하나 골라 줘</button>
+        <div className="qlist">
+          {shown.map(b => (
+            <button key={b.id} className={'qitem' + (text === b.text ? ' on' : '')} onClick={() => setText(b.text)}>
+              <span>{b.text}</span>{b.added_by && <small>{josa(C.getM(b.added_by).name, "이", "가")} 넣은 질문</small>}
+            </button>
+          ))}
+          {!pool.length && <p className="small muted">상자가 비었어요. 직접 써 주세요.</p>}
+        </div>
+        {pool.length > 8 && <button className="linkbtn" onClick={() => setMore(m => !m)}>{more ? '접기' : `질문 ${pool.length - 8}개 더 보기`}</button>}
+      </>}
+      {mode === 'write' && <>
+        <textarea className="input" rows={3} placeholder="온 가족에게 묻고 싶은 것을 적어 보세요" value={text} onChange={e => setText(e.target.value)}/>
+        <div className="row gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+          <MicButton dict={dict}/>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          {voice ? <div className="row gap"><VoicePlayer src={voice}/><button className="btn sm soft" onClick={() => setVoice(null)}>목소리 빼기</button></div>
+            : <RecordButton block label="🎤 내 목소리로 질문 남기기" onDone={async r => { const url = await uploadVoice(r.blob, r.sec); setVoice(url); if (!text.trim() && r.text) setText(r.text); }}/>}
+          <p className="small muted" style={{ margin: '6px 2px 0' }}>목소리를 남기면 식구들이 내 목소리로 질문을 들어요.</p>
+        </div>
+      </>}
+      <div className="field" style={{ margin: '14px 0 10px' }}>
+        <label>💬 질문자의 한마디 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+        <input className="input" placeholder="예: 어제 옛날 사진 보다가 궁금해졌어요" value={note} onChange={e => setNote(e.target.value)}/>
+        <div style={{ marginTop: 8 }}><MicButton dict={dictN}/></div>
+      </div>
+      {text.trim() && <div className="qpreview">“{text.trim()}”</div>}
+      <button className="btn primary block" disabled={busy || !text.trim()} onClick={submit}>{busy ? <span className="spin"/> : <LIcon name="send" size={18}/>}이 질문을 온 가족에게 내기</button>
+    </div>
+  );
+}
+
+/* 우리 가족 질문 상자: 언젠가 물어보고 싶은 질문 넣어 두기 */
+function QBox() {
+  const C = useC(); const [t, setT] = useState(''); const [open, setOpen] = useState(false);
+  const dict = useDictation(x => setT(s => joinText(s, x)));
+  const used = new Set(C.questions.map(q => q.text));
+  const left = C.bank.filter(b => !used.has(b.text));
+  const mine = C.bank.filter(b => b.added_by).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const add = async () => { const v = t.trim(); if (!v) return; if (C.bank.some(b => b.text === v)) { C.toast('이미 상자에 있는 질문이에요'); return; } if (await C.write(() => db.add('question_bank', { text: v, added_by: C.me }), '질문 상자에 넣었어요 📦')) setT(''); };
+  return (
+    <div className="qbox">
+      <button className="sec-t" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setOpen(o => !o)}>
+        <span>📦 우리 가족 질문 상자 <span className="small muted" style={{ fontWeight: 400 }}>· 남은 질문 {left.length}개</span></span><LIcon name={open ? 'chevron-up' : 'chevron-down'} size={20}/>
+      </button>
+      <p className="small muted" style={{ margin: '0 0 8px' }}>언젠가 온 가족에게 묻고 싶은 질문을 넣어 두세요. 질문자가 고를 때 맨 위에 보이고, 아무도 안 고르면 이것부터 자동으로 나와요.</p>
+      <div className="row gap">
+        <input className="input grow" placeholder="예: 할머니가 처음 받은 선물은?" value={t} onChange={e => setT(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }}/>
+        <button className="iconbtn" style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
+        <button className="btn sm blue" disabled={!t.trim()} onClick={add}>넣기</button>
+      </div>
+      {open && <div style={{ marginTop: 10 }}>
+        {!mine.length && <p className="small muted">아직 식구가 넣은 질문이 없어요. 기본 질문 {C.bank.length}개가 들어 있어요.</p>}
+        {mine.map(b => (
+          <div key={b.id} className="row gap" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <Avatar m={C.getM(b.added_by)} size={28}/><span className="grow" style={{ fontSize: '.95rem' }}>{b.text}{used.has(b.text) && <span className="small muted"> · 이미 나왔어요</span>}</span>
+            {b.added_by === C.me && !used.has(b.text) && <button className="linkbtn" style={{ minHeight: 0 }} onClick={() => C.write(() => db.del('question_bank', `id=eq.${b.id}`), '상자에서 뺐어요')}>빼기</button>}
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
 function QuestionSheet({ q, onClose }) {
   const C = useC(); const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [view, setView] = useState(null);
+  const [editing, setEditing] = useState(false); const [orderOpen, setOrderOpen] = useState(false);
   const dict = useDictation(t => setText(s => joinText(s, t)));
-  useEffect(() => { setView(q); setText(''); }, [q]);
+  useEffect(() => { setView(q); setText(''); setEditing(false); }, [q]);
   const cur = view ? (C.questions.find(x => x.id === view.id) || view) : null;
-  const ans = cur ? C.answers.filter(a => a.question_id === cur.id) : [];
-  const t = cur ? C.getM(cur.target_id) : null;
-  const past = C.questions.filter(x => !cur || x.id !== cur.id);
+  const S = cur ? qState(C, cur) : null;
+  const asker = cur ? C.getM(cur.asker_id) : null;
+  const iAsk = cur && cur.asker_id === C.me;
+  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text);
   const answer = async row => { setBusy(true); const ok = await C.write(() => db.add('answers', { question_id: cur.id, member_id: C.me, ...row }), '답을 남겼어요'); setBusy(false); return ok; };
+  const showPicker = cur && S.isCur && iAsk && (S.picking || editing);
+  const shownAns = cur ? (S.revealed ? S.ans : S.ans.filter(a => a.member_id === C.me)) : [];
+  const passTo = cur && C.members.length > 1 ? nextOf(C.members, cur.asker_id) : null;
   return (
     <Sheet open={!!q} onClose={onClose} full title="이번 주의 질문"
-      footer={cur && (
+      footer={cur && !S.picking && !showPicker && (
         <div style={{ display: 'grid', gap: 8 }}>
           <RecordButton block label="목소리로 답하기" onDone={async r => { const url = await uploadVoice(r.blob, r.sec); await answer({ audio_url: url, content: r.text || '' }); }}/>
           <div className="row gap">
@@ -1569,30 +1719,56 @@ function QuestionSheet({ q, onClose }) {
       )}>
       {cur && (
         <>
+          {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
           <div className="qcard" style={{ margin: '0 0 14px', width: '100%' }}>
-            <small>{fmtDate(cur.week_start)} 주 · {t.name}께 묻는 질문</small>
-            <span className="qt">“{cur.text}”</span>
-            <div className="qa"><span>{josa(t.name, '이', '가')} 먼저 답하면 좋지만, 누구든 답해도 돼요</span>
-              <button className="rec" onClick={() => C.toggleSpeak('q' + cur.id, `${t.name}께 묻는 이번 주 질문. ${cur.text}`)}><LIcon name="volume-2" size={16}/>읽어 주기</button></div>
-          </div>
-          {!ans.length && <p className="empty" style={{ padding: 20 }}>아직 답이 없어요. 아래에서 말로 답해 보세요.</p>}
-          {ans.map(a => (
-            <div className="cmt" key={a.id}>
-              <Avatar m={C.getM(a.member_id)} size={32}/>
-              <div className="body"><b>{C.getM(a.member_id).name}</b>{a.audio_url ? <><VoicePlayer src={a.audio_url}/>{a.content && <div className="small" style={{ color: '#5b4a86' }}>“{a.content}”</div>}</> : <div>{a.content}</div>}
-                <div className="meta"><span>{relTime(a.created_at)}</span>{a.member_id === C.me && <button onClick={() => C.write(() => db.del('answers', `id=eq.${a.id}`), '답을 지웠어요')}>지우기</button>}</div></div>
+            <small>🎤 {S.isCur ? '이번 주' : fmtDate(cur.week_start) + ' 주'} 질문자 · {asker.name}</small>
+            {S.picking
+              ? <span className="qt" style={{ fontSize: '1.05rem' }}>{iAsk ? '이번 주는 내가 질문할 차례예요! 온 가족에게 물어볼 질문을 정해 주세요.' : `${josa(asker.name, '이', '가')} 질문을 고르는 중이에요 🤔`}</span>
+              : <span className="qt">“{cur.text}”</span>}
+            {!S.picking && cur.note && <div className="qnote">💬 {cur.note}</div>}
+            {!S.picking && cur.audio_url && <div style={{ margin: '0 0 10px' }}><VoicePlayer src={cur.audio_url}/></div>}
+            <div className="qa">
+              <span>{S.picking ? '수요일 아침까지 안 정하면 질문 상자에서 자동으로 골라요' : cur.auto ? `${asker.name} 차례 · 자동으로 골랐어요 · 온 가족이 답해요` : `${josa(asker.name, '이', '가')} 묻고, 온 가족이 답해요`}</span>
+              {!S.picking && <button className="rec" onClick={() => C.toggleSpeak('q' + cur.id, `${asker.name}의 질문. ${cur.text}`)}><LIcon name="volume-2" size={16}/>읽어 주기</button>}
             </div>
-          ))}
-          {cur.week_start === weekStart() && <button className="linkbtn" onClick={() => C.changeQuestion(cur)}>↻ 다른 질문으로 바꾸기</button>}
+          </div>
+
+          {showPicker && <QPicker key={cur.id + (editing ? 'e' : '')} cur={cur} onDone={() => setEditing(false)}/>}
+          {S.isCur && iAsk && S.picking && passTo && passTo.id !== C.me && (
+            <button className="linkbtn" onClick={() => { if (window.confirm(`이번 주 질문 차례를 ${passTo.name}에게 넘길까요?\n그다음 차례도 한 칸씩 밀려요.`)) C.write(() => db.patch('questions', cur.id, { asker_id: passTo.id }), `${passTo.name}에게 차례를 넘겼어요`); }}>⏭ 이번 주는 {passTo.name}에게 넘기기</button>
+          )}
+          {S.isCur && iAsk && !S.picking && !editing && !S.ans.length && <button className="linkbtn" onClick={() => setEditing(true)}>✏️ 질문 다시 고르기</button>}
+          {editing && <button className="linkbtn" onClick={() => setEditing(false)}>고치기 그만두기</button>}
+
+          {!S.picking && (
+            <div className="qans">
+              <div className="row gap" style={{ marginBottom: 6 }}>
+                <b className="grow">답 {S.done.length}/{C.members.length}</b>
+                <span className="faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .3 }}><Avatar m={m} size={26}/></span>)}</span>
+              </div>
+              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>일요일 밤 9시</b>가 되면 한꺼번에 열려요.{S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'}</div>}
+              {S.revealed && !S.ans.length && <p className="empty" style={{ padding: 20 }}>아직 답이 없어요. 아래에서 말로 답해 보세요.</p>}
+              {shownAns.map(a => (
+                <div className="cmt" key={a.id}>
+                  <Avatar m={C.getM(a.member_id)} size={32}/>
+                  <div className="body"><b>{C.getM(a.member_id).name}</b>{a.audio_url ? <><VoicePlayer src={a.audio_url}/>{a.content && <div className="small" style={{ color: '#5b4a86' }}>“{a.content}”</div>}</> : <div>{a.content}</div>}
+                    <div className="meta"><span>{relTime(a.created_at)}</span>{a.member_id === C.me && <button onClick={() => C.write(() => db.del('answers', `id=eq.${a.id}`), '답을 지웠어요')}>지우기</button>}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <QBox/>
           {past.length > 0 && <>
             <div className="sec-t" style={{ padding: '18px 0 6px' }}>지난 질문들</div>
-            {past.map(x => { const n = C.answers.filter(a => a.question_id === x.id).length; return (
-              <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => setView(x)}>
-                <Avatar m={C.getM(x.target_id)} size={36}/><div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · 답 {n}개</span></div>
+            {past.map(x => { const n = C.answers.filter(a => a.question_id === x.id).length; const am = C.getM(x.asker_id); return (
+              <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => { setView(x); setEditing(false); }}>
+                <Avatar m={am} size={36}/><div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {am.name}의 질문 · 답 {n}개</span></div>
               </button>); })}
           </>}
         </>
       )}
+      <TurnOrder open={orderOpen} onClose={() => setOrderOpen(false)}/>
     </Sheet>
   );
 }
@@ -1920,7 +2096,7 @@ function BookView({ year, onClose }) {
         ))}
         {qs.length > 0 && <>
           <h2>이번 주의 질문</h2>
-          {qs.map(q => <div key={q.id} className="bk-post"><div className="m">{fmtDate(q.week_start, true)} 주 · {C.getM(q.target_id).name}께</div><b>Q. {q.text}</b>
+          {qs.filter(q => q.text).map(q => <div key={q.id} className="bk-post"><div className="m">{fmtDate(q.week_start, true)} 주 · 질문자 {C.getM(q.asker_id).name}{q.audio_url ? ' 🎙' : ''}</div><b>Q. {q.text}</b>{q.note && <div className="m">💬 {q.note}</div>}
             {C.answers.filter(a => a.question_id === q.id).map(a => <div key={a.id}>A. {C.getM(a.member_id).name}: {a.content || '(목소리로 답함)'}{a.audio_url && a.content ? ' 🎙' : ''}</div>)}</div>)}
         </>}
         {withLetters && letters.length > 0 && <>
@@ -2000,7 +2176,7 @@ function App() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState('home');
   const [toastMsg, setToastMsg] = useState('');
-  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [] });
+  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [] });
   const [speaking, setSpeaking] = useState(null);
   const [fontSize, setFontSizeState] = useState(store.get('fz_fs') || 'm');
   const [seen, setSeen] = useState(() => { try { return JSON.parse(store.get('fz_story') || '[]'); } catch (e) { return []; } });
@@ -2020,7 +2196,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as] = await Promise.all([
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk] = await Promise.all([
         db.list('members', 'select=*&order=sort,created_at,id'),
         db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
         db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
@@ -2029,10 +2205,11 @@ function App() {
         db.list('events', 'select=*&order=event_date,id'),
         db.list('letters', 'select=*&order=created_at.desc,id'),
         db.list('questions', 'select=*&order=week_start.desc,id'),
-        db.list('answers', 'select=*&order=created_at,id')
+        db.list('answers', 'select=*&order=created_at,id'),
+        db.list('question_bank', 'select=*&order=created_at,id').catch(() => [])
       ]);
       if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
-      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as });
+      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk });
       setLoaded(true);
       return { ms, qs };
     } catch (e) { toast('가족 공간을 읽지 못했어요: ' + e.message); }
@@ -2043,14 +2220,10 @@ function App() {
   };
 
   /* 이번 주 질문이 없으면 만든다 (식구가 돌아가며 받는다) */
+  /* 이번 주 질문 줄이 없으면 서버 함수가 만든다 (지난 질문자의 다음 식구가 질문자) */
   const ensureWeekly = async (ms, qs) => {
-    const wk = weekStart();
-    if (!ms || !ms.length || qs.some(q => q.week_start === wk)) return;
-    const target = ms[weekNo(wk) % ms.length];
-    const used = new Set(qs.map(q => q.text));
-    const pool = QUESTION_BANK.filter(t => !used.has(t));
-    const text = (pool.length ? pool : QUESTION_BANK)[weekNo(wk) % (pool.length || QUESTION_BANK.length)];
-    try { await db.addOnce('questions', { text, target_id: target.id, week_start: wk }, 'week_start'); await loadAll(); } catch (e) {}
+    if (!ms || !ms.length || qs.some(q => q.week_start === weekStart())) return;
+    try { await db.rpc('ensure_week_q'); await loadAll(); } catch (e) {}
   };
   /* 매일 한 번 드라이브로 백업 (창구 v2 이상일 때만) */
   const runBackup = async manual => {
@@ -2114,6 +2287,7 @@ function App() {
     D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
     D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
     D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, unread: true, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
+    D.questions.filter(q => q.text && q.asker_id && q.asker_id !== me && q.picked_at && q.picked_at > since).forEach(q => out.push({ key: 'q' + q.id, who: q.asker_id, t: q.picked_at, text: `${josa(getM(q.asker_id).name, '이', '가')} 이번 주 질문을 냈어요 ❓ “${q.text.slice(0, 30)}”`, go: () => setQuestion(q) }));
     D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
     return out.map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
   }, [posts, D, me, prevSeen]);
@@ -2121,7 +2295,7 @@ function App() {
 
   const C = {
     me, members: D.members, posts, comments: D.comments, notes: D.notes, letters: D.letters, questions: D.questions, answers: D.answers,
-    allEvents, getM, unread, weekQ, activity, speaking, fontSize,
+    allEvents, getM, unread, weekQ, activity, speaking, fontSize, bank: D.bank,
     likesOf: id => likesMap[id] || [], commentsOf: id => cmtMap[id] || [],
     dailyToday, bdayDays, storyRing, toast, write, setTab: t => goTab(t), runBackup, newCount,
     markSeen: id => setSeen(s => { if (s.includes(id)) return s; const n = [...s, id].slice(-300); store.set('fz_story', JSON.stringify(n)); return n; }),
@@ -2166,11 +2340,6 @@ function App() {
       if (D.members.length <= 1) { toast('마지막 한 명은 뺄 수 없어요'); return; }
       if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n쓴 소식과 편지는 남아요.`)) return;
       if (await write(() => db.del('members', `id=eq.${m.id}`), `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) { setMemberEdit(null); setProfile(null); }
-    },
-    changeQuestion: async q => {
-      const used = new Set(D.questions.map(x => x.text)); const pool = QUESTION_BANK.filter(t => !used.has(t));
-      const text = (pool.length ? pool : QUESTION_BANK)[Math.floor(Math.random() * (pool.length || QUESTION_BANK.length))];
-      write(() => db.patch('questions', q.id, { text }), '질문을 바꿨어요');
     },
     changeKey: async (ko, kn) => {
       const k = kn.trim(); if (k.length < 6) { toast('새 암호는 6자 이상이에요'); return false; }
