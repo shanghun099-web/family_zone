@@ -76,7 +76,7 @@ async function send(sub: Sub, m: Omit<Msg, "to" | "pref">) {
   } catch (e) {
     // deno-lint-ignore no-explicit-any
     const code = (e as any)?.statusCode;
-    if (code === 404 || code === 410) await sb.from("push_subs").delete().eq("id", sub.id);   // 알림을 끈 폰·지운 앱
+    if (code === 404 || code === 410) { console.log("expired sub removed", sub.member_id, code); await sb.from("push_subs").delete().eq("id", sub.id); }   // 알림을 끈 폰·지운 앱
     else console.error("push fail", code, String(e).slice(0, 200));
     return 0;
   }
@@ -171,13 +171,21 @@ async function morning() {
   return { sent, outbox: (box || []).length, days: days.length };
 }
 
-const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
+// 앱(github.io)이 시험 알림 결과를 읽을 수 있게 CORS 허용 (요청은 text/plain 이라 사전 확인 없음)
+const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
 
 Deno.serve(async req => {
   try {
     const c = await config();
-    if (req.headers.get("x-push-secret") !== c.secret) return json({ error: "no" }, 401);
     const mode = new URL(req.url).searchParams.get("mode");
+    if (mode === "self") {   // 앱의 "시험 알림 받기": 자기 폰 알림 주소로만 한 통 (주소를 아는 폰만 부를 수 있음)
+      const { endpoint } = await req.json();
+      const { data: sub } = await sb.from("push_subs").select("*").eq("endpoint", String(endpoint || "")).maybeSingle();
+      if (!sub) return json({ sent: 0, error: "not_subscribed" }, 404);
+      const n = await send(sub as Sub, { title: "Familygram 시험 알림 🔔", body: "이 알림이 보이면 성공이에요! 누르면 앱이 열려요.", url: APP, tag: "self-test" });
+      return json({ sent: n }, n ? 200 : 410);
+    }
+    if (req.headers.get("x-push-secret") !== c.secret) return json({ error: "no" }, 401);
     if (mode === "morning") return json(await morning());
     const body = await req.json();
     if (mode === "test") {   // 시험: 한 식구에게 바로 한 통 (밤에도)

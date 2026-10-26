@@ -683,7 +683,9 @@ function usePush() {
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') { C.toast(perm === 'denied' ? '알림이 막혀 있어요. 폰 설정 → 애플리케이션 → Familygram(또는 크롬) → 알림을 켜 주세요' : '알림을 허락해야 받을 수 있어요'); return; }
       const reg = await swReady; if (!reg) throw new Error('이 폰은 알림을 지원하지 않아요');
-      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !st.row) { await sub.unsubscribe().catch(() => {}); sub = null; }   // 서버가 만료로 지운 옛 주소는 버리고 새로 받기
+      sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
       const j = sub.toJSON();
       await db.upsert('push_subs', { member_id: C.me, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, ua: navigator.userAgent.slice(0, 160) }, 'endpoint');
       C.toast('알림을 켰어요 🔔 식구가 소식을 올리면 알려 드릴게요');
@@ -700,7 +702,16 @@ function usePush() {
     const prefs = { ...row.prefs, [k]: v }; setSt(x => ({ ...x, row: { ...row, prefs } }));
     try { await db.patch('push_subs', row.id, { prefs }); } catch (e) { C.toast('저장하지 못했어요'); }
   };
-  const sample = async () => { const reg = await swReady; if (reg) reg.showNotification('할머니가 새 소식을 올렸어요', { body: '알림은 이렇게 와요 👍 (시험)', icon: 'icon-192.png?v=2', badge: 'badge-96.png', tag: 'sample' }); };
+  /* 서버를 거쳐 이 폰으로 진짜 알림 한 통 (알림이 잘 오는지 확인용) */
+  const sample = async () => {
+    const sub = await pushSub();
+    if (!sub) { C.toast('알림이 꺼져 있어요. 알림 받기를 다시 눌러 주세요'); dispatchEvent(new Event('fz-push')); return; }
+    C.toast('시험 알림을 보냈어요. 몇 초 뒤 폰 맨 위를 보세요');
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/notify?mode=self`, { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
+      if (!r.ok) { C.toast('이 폰의 알림 주소가 만료됐어요. 알림 받기를 다시 눌러 주세요'); await sub.unsubscribe().catch(() => {}); dispatchEvent(new Event('fz-push')); }
+    } catch (e) { C.toast('시험 알림을 보내지 못했어요: ' + e.message); }
+  };
   return { ...st, supported: PUSH_OK, needsInstall: IS_IOS && !isStandalone(), on, off, setPref, sample };
 }
 /* 홈 위쪽 "알림 받기" 카드 (앱 설치 카드가 먼저 보일 땐 숨김) */
@@ -741,7 +752,7 @@ function PushSettings() {
       <div className="row gap" style={{ marginBottom: 4 }}><LIcon name="bell-ring" size={18}/><b className="grow">이 폰은 알림을 받고 있어요</b></div>
       {PUSH_PREFS.map(([k, l]) => <Toggle key={k} on={P.row.prefs[k] !== false} onChange={v => P.setPref(k, v)} label={l}/>)}
       <div className="row gap" style={{ marginTop: 8, flexWrap: 'wrap' }}>
-        <button className="btn sm soft" onClick={P.sample}><LIcon name="bell" size={16}/>알림 모양 보기</button>
+        <button className="btn sm soft" onClick={P.sample}><LIcon name="bell" size={16}/>내 폰으로 시험 알림 받기</button>
         <button className="btn sm soft danger" onClick={P.off}>이 폰 알림 끄기</button>
       </div>
       {!IS_IOS && <p className="small muted" style={{ margin: '8px 0 0' }}>갤럭시에서 아이콘에 점 대신 숫자로 보려면: 폰 설정 → 알림 → 고급 설정 → 앱 아이콘 배지 → 숫자</p>}
