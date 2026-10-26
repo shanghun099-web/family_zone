@@ -1533,7 +1533,10 @@ function PostCard({
     title: "\uC0C8 \uC18C\uC2DD"
   })), /*#__PURE__*/React.createElement("div", {
     className: "when"
-  }, relDay(p.happened_on, p.created_at), tagged.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LIcon, {
+  }, relDay(p.happened_on, p.created_at), p.kind === 'daily' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LIcon, {
+    name: "camera",
+    size: 14
+  }), "\uC624\uB298\uC758 \uD55C \uC7A5"), tagged.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LIcon, {
     name: "users",
     size: 14
   }), josa(tagged.map(t => t.name).join(', '), '과', '와'), " \uD568\uAED8"))), /*#__PURE__*/React.createElement("button", {
@@ -2258,7 +2261,7 @@ function StoryViewer({
 function HomeTab() {
   const C = useC();
   const today = ymd();
-  const feed = C.posts.filter(p => p.kind !== 'daily');
+  const feed = C.posts; // 오늘의 한 장(스토리)도 소식 목록에 같이 보인다 (동그라미만 보고 놓치지 않게)
   const [shown, setShown] = useState(15);
   const endRef = useRef(null);
   useEffect(() => {

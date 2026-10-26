@@ -687,7 +687,7 @@ function PostCard({ p }) {
         <Avatar m={a} size={42} ring={C.storyRing(a.id)} onClick={() => C.openProfile(a.id)}/>
         <div className="grow">
           <div><b>{a.name}</b>{p.isNew && <span className="newdot" title="새 소식"/>}</div>
-          <div className="when">{relDay(p.happened_on, p.created_at)}{tagged.length > 0 && <><LIcon name="users" size={14}/>{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</>}</div>
+          <div className="when">{relDay(p.happened_on, p.created_at)}{p.kind === 'daily' && <><LIcon name="camera" size={14}/>오늘의 한 장</>}{tagged.length > 0 && <><LIcon name="users" size={14}/>{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</>}</div>
         </div>
         <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>
       </div>
@@ -917,7 +917,7 @@ function StoryViewer({ items, onClose }) {
 /* ═══════════ 홈 ═══════════ */
 function HomeTab() {
   const C = useC(); const today = ymd();
-  const feed = C.posts.filter(p => p.kind !== 'daily');
+  const feed = C.posts;   // 오늘의 한 장(스토리)도 소식 목록에 같이 보인다 (동그라미만 보고 놓치지 않게)
   const [shown, setShown] = useState(15); const endRef = useRef(null);
   useEffect(() => {
     const el = endRef.current; if (!el || !window.IntersectionObserver) return;
