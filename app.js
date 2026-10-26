@@ -2328,11 +2328,76 @@ function StoryViewer({
   }))));
 }
 
+/* 소식 목록에 끼는 냉장고 메모: 시간 순으로 이웃한 메모끼리 한 장에 */
+const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
+function FridgeCard({
+  notes
+}) {
+  const C = useC();
+  return /*#__PURE__*/React.createElement("article", {
+    className: "fridge"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "feed-band fr",
+    onClick: C.openLetters
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCCC \uB0C9\uC7A5\uACE0 \uBA54\uBAA8"), /*#__PURE__*/React.createElement("span", {
+    className: "go"
+  }, "\uB0C9\uC7A5\uACE0 \uC5F4\uAE30 ", /*#__PURE__*/React.createElement(LIcon, {
+    name: "chevron-right",
+    size: 16
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "notes"
+  }, notes.map((n, i) => /*#__PURE__*/React.createElement("div", {
+    key: n.id,
+    className: "note",
+    style: {
+      background: noteColors[i % 4],
+      transform: `rotate(${n.angle || 0}deg)`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "nt-who"
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: C.getM(n.author_id),
+    size: 20
+  }), /*#__PURE__*/React.createElement("span", null, C.getM(n.author_id).name)), /*#__PURE__*/React.createElement("div", {
+    className: "nt-txt"
+  }, n.content), /*#__PURE__*/React.createElement("div", {
+    className: "tiny muted"
+  }, relTime(n.created_at))))));
+}
+
 /* ═══════════ 홈 ═══════════ */
 function HomeTab() {
   const C = useC();
   const today = ymd();
-  const feed = C.posts; // 오늘의 한 장(스토리)도 소식 목록에 같이 보인다 (동그라미만 보고 놓치지 않게)
+  /* 소식 목록: 소식(오늘의 한 장 포함)·기도·냉장고 메모를 날짜 순으로 섞는다. 이웃한 메모는 한 장으로 묶는다 */
+  const feed = useMemo(() => {
+    const items = [...C.posts.map(p => ({
+      k: 'p' + p.id,
+      t: 'post',
+      p,
+      s: p.happened_on + '|' + p.created_at
+    })), ...C.prayers.map(p => ({
+      k: 'r' + p.id,
+      t: 'pray',
+      p,
+      s: ymd(new Date(p.created_at)) + '|' + p.created_at
+    })), ...C.notes.map(n => ({
+      k: 'n' + n.id,
+      t: 'note',
+      p: n,
+      s: ymd(new Date(n.created_at)) + '|' + n.created_at
+    }))].sort((a, b) => b.s.localeCompare(a.s));
+    const out = [];
+    items.forEach(x => {
+      const last = out[out.length - 1];
+      if (x.t === 'note' && last && last.t === 'notes') last.list.push(x.p);else out.push(x.t === 'note' ? {
+        k: x.k,
+        t: 'notes',
+        list: [x.p]
+      } : x);
+    });
+    return out;
+  }, [C.posts, C.prayers, C.notes]);
   const [shown, setShown] = useState(15);
   const endRef = useRef(null);
   useEffect(() => {
@@ -2489,9 +2554,16 @@ function HomeTab() {
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "square-plus",
     size: 20
-  }), "\uCCAB \uC18C\uC2DD \uC62C\uB9AC\uAE30"))), feed.slice(0, shown).map(p => /*#__PURE__*/React.createElement(PostCard, {
-    key: p.id,
-    p: p
+  }), "\uCCAB \uC18C\uC2DD \uC62C\uB9AC\uAE30"))), feed.slice(0, shown).map(x => x.t === 'post' ? /*#__PURE__*/React.createElement(PostCard, {
+    key: x.k,
+    p: x.p
+  }) : x.t === 'pray' ? /*#__PURE__*/React.createElement(PrayCard, {
+    key: x.k,
+    p: x.p,
+    feed: true
+  }) : /*#__PURE__*/React.createElement(FridgeCard, {
+    key: x.k,
+    notes: x.list
   })), shown < feed.length ? /*#__PURE__*/React.createElement("div", {
     ref: endRef,
     className: "empty small"
@@ -2926,7 +2998,6 @@ function LettersTab({
   const yp = C.posts.filter(p => p.happened_on.startsWith(year + '') && !isLocked(p));
   const yPhotos = yp.reduce((n, p) => n + photosOf(p).length, 0);
   const yVoices = C.comments.filter(c => c.audio_url && c.created_at.startsWith(year + '')).length + C.answers.filter(a => a.audio_url && a.created_at.startsWith(year + '')).length;
-  const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "topbar",
     style: {
@@ -3936,7 +4007,8 @@ function QuestionSheet({
 const prayFor = (C, p) => p.for_member ? C.getM(p.for_member).name : p.for_text || '';
 function PrayCard({
   p,
-  focus
+  focus,
+  feed
 }) {
   const C = useC();
   const a = C.getM(p.author_id);
@@ -3962,7 +4034,15 @@ function PrayCard({
   return /*#__PURE__*/React.createElement("article", {
     ref: ref,
     className: 'pray' + (focus ? ' focus' : '') + (p.answered_at ? ' done' : '')
-  }, /*#__PURE__*/React.createElement("div", {
+  }, feed && /*#__PURE__*/React.createElement("button", {
+    className: "feed-band pr",
+    onClick: () => C.openPray(p.id)
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDE4F \uD568\uAED8 \uAE30\uB3C4\uD574\uC694"), /*#__PURE__*/React.createElement("span", {
+    className: "go"
+  }, "\uAE30\uB3C4 \uD0ED ", /*#__PURE__*/React.createElement(LIcon, {
+    name: "chevron-right",
+    size: 16
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "pray-hd"
   }, /*#__PURE__*/React.createElement(Avatar, {
     m: a,

@@ -934,10 +934,40 @@ function StoryViewer({ items, onClose }) {
   );
 }
 
+/* 소식 목록에 끼는 냉장고 메모: 시간 순으로 이웃한 메모끼리 한 장에 */
+const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
+function FridgeCard({ notes }) {
+  const C = useC();
+  return (
+    <article className="fridge">
+      <button className="feed-band fr" onClick={C.openLetters}><span>📌 냉장고 메모</span><span className="go">냉장고 열기 <LIcon name="chevron-right" size={16}/></span></button>
+      <div className="notes">
+        {notes.map((n, i) => (
+          <div key={n.id} className="note" style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}>
+            <div className="nt-who"><Avatar m={C.getM(n.author_id)} size={20}/><span>{C.getM(n.author_id).name}</span></div>
+            <div className="nt-txt">{n.content}</div>
+            <div className="tiny muted">{relTime(n.created_at)}</div>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 /* ═══════════ 홈 ═══════════ */
 function HomeTab() {
   const C = useC(); const today = ymd();
-  const feed = C.posts;   // 오늘의 한 장(스토리)도 소식 목록에 같이 보인다 (동그라미만 보고 놓치지 않게)
+  /* 소식 목록: 소식(오늘의 한 장 포함)·기도·냉장고 메모를 날짜 순으로 섞는다. 이웃한 메모는 한 장으로 묶는다 */
+  const feed = useMemo(() => {
+    const items = [
+      ...C.posts.map(p => ({ k: 'p' + p.id, t: 'post', p, s: p.happened_on + '|' + p.created_at })),
+      ...C.prayers.map(p => ({ k: 'r' + p.id, t: 'pray', p, s: ymd(new Date(p.created_at)) + '|' + p.created_at })),
+      ...C.notes.map(n => ({ k: 'n' + n.id, t: 'note', p: n, s: ymd(new Date(n.created_at)) + '|' + n.created_at })),
+    ].sort((a, b) => b.s.localeCompare(a.s));
+    const out = [];
+    items.forEach(x => { const last = out[out.length - 1]; if (x.t === 'note' && last && last.t === 'notes') last.list.push(x.p); else out.push(x.t === 'note' ? { k: x.k, t: 'notes', list: [x.p] } : x); });
+    return out;
+  }, [C.posts, C.prayers, C.notes]);
   const [shown, setShown] = useState(15); const endRef = useRef(null);
   useEffect(() => {
     const el = endRef.current; if (!el || !window.IntersectionObserver) return;
@@ -1003,7 +1033,7 @@ function HomeTab() {
       )}
       <div style={{ height: 4 }}/>
       {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 추가</b>를 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
-      {feed.slice(0, shown).map(p => <PostCard key={p.id} p={p}/>)}
+      {feed.slice(0, shown).map(x => x.t === 'post' ? <PostCard key={x.k} p={x.p}/> : x.t === 'pray' ? <PrayCard key={x.k} p={x.p} feed/> : <FridgeCard key={x.k} notes={x.list}/>)}
       {shown < feed.length
         ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
         : feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
@@ -1151,7 +1181,6 @@ function LettersTab({ onBack }) {
   const yp = C.posts.filter(p => p.happened_on.startsWith(year + '') && !isLocked(p));
   const yPhotos = yp.reduce((n, p) => n + photosOf(p).length, 0);
   const yVoices = C.comments.filter(c => c.audio_url && c.created_at.startsWith(year + '')).length + C.answers.filter(a => a.audio_url && a.created_at.startsWith(year + '')).length;
-  const noteColors = ['#FFF6B8', '#FFE1E1', '#DDF3E4', '#E2ECFF'];
   return (
     <>
       <div className="topbar" style={{ paddingLeft: 4 }}>
@@ -1513,7 +1542,7 @@ function QuestionSheet({ q, onClose }) {
    - 🙏 기도했어요: 하루 한 번씩 쌓인다 (prayer_marks) · ✨ 응답됐어요: 감사 한 줄과 함께 응답 노트로
    - 그날 아침 8시엔 서버가 온 가족에게 "오늘 함께 기도해요" 알림 */
 const prayFor = (C, p) => p.for_member ? C.getM(p.for_member).name : (p.for_text || '');
-function PrayCard({ p, focus }) {
+function PrayCard({ p, focus, feed }) {
   const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false); const [editing, setEditing] = useState(false);
   const ref = useRef(null);
   useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
@@ -1525,6 +1554,7 @@ function PrayCard({ p, focus }) {
   const mine = p.author_id === C.me; const voice = p.kind === 'prayer';
   return (
     <article ref={ref} className={'pray' + (focus ? ' focus' : '') + (p.answered_at ? ' done' : '')}>
+      {feed && <button className="feed-band pr" onClick={() => C.openPray(p.id)}><span>🙏 함께 기도해요</span><span className="go">기도 탭 <LIcon name="chevron-right" size={16}/></span></button>}
       <div className="pray-hd">
         <Avatar m={a} size={38} onClick={() => C.openProfile(a.id)}/>
         <div className="grow">

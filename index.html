@@ -283,6 +283,15 @@
   .lt .new{background:#F0403A;color:#fff;font-size:.72rem;border-radius:10px;padding:1px 8px;font-weight:700;flex-shrink:0}
   .letter-paper{background:#FFFDF8;border:1px solid #efe6d6;border-radius:16px;padding:18px;font-size:1.05rem;line-height:1.8;white-space:pre-wrap}
   .notes{display:flex;gap:10px;overflow-x:auto;padding:4px 14px 12px}
+  .feed-band{display:flex;align-items:center;justify-content:space-between;width:100%;padding:9px 14px;font-weight:800;font-size:.92rem;border:0;text-align:left;font-family:inherit}
+  .feed-band .go{display:flex;align-items:center;gap:2px;font-weight:600;font-size:.82rem;opacity:.8}
+  .feed-band.pr{background:linear-gradient(90deg,#EEF0FF,#F5EDFF);color:#5b4a86}
+  .feed-band.fr{background:linear-gradient(90deg,#FFF3C4,#FFE9D6);color:#7a5a00}
+  .fridge{background:#FBF8F2;border-radius:22px;margin:0 12px 14px;overflow:hidden;box-shadow:var(--card-sh)}
+  .fridge .notes{padding:14px 14px 16px}
+  .fridge .note{min-height:120px;display:flex;flex-direction:column;gap:6px}
+  .nt-who{display:flex;align-items:center;gap:5px;font-size:.8rem;font-weight:700;color:#6b5f4a}
+  .nt-txt{flex:1;font-family:'Nanum Pen Script',cursive;font-size:1.45rem;line-height:1.15;color:#3a3226}
   .note{flex-shrink:0;width:150px;min-height:110px;border-radius:6px;padding:10px;font-size:.92rem;box-shadow:0 2px 6px rgba(0,0,0,.1);position:relative;white-space:pre-wrap}
   .note .x{position:absolute;top:2px;right:2px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;opacity:.5}
   .book{margin:16px 14px;border-radius:18px;background:#1f2a44;color:#fff;padding:16px;display:flex;gap:14px;align-items:center;width:calc(100% - 28px);text-align:left}
@@ -359,6 +368,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=51d8d4a8"></script>
+<script src="app.js?v=60a6b073"></script>
 </body>
 </html>
