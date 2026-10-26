@@ -217,6 +217,21 @@
   .qcard small{font-size:.8rem;font-weight:700;color:#b2502c}
   .qcard .qt{display:block;font-size:1.2rem;font-weight:900;margin:6px 0 10px;line-height:1.45}
   .qcard .qa{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;color:#7a4a3a}
+  /* 함께 기도해요 */
+  .pray-hero{margin:0 12px 12px;border-radius:22px;padding:16px;background:linear-gradient(140deg,#EEF4FF,#F3EDFF 60%,#FFF1F4);display:flex;flex-direction:column;gap:6px;align-items:flex-start;box-shadow:var(--card-sh)}
+  .pray-hero b{font-size:1.05rem}.pray-hero span{font-size:.9rem;color:#5d5874;margin-bottom:6px}
+  .pray{background:#fff;border-radius:22px;margin:0 12px 12px;box-shadow:var(--card-sh);overflow:hidden;border:2px solid transparent}
+  .pray.focus{border-color:#9C84E8}
+  .pray-hd{display:flex;align-items:center;gap:10px;padding:12px 6px 6px 14px}
+  .pray-tags{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:.8rem;color:var(--sub);margin-top:2px;align-items:center}
+  .pray-tags .tag{background:#F3EEFF;color:#5b4a86;border-radius:10px;padding:1px 8px;font-weight:700}
+  .pray-tags .tag.today{background:#FFE7DC;color:#b2502c}
+  .pray-text{padding:4px 16px 10px;font-size:1.12rem;font-weight:700;line-height:1.55;white-space:pre-wrap}
+  .pray-ans{margin:0 14px 10px;background:#FFF8E1;color:#7a5a00;border-radius:14px;padding:10px 12px;font-size:.95rem}
+  .pray-ft{display:flex;align-items:center;gap:8px;padding:10px 14px 12px;border-top:1px solid #f2efeb}
+  .pray-btn{background:#6a3fc8;color:#fff;border-radius:20px;padding:8px 14px;font-weight:700;font-size:.92rem;white-space:nowrap}
+  .pray-btn.on{background:#F3EEFF;color:#6a3fc8}
+  .pray.done .pray-text{color:#5a5550}
   /* 이번 주 질문 카드: 질문 글이 주인공, 질문자는 작은 얼굴+이름 */
   .qhero{position:relative;display:block;width:calc(100% - 24px);margin:0 12px 12px;text-align:left;border-radius:24px;padding:18px 18px 16px;overflow:hidden;
     background:linear-gradient(140deg,#FFE6D6 0%,#FFD3E1 52%,#E8DBFF 100%);box-shadow:0 8px 26px rgba(226,110,120,.18);color:#2a1d1a}
@@ -680,7 +695,7 @@ const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Noti
 const swReady = PUSH_OK ? navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).catch(() => null) : Promise.resolve(null);
 const b64u = s => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
 const pushSub = async () => { const reg = await swReady; return reg ? reg.pushManager.getSubscription() : null; };
-const PUSH_PREFS = [['post', '새 소식 · 오늘의 한 장'], ['react', '내 소식에 달린 댓글 · 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+const PUSH_PREFS = [['post', '새 소식 · 오늘의 한 장'], ['react', '내 소식에 달린 댓글 · 좋아요'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
   const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
@@ -1250,7 +1265,7 @@ function HomeTab() {
           <span className="brand-sub">함께하는 모든 순간이 소중해요 ♥</span>
         </div>
         <div className="row">
-          <button className="iconbtn" onClick={() => C.openComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/></button>
+          <button className="iconbtn" onClick={C.openNoti} aria-label="알림">{C.newCount > 0 ? <LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/> : <LIcon name="heart" size={26}/>}{C.newCount > 0 && <span className="cnt">{C.newCount}</span>}</button>
           <button className="iconbtn" onClick={C.openLetters} aria-label="편지함"><LIcon name="send" size={26}/>{C.unread > 0 && <span className="cnt">{C.unread}</span>}</button>
         </div>
       </div>
@@ -1793,8 +1808,176 @@ function QuestionSheet({ q, onClose }) {
   );
 }
 
-/* ═══════════ 알림 ═══════════ */
-function NotiTab() {
+/* ═══════════ 함께 기도해요 ═══════════
+   - 기도 제목(request): 글·말·목소리로 나누고, 누구를 위한 기도인지·그날(시험날 등)을 정한다
+   - 목소리 기도(prayer): 식구를 위해 드린 기도를 목소리 그대로 남긴다
+   - 🙏 기도했어요: 하루 한 번씩 쌓인다 (prayer_marks) · ✨ 응답됐어요: 감사 한 줄과 함께 응답 노트로
+   - 그날 아침 8시엔 서버가 온 가족에게 "오늘 함께 기도해요" 알림 */
+const prayFor = (C, p) => p.for_member ? C.getM(p.for_member).name : (p.for_text || '');
+function PrayCard({ p, focus }) {
+  const C = useC(); const a = C.getM(p.author_id); const [menu, setMenu] = useState(false); const [ans, setAns] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
+  const marks = C.pmarks.filter(m => m.prayer_id === p.id);
+  const who = [...new Set(marks.map(m => m.member_id))];
+  const today = ymd(); const todayWho = [...new Set(marks.filter(m => m.day === today).map(m => m.member_id))];
+  const iDid = todayWho.includes(C.me);
+  const fw = prayFor(C, p); const due = p.due_on ? dayDiff(today, p.due_on) : null;
+  const mine = p.author_id === C.me; const voice = p.kind === 'prayer';
+  return (
+    <article ref={ref} className={'pray' + (focus ? ' focus' : '') + (p.answered_at ? ' done' : '')}>
+      <div className="pray-hd">
+        <Avatar m={a} size={38} onClick={() => C.openProfile(a.id)}/>
+        <div className="grow">
+          <div><b>{a.name}</b>{voice ? '의 목소리 기도 🎙' : '의 기도 제목'}</div>
+          <div className="pray-tags">
+            <span>{relTime(p.created_at)}</span>
+            <span className="tag">🙏 {fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'}</span>
+            {p.due_on && !p.answered_at && <span className={'tag' + (due === 0 ? ' today' : '')}>📅 {due === 0 ? '오늘!' : due > 0 ? `${fmtDate(p.due_on)} · D-${due}` : fmtDate(p.due_on)}</span>}
+          </div>
+        </div>
+        {mine && <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>}
+      </div>
+      {p.content && <div className="pray-text">{p.content}</div>}
+      {p.audio_url && <div style={{ padding: '0 16px 8px' }}><VoicePlayer src={p.audio_url}/></div>}
+      {p.answered_at && <div className="pray-ans">✨ <b>응답됐어요</b> · {fmtDate(ymd(new Date(p.answered_at)), true)}{p.answer_note && <div>“{p.answer_note}”</div>}</div>}
+      <div className="pray-ft">
+        <span className="qh-faces">{who.slice(0, 6).map(id => <span key={id}><Avatar m={C.getM(id)} size={24}/></span>)}</span>
+        <span className="grow small muted">{marks.length ? `${marks.length}번 함께 기도했어요${todayWho.length ? ` · 오늘 ${todayWho.map(id => C.getM(id).name).join(', ')}` : ''}` : '아직 아무도 기도하지 않았어요'}</span>
+        {!p.answered_at && <button className={'pray-btn' + (iDid ? ' on' : '')} onClick={() => C.togglePray(p)}>{iDid ? '오늘 기도했어요 ✓' : voice ? '🙏 아멘' : '🙏 기도했어요'}</button>}
+      </div>
+      <Sheet open={menu} onClose={() => setMenu(false)} title={voice ? '목소리 기도' : '기도 제목'}>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {!voice && !p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); setAns(true); }}>✨ 응답됐어요 (감사 나누기)</button>}
+          {p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); C.write(() => db.patch('prayers', p.id, { answered_at: null, answer_note: null }), '다시 기도 중으로 옮겼어요'); }}>다시 기도 중으로 옮기기</button>}
+          <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 기도를 지울까요?')) { C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요'); const id = driveId(p.audio_url); if (id) gw('delete', { id }).catch(() => {}); } }}><LIcon name="trash-2" size={18}/>지우기</button>
+        </div>
+      </Sheet>
+      <PrayAnswer p={ans ? p : null} onClose={() => setAns(false)}/>
+    </article>
+  );
+}
+
+/* ✨ 응답됐어요: 감사 한 줄 */
+function PrayAnswer({ p, onClose }) {
+  const C = useC(); const [t, setT] = useState(''); const dict = useDictation(x => setT(s => joinText(s, x)));
+  useEffect(() => { if (p) setT(''); }, [p]);
+  const save = async () => { if (await C.write(() => db.patch('prayers', p.id, { answered_at: new Date().toISOString(), answer_note: t.trim() || null }), '응답 노트에 담았어요 ✨')) onClose(); };
+  return (
+    <Sheet open={!!p} onClose={onClose} title="✨ 응답됐어요" right={<button className="hdbtn" onClick={save}>저장</button>}>
+      {p && <>
+        <p className="small muted" style={{ marginTop: 0 }}>“{p.content || '목소리 기도'}”</p>
+        <div className="field"><label>감사 한 줄 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+          <textarea className="input" rows={3} placeholder="예: 수술 잘 끝났어요. 함께 기도해 줘서 고마워요" value={t} onChange={e => setT(e.target.value)}/>
+          <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div></div>
+        <p className="small muted">응답 노트에 차곡차곡 쌓이고, 연말 가족 책에도 실려요. 온 가족에게 알림이 가요.</p>
+      </>}
+    </Sheet>
+  );
+}
+
+/* 기도 나누기 (기도 제목 / 목소리 기도) */
+function PrayCompose({ open, onClose }) {
+  const C = useC();
+  const [kind, setKind] = useState('request'); const [text, setText] = useState(''); const [voice, setVoice] = useState(null);
+  const [forWho, setForWho] = useState(''); const [other, setOther] = useState(''); const [due, setDue] = useState(''); const [busy, setBusy] = useState(false);
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  useEffect(() => { if (open) { setKind('request'); setText(''); setVoice(null); setForWho(''); setOther(''); setDue(''); setBusy(false); } }, [open]);
+  const can = !busy && (kind === 'prayer' ? !!voice : !!(text.trim() || voice));
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const audio = voice ? await uploadVoice(voice.blob, voice.sec) : null;
+      const row = { author_id: C.me, kind, content: text.trim() || (kind === 'prayer' && voice && voice.text ? voice.text : ''), audio_url: audio,
+        for_member: forWho && forWho !== 'other' ? forWho : null, for_text: forWho === 'other' ? (other.trim() || null) : null, due_on: kind === 'request' && due ? due : null };
+      if (await C.write(() => db.add('prayers', row), kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏')) onClose(); else setBusy(false);
+    } catch (e) { setBusy(false); C.toast('올리지 못했어요: ' + e.message); }
+  };
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title="기도 나누기" right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : '올리기'}</button>}>
+      <div className="seg" style={{ marginBottom: 16 }}>
+        <button className={kind === 'request' ? 'on' : ''} onClick={() => setKind('request')}>🙏 기도 제목 나누기</button>
+        <button className={kind === 'prayer' ? 'on' : ''} onClick={() => setKind('prayer')}>🎙 목소리 기도 남기기</button>
+      </div>
+      {kind === 'request' ? (
+        <div className="field">
+          <label>어떤 기도가 필요하세요?</label>
+          <textarea className="input" rows={4} placeholder="예: 지온이 수학 시험 잘 보게 / 할머니 무릎 수술 잘 되게" value={text} onChange={e => setText(e.target.value)}/>
+          <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+          <div style={{ marginTop: 10 }}>
+            {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>목소리 빼기</button></div>
+              : <RecordButton label="목소리로도 남기기 (선택)" onDone={async r => { setVoice(r); if (!text.trim() && r.text) setText(r.text); }}/>}
+          </div>
+        </div>
+      ) : (
+        <div className="field">
+          <label>식구를 위해 드리는 기도를 목소리로 남겨요</label>
+          <p className="small muted" style={{ margin: '0 0 8px' }}>할머니·할아버지의 기도는 오래오래 들을 수 있는 보물이 돼요. 내 프로필의 <b>목소리</b>에도 모여요.</p>
+          {voice ? <div className="row gap"><div className="vp"><span className="vp-b"><LIcon name="check" size={16} stroke="#fff"/></span><div className="wave"/><small>{fmtSec(voice.sec)}</small></div><button className="btn sm soft" onClick={() => setVoice(null)}>다시 녹음</button></div>
+            : <RecordButton block label="🎙 기도 녹음하기" onDone={async r => { setVoice(r); }}/>}
+          <input className="input" style={{ marginTop: 10 }} placeholder="한 줄 (선택) 예: 손주들을 위한 아침 기도" value={text} onChange={e => setText(e.target.value)}/>
+        </div>
+      )}
+      <div className="field">
+        <label>누구를 위한 기도인가요?</label>
+        <div className="chips">
+          <button type="button" className={'chip' + (!forWho ? ' on' : '')} onClick={() => setForWho('')}>👨‍👩‍👧‍👦 온 가족</button>
+          {C.members.map(m => <button type="button" key={m.id} className={'chip' + (forWho === m.id ? ' on' : '')} onClick={() => setForWho(m.id)}>{m.emoji} {m.name}{m.id === C.me ? ' (나)' : ''}</button>)}
+          <button type="button" className={'chip' + (forWho === 'other' ? ' on' : '')} onClick={() => setForWho('other')}>다른 사람</button>
+        </div>
+        {forWho === 'other' && <input className="input" style={{ marginTop: 8 }} placeholder="예: 외삼촌, 교회 집사님" value={other} onChange={e => setOther(e.target.value)}/>}
+      </div>
+      {kind === 'request' && (
+        <div className="field">
+          <label>그날이 있나요? <span className="muted" style={{ fontWeight: 400 }}>(선택 · 시험날, 수술날, 면접날)</span></label>
+          <input type="date" className="input" min={ymd()} value={due} onChange={e => setDue(e.target.value)}/>
+          {due && <p className="small muted" style={{ margin: '6px 2px 0' }}>{fmtDate(due, true)} 아침 8시에 온 가족에게 "오늘 함께 기도해요 🙏" 알림이 가요.</p>}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+function PrayTab() {
+  const C = useC(); const [view, setView] = useState('now'); const [compose, setCompose] = useState(false);
+  const all = C.prayers;
+  const now = all.filter(p => !p.answered_at); const done = all.filter(p => p.answered_at).sort((a, b) => b.answered_at.localeCompare(a.answered_at));
+  const today = ymd();
+  const todays = now.filter(p => p.due_on === today);
+  const list = view === 'now' ? [...todays, ...now.filter(p => p.due_on !== today)] : done;
+  const prayedToday = [...new Set(C.pmarks.filter(m => m.day === today).map(m => m.member_id))];
+  useEffect(() => { if (C.prayFocus) { const p = all.find(x => x.id === C.prayFocus); if (p) setView(p.answered_at ? 'done' : 'now'); } }, [C.prayFocus]);
+  return (
+    <>
+      <div className="topbar">
+        <span className="h1">함께 기도해요 🙏</span>
+        <button className="iconbtn" onClick={() => setCompose(true)} aria-label="기도 나누기"><LIcon name="square-pen" size={26}/></button>
+      </div>
+      <div className="pray-hero">
+        <b>기도 제목을 나누고, 서로를 위해 기도해요</b>
+        <span>{prayedToday.length ? `오늘 ${prayedToday.map(id => C.getM(id).name).join(', ')}${josa(C.getM(prayedToday[prayedToday.length - 1]).name, '이', '가').slice(-1)} 함께 기도했어요` : '오늘 첫 번째로 기도해 보세요'}</span>
+        <button className="btn sm primary" onClick={() => setCompose(true)}><LIcon name="hand-heart" size={18}/>기도 나누기</button>
+      </div>
+      <div className="pad" style={{ margin: '2px 0 10px' }}>
+        <div className="seg">
+          <button className={view === 'now' ? 'on' : ''} onClick={() => setView('now')}>🙏 기도 중 {now.length}</button>
+          <button className={view === 'done' ? 'on' : ''} onClick={() => setView('done')}>✨ 응답 노트 {done.length}</button>
+        </div>
+      </div>
+      {!list.length && <div className="empty">{view === 'now' ? <>아직 기도 제목이 없어요.<br/><span className="small">위의 <b>기도 나누기</b>로 첫 기도 제목을 올려 보세요.</span></> : <>아직 응답 노트가 없어요.<br/><span className="small">기도가 이루어지면 그 기도 제목의 ••• → <b>응답됐어요</b>를 눌러 감사를 나눠요.</span></>}</div>}
+      {list.map(p => <PrayCard key={p.id} p={p} focus={C.prayFocus === p.id}/>)}
+      <PrayCompose open={compose} onClose={() => setCompose(false)}/>
+    </>
+  );
+}
+
+/* ═══════════ 알림 (맨 위 ❤ 로 여는 창) ═══════════ */
+function NotiPage({ open, onClose }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return <div className="page" style={{ background: 'var(--bg)' }}><NotiTab onBack={onClose}/></div>;
+}
+function NotiTab({ onBack }) {
   const C = useC();
   const fresh = C.activity.filter(x => x.isNew); const old = C.activity.filter(x => !x.isNew);
   const row = x => (
@@ -1807,7 +1990,7 @@ function NotiTab() {
   const soon = C.members.map(m => ({ m, d: C.bdayDays(m.id) })).filter(x => x.d !== null && x.d <= 14).sort((x, y) => x.d - y.d);
   return (
     <>
-      <div className="topbar"><span className="h1">알림</span></div>
+      <div className="topbar" style={{ paddingLeft: 4 }}><div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">알림</span></div></div>
       <div className="sheetcard">
         {soon.map(({ m, d }) => (
           <button key={m.id} className="lt" onClick={() => C.openProfile(m.id)}>
@@ -1914,6 +2097,7 @@ function ProfileBody({ mid, top = 56 }) {
   const voices = m ? [
     ...C.comments.filter(c => c.author_id === m.id && c.audio_url).map(c => { const p = C.posts.find(x => x.id === c.post_id); return { id: c.id, src: c.audio_url, t: c.created_at, text: c.content, ctx: p ? `${C.getM(p.author_id).name}의 소식에 남긴 목소리` : '목소리 댓글' }; }),
     ...C.answers.filter(a => a.member_id === m.id && a.audio_url).map(a => { const q = C.questions.find(x => x.id === a.question_id); return { id: a.id, src: a.audio_url, t: a.created_at, text: a.content, ctx: q ? `질문 “${q.text}”에 답` : '질문에 답' }; }),
+    ...C.prayers.filter(p => p.author_id === m.id && p.audio_url).map(p => ({ id: p.id, src: p.audio_url, t: p.created_at, text: p.content, ctx: p.kind === 'prayer' ? '목소리 기도' : '기도 제목' })),
     ...C.letters.filter(l => l.sender_id === m.id && l.audio_url && !isLocked(l)).map(l => ({ id: l.id, src: l.audio_url, t: l.created_at, text: l.content, ctx: `${C.getM(l.receiver_id).name}에게 보낸 목소리 편지` }))
   ].sort((a, b) => b.t.localeCompare(a.t)) : [];
   const mine = m && m.id === C.me;
@@ -2119,6 +2303,10 @@ function BookView({ year, onClose }) {
           {qs.filter(q => q.text).map(q => <div key={q.id} className="bk-post"><div className="m">{fmtDate(q.week_start, true)} 주 · 질문자 {C.getM(q.asker_id).name}{q.audio_url ? ' 🎙' : ''}</div><b>Q. {q.text}</b>{q.note && <div className="m">💬 {q.note}</div>}
             {C.answers.filter(a => a.question_id === q.id).map(a => <div key={a.id}>A. {C.getM(a.member_id).name}: {a.content || '(목소리로 답함)'}{a.audio_url && a.content ? ' 🎙' : ''}</div>)}</div>)}
         </>}
+        {C.prayers.some(p => p.answered_at && p.answered_at.startsWith(y + '')) && <>
+          <h2>✨ 응답 노트</h2>
+          {C.prayers.filter(p => p.answered_at && p.answered_at.startsWith(y + '')).map(p => <div key={p.id} className="bk-post"><div className="m">{fmtDate(ymd(new Date(p.created_at)), true)} · {C.getM(p.author_id).name}의 기도 제목{prayFor(C, p) ? ` · ${prayFor(C, p)}을(를) 위해` : ''}</div><b>🙏 {p.content || '목소리 기도'}</b><div>✨ {fmtDate(ymd(new Date(p.answered_at)), true)} 응답{p.answer_note ? ` — ${p.answer_note}` : ''}</div></div>)}
+        </>}
         {withLetters && letters.length > 0 && <>
           <h2>편지</h2>
           {letters.map(l => <div key={l.id} className="bk-post"><div className="m">{fmtDate(ymd(new Date(l.created_at)), true)} · {C.getM(l.sender_id).name} → {C.getM(l.receiver_id).name}</div>{l.title && <b>{l.title}</b>}<div style={{ whiteSpace: 'pre-wrap' }}>{l.content}</div></div>)}
@@ -2196,7 +2384,7 @@ function App() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState('home');
   const [toastMsg, setToastMsg] = useState('');
-  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [] });
+  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [] });
   const [speaking, setSpeaking] = useState(null);
   const [fontSize, setFontSizeState] = useState(store.get('fz_fs') || 'm');
   const [seen, setSeen] = useState(() => { try { return JSON.parse(store.get('fz_story') || '[]'); } catch (e) { return []; } });
@@ -2205,9 +2393,9 @@ function App() {
   const [composer, setComposer] = useState(null); const [cmtPost, setCmtPost] = useState(null); const [cmtMode, setCmtMode] = useState('');
   const [profile, setProfile] = useState(null); const [story, setStory] = useState(null); const [letterCfg, setLetterCfg] = useState(null);
   const [letterView, setLetterView] = useState(null); const [question, setQuestion] = useState(null); const [book, setBook] = useState(null);
-  const [postView, setPostView] = useState(null);
+  const [postView, setPostView] = useState(null); const [notiOpen, setNotiOpen] = useState(false); const [prayFocus, setPrayFocus] = useState(null);
   /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
-  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story)=/.test(location.search) ? location.search : '');
+  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
   const [settings, setSettings] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
   const toastTimer = useRef(null);
   const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
@@ -2216,7 +2404,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk] = await Promise.all([
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk] = await Promise.all([
         db.list('members', 'select=*&order=sort,created_at,id'),
         db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
         db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
@@ -2226,10 +2414,12 @@ function App() {
         db.list('letters', 'select=*&order=created_at.desc,id'),
         db.list('questions', 'select=*&order=week_start.desc,id'),
         db.list('answers', 'select=*&order=created_at,id'),
-        db.list('question_bank', 'select=*&order=created_at,id').catch(() => [])
+        db.list('question_bank', 'select=*&order=created_at,id').catch(() => []),
+        db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []),
+        db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => [])
       ]);
       if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
-      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk });
+      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk });
       setLoaded(true);
       return { ms, qs };
     } catch (e) { toast('가족 공간을 읽지 못했어요: ' + e.message); }
@@ -2307,6 +2497,9 @@ function App() {
     D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => { const p = posts.find(x => x.id === c.post_id); if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({ key: 'c' + c.id, who: c.author_id, t: c.created_at, text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`, go: () => setCmtPost(p) }); });
     D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => { const p = posts.find(x => x.id === r.post_id); if (p && p.author_id === me) out.push({ key: 'r' + r.post_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 소식을 좋아해요 ❤️`, thumb: photosOf(p)[0] && photosOf(p)[0].thumb, go: () => setCmtPost(p) }); });
     D.letters.filter(l => l.receiver_id === me && !l.read_at && !isLocked(l)).forEach(l => out.push({ key: 'l' + l.id, who: l.sender_id, t: l.created_at, unread: true, text: `${josa(getM(l.sender_id).name, '이', '가')} 편지를 보냈어요 💌`, go: () => setLetterView(l) }));
+    D.prayers.filter(p => p.author_id !== me && p.created_at > since).forEach(p => out.push({ key: 'pr' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} ${p.kind === 'prayer' ? '목소리 기도를 남겼어요 🎙' : '기도 제목을 나눴어요 🙏'}${p.content ? ` “${p.content.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
+    D.prayers.filter(p => p.answered_at && p.author_id !== me && p.answered_at > since).forEach(p => out.push({ key: 'pa' + p.id, who: p.author_id, t: p.answered_at, text: `✨ ${getM(p.author_id).name}의 기도가 응답됐어요${p.answer_note ? ` “${p.answer_note.slice(0, 30)}”` : ''}`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }));
+    D.pmarks.filter(k => k.member_id !== me && k.created_at > since).forEach(k => { const p = D.prayers.find(x => x.id === k.prayer_id); if (p && p.author_id === me) out.push({ key: 'pk' + k.prayer_id + k.member_id + k.day, who: k.member_id, t: k.created_at, text: `${josa(getM(k.member_id).name, '이', '가')} 내 기도 제목으로 함께 기도했어요 🙏`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }); });
     D.questions.filter(q => q.text && q.asker_id && q.asker_id !== me && q.picked_at && q.picked_at > since).forEach(q => out.push({ key: 'q' + q.id, who: q.asker_id, t: q.picked_at, text: `${josa(getM(q.asker_id).name, '이', '가')} 이번 주 질문을 냈어요 ❓ “${q.text.slice(0, 30)}”`, go: () => setQuestion(q) }));
     D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
     return out.map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
@@ -2370,7 +2563,16 @@ function App() {
     openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
     openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
     openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true),
-    openLetters: () => setLettersOpen(true), openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
+    openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
+    openPray: id => { setTab('pray'); setPrayFocus(id); },
+    /* 🙏 기도했어요: 오늘 한 번 (다시 누르면 취소) */
+    togglePray: async p => {
+      const day = ymd(); const had = D.pmarks.some(m => m.prayer_id === p.id && m.member_id === me && m.day === day);
+      setD(d => ({ ...d, pmarks: had ? d.pmarks.filter(m => !(m.prayer_id === p.id && m.member_id === me && m.day === day)) : [...d.pmarks, { prayer_id: p.id, member_id: me, day, created_at: new Date().toISOString() }] }));
+      if (!had) toast('함께 기도했어요 🙏');
+      try { if (had) await db.del('prayer_marks', `prayer_id=eq.${p.id}&member_id=eq.${me}&day=eq.${day}`); else await db.add('prayer_marks', { prayer_id: p.id, member_id: me, day }); }
+      catch (e) { toast('저장하지 못했어요'); loadAll(); }
+    }, openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
   };
 
   /* 알림: 앱을 열면 숫자 지우기 / 이 폰 주인이 바뀌면 알림 주소의 식구도 바꾸기 / 알림 눌러 열기 */
@@ -2394,6 +2596,7 @@ function App() {
     const l = q.get('letter') && D.letters.find(x => x.id === q.get('letter')); if (l) setLetterView(l);
     const qq = q.get('q') && D.questions.find(x => x.id === q.get('q')); if (qq) setQuestion(qq);
     const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
+    const pid = q.get('pray'); if (pid) { setTab('pray'); setPrayFocus(pid); }
   }, [loaded, linkReq, me, D]);
 
   if (!hasKey) return <Gate onEnter={() => setHasKey(true)}/>;
@@ -2401,20 +2604,22 @@ function App() {
   if (!D.members.some(m => m.id === me)) return <PickMe members={D.members} onPick={id => setMe(id)} onLeave={() => leave()}/>;
 
   /* 알림 탭을 떠날 때 "여기까지 봤어요" 로 적는다 */
-  const goTab = t => { if (tab === 'noti' && t !== 'noti') { const now = new Date().toISOString(); store.set('fz_seen', now); setPrevSeen(now); } setTab(t); };
+  const goTab = t => { setTab(t); if (t !== 'pray') setPrayFocus(null); };
+  /* 알림 창을 닫을 때 "여기까지 봤어요" 로 적는다 */
+  const closeNoti = () => { setNotiOpen(false); const now = new Date().toISOString(); store.set('fz_seen', now); setPrevSeen(now); };
   const me0 = getM(me);
   return (
     <Ctx.Provider value={C}>
       <div className="app">
         {tab === 'home' && <HomeTab/>}
         {tab === 'cal' && <CalendarTab/>}
-        {tab === 'noti' && <NotiTab/>}
+        {tab === 'pray' && <PrayTab/>}
         {tab === 'me' && <MeTab/>}
         <nav className="tabbar">
           <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab('home'); }}><LIcon name="house" size={26} fill={tab === 'home' ? '#1a1a1a' : undefined}/>홈</button>
           <button className={tab === 'cal' ? 'on' : ''} onClick={() => goTab('cal')}><LIcon name="calendar-days" size={26} sw={tab === 'cal' ? 2.4 : undefined}/>달력</button>
           <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>추가</button>
-          <button className={tab === 'noti' ? 'on' : ''} onClick={() => goTab('noti')}><LIcon name="heart" size={26} fill={tab === 'noti' ? '#1a1a1a' : undefined}/>알림{newCount > 0 && <span className="cnt">{newCount}</span>}</button>
+          <button className={tab === 'pray' ? 'on' : ''} onClick={() => goTab('pray')}><LIcon name="hand-heart" size={26} sw={tab === 'pray' ? 2.4 : undefined}/>기도</button>
           <button className={tab === 'me' ? 'on' : ''} onClick={() => goTab('me')}>{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={26} sw={tab === 'me' ? 2.4 : undefined}/>}내 프로필</button>
         </nav>
       </div>
@@ -2429,6 +2634,7 @@ function App() {
       <SettingsSheet open={settings} onClose={() => setSettings(false)}/>
       <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
       <TagPage tag={tagView} onClose={() => setTagView(null)}/>
+      <NotiPage open={notiOpen} onClose={closeNoti}/>
       <Page open={!!postView} onClose={() => setPostView(null)} title="소식">{postView && (posts.find(p => p.id === postView) ? <PostCard p={posts.find(p => p.id === postView)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
       <StoryViewer items={story} onClose={() => setStory(null)}/>
       <BookView year={book} onClose={() => setBook(null)}/>

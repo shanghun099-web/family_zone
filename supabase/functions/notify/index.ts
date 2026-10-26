@@ -1,5 +1,5 @@
 // Familygram 폰 알림 보내기 (Supabase Edge Function "notify")
-// - 표에 새 줄이 생기면(posts·comments·letters·answers·reactions) DB 트리거가 이 함수를 부른다
+// - 표에 새 줄이 생기면(posts·comments·letters·answers·reactions·questions·prayers·prayer_marks) DB 트리거가 이 함수를 부른다
 // - 밤 10시~아침 8시(한국)에는 바로 안 보내고 push_outbox 에 모았다가 ?mode=morning(아침 8시 cron)에 보낸다
 // - 아침에는 내일 생일·행사도 알려 준다
 // 열쇠(VAPID)·비밀값은 private.push_config 에 있고 push_cfg() 로만 읽는다 (코드에 없음)
@@ -141,6 +141,22 @@ async function build(table: string, r: any, op = "INSERT", old: any = null): Pro
     if (done >= all.length) return [{ to: all.map(x => x.id), pref: "letter", title: "모두 답했어요! 이번 주 답이 열렸어요 🎁", body: q ? `“${cut(q.text, 60)}”` : "", url: `${APP}?q=${r.question_id}`, tag: `ans-${r.question_id}` }];
     return [{ to: others(r.member_id), pref: "letter", title: `${josa(name(r.member_id), "이", "가")} 이번 주 질문에 답했어요`, body: `답 ${done}/${all.length} · 모두 답하면 다 같이 열려요`, url: `${APP}?q=${r.question_id}`, tag: `ans-${r.question_id}` }];
   }
+  if (table === "prayers") {   // 함께 기도해요
+    const a = name(r.author_id);
+    const fw = r.for_member ? name(r.for_member) : (r.for_text || "");
+    const url = `${APP}?pray=${r.id}`;
+    if (op === "UPDATE") {
+      if (!r.answered_at || (old && old.answered_at)) return [];
+      return [{ to: others(r.author_id), pref: "pray", title: "✨ 기도가 응답됐어요", body: `${josa(a, "이", "가")} 감사를 나눴어요${r.answer_note ? ` · “${cut(r.answer_note, 50)}”` : ""}`, url, tag: `pray-${r.id}` }];
+    }
+    if (r.kind === "prayer") return [{ to: others(r.author_id), pref: "pray", title: `${a}의 목소리 기도 🎙`, body: fw ? `${josa(fw, "을", "를")} 위해 기도를 남겼어요` : "온 가족을 위해 기도를 남겼어요", url, tag: `pray-${r.id}` }];
+    return [{ to: others(r.author_id), pref: "pray", title: `${josa(a, "이", "가")} 기도 제목을 나눴어요 🙏`, body: cut((fw ? `${josa(fw, "을", "를")} 위해 · ` : "") + (r.content || "🎙 목소리로 남겼어요"), 80), url, tag: `pray-${r.id}` }];
+  }
+  if (table === "prayer_marks") {
+    const { data: p } = await sb.from("prayers").select("id,author_id,content").eq("id", r.prayer_id).maybeSingle();
+    if (!p || p.author_id === r.member_id) return [];
+    return [{ to: [p.author_id], pref: "pray", title: `${josa(name(r.member_id), "이", "가")} 함께 기도했어요 🙏`, body: cut(p.content, 60) || "목소리 기도", url: `${APP}?pray=${p.id}`, tag: `praymark-${p.id}` }];
+  }
   if (table === "questions") {
     if (!r.asker_id) return [];
     const who = name(r.asker_id);
@@ -185,6 +201,14 @@ async function morning() {
       const pick = (fam.length ? fam : pool)[Math.floor(Math.random() * (fam.length || pool.length))];
       if (pick) await sb.from("questions").update({ text: pick.text, auto: true, picked_at: new Date().toISOString() }).eq("id", wq.id);
     }
+  }
+  // 그날(시험날·수술날) 아침: 온 가족에게 "오늘 함께 기도해요"
+  const { data: pm } = await sb.from("members").select("id,name");
+  const nm = (id: string) => ((pm || []).find((x: { id: string }) => x.id === id) || { name: "식구" }).name;
+  const { data: dues } = await sb.from("prayers").select("id,content,for_member,for_text").eq("due_on", todayKST()).is("answered_at", null);
+  for (const p of (dues || []) as { id: string; content: string; for_member: string | null; for_text: string | null }[]) {
+    const fw = p.for_member ? nm(p.for_member) : (p.for_text || "");
+    sent += await deliver({ to: (pm || []).map((x: { id: string }) => x.id), pref: "pray", title: "오늘 함께 기도해요 🙏", body: cut(`${fw ? fw + " · " : ""}${p.content || "목소리 기도"}`, 80), url: `${APP}?pray=${p.id}`, tag: `praydue-${p.id}` });
   }
   // 내일 생일·행사
   const tomorrow = ymdUTC(new Date(kst().getTime() + 864e5));
