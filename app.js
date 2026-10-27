@@ -2561,9 +2561,10 @@ function FridgeCard({
     size: 16
   }))), /*#__PURE__*/React.createElement("div", {
     className: "notes"
-  }, notes.map((n, i) => /*#__PURE__*/React.createElement("div", {
+  }, notes.map((n, i) => /*#__PURE__*/React.createElement("button", {
     key: n.id,
     className: "note",
+    onClick: () => C.openNote(n),
     style: {
       background: noteColors[i % 4],
       transform: `rotate(${n.angle || 0}deg)`
@@ -2577,7 +2578,127 @@ function FridgeCard({
     className: "nt-txt"
   }, n.content), /*#__PURE__*/React.createElement("div", {
     className: "tiny muted"
-  }, relTime(n.created_at))))));
+  }, relTime(n.created_at)), /*#__PURE__*/React.createElement(NoteMeta, {
+    n: n
+  })))));
+}
+
+/* 📌 냉장고 메모 하나: 마음(이모지 하나)·답글 */
+function NoteSheet({
+  note,
+  onClose
+}) {
+  const C = useC();
+  const [t, setT] = useState('');
+  const [busy, setBusy] = useState(false);
+  const dict = useDictation(x => setT(s => joinText(s, x)));
+  useEffect(() => {
+    if (note) setT('');
+  }, [note && note.id]);
+  const n = note && (C.notes.find(x => x.id === note.id) || note);
+  const reacts = n ? C.noteReactsOf(n.id) : [];
+  const mine = n ? (reacts.find(r => r.member_id === C.me) || {}).emoji : null;
+  const replies = n ? C.noteRepliesOf(n.id) : [];
+  const send = async () => {
+    if (!t.trim()) return;
+    setBusy(true);
+    if (await C.replyNote(n, t.trim())) setT('');
+    setBusy(false);
+  };
+  return /*#__PURE__*/React.createElement(Sheet, {
+    open: !!n,
+    onClose: onClose,
+    title: "\uD83D\uDCCC \uB0C9\uC7A5\uACE0 \uBA54\uBAA8"
+  }, n && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "note big",
+    style: {
+      background: n.color && n.color !== '#F7F4EB' ? n.color : '#FFF6B8'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "nt-who"
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: C.getM(n.author_id),
+    size: 24
+  }), /*#__PURE__*/React.createElement("span", null, C.getM(n.author_id).name, " \xB7 ", relTime(n.created_at))), /*#__PURE__*/React.createElement("div", {
+    className: "nt-txt"
+  }, n.content)), /*#__PURE__*/React.createElement("div", {
+    className: "rbar inline",
+    role: "group",
+    "aria-label": "\uB9C8\uC74C \uB0A8\uAE30\uAE30"
+  }, REACTS.map(([e, w]) => /*#__PURE__*/React.createElement("button", {
+    key: e,
+    className: mine === e ? 'on' : '',
+    onClick: () => C.reactNote(n, e),
+    "aria-label": w
+  }, e))), reacts.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "small muted",
+    style: {
+      margin: '2px 4px 12px'
+    }
+  }, reacts.map(r => C.getM(r.member_id).name + r.emoji).join(', ')), /*#__PURE__*/React.createElement("div", {
+    className: "sec-t",
+    style: {
+      padding: '6px 0'
+    }
+  }, "\uB2F5\uAE00 ", replies.length > 0 ? replies.length : ''), !replies.length && /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '0 2px 10px'
+    }
+  }, "\"\uB0B4\uAC00 \uC0AC \uC62C\uAC8C\uC694!\"\uCC98\uB7FC \uD55C\uB9C8\uB514 \uB0A8\uACA8 \uBCF4\uC138\uC694."), replies.map(r => /*#__PURE__*/React.createElement("div", {
+    className: "cmt",
+    key: r.id
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: C.getM(r.author_id),
+    size: 28
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "body"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, C.getM(r.author_id).name), " ", /*#__PURE__*/React.createElement("span", null, r.content)), /*#__PURE__*/React.createElement("div", {
+    className: "meta"
+  }, /*#__PURE__*/React.createElement("span", null, relTime(r.created_at)), (r.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
+    onClick: () => C.deleteNoteReply(r)
+  }, "\uC9C0\uC6B0\uAE30"))))), /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input grow",
+    placeholder: "\uB2F5\uAE00 \uD55C\uB9C8\uB514",
+    value: t,
+    onChange: e => setT(e.target.value),
+    onKeyDown: e => {
+      if (e.key === 'Enter') send();
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary sm",
+    disabled: busy || !t.trim(),
+    onClick: send
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '보내기')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement(MicButton, {
+    dict: dict
+  }))));
+}
+/* 메모 아래 작은 줄: 남긴 마음·답글 수 (누르면 메모 창) */
+function NoteMeta({
+  n
+}) {
+  const C = useC();
+  const rs = C.noteReactsOf(n.id);
+  const k = C.noteRepliesOf(n.id).length;
+  const kinds = [...new Set(rs.map(r => r.emoji))].slice(0, 3).join('');
+  return /*#__PURE__*/React.createElement("div", {
+    className: "nt-meta"
+  }, rs.length ? /*#__PURE__*/React.createElement("span", null, kinds, " ", rs.length) : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2661"), /*#__PURE__*/React.createElement("span", {
+    className: k ? '' : 'muted'
+  }, "\uD83D\uDCAC ", k || ''));
 }
 
 /* ═══════════ 홈 ═══════════ */
@@ -3284,13 +3405,17 @@ function LettersTab({
   }, C.notes.map((n, i) => /*#__PURE__*/React.createElement("div", {
     key: n.id,
     className: "note",
+    onClick: () => C.openNote(n),
     style: {
       background: noteColors[i % 4],
       transform: `rotate(${n.angle || 0}deg)`
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "x",
-    onClick: () => C.deleteNote(n),
+    onClick: e => {
+      e.stopPropagation();
+      C.deleteNote(n);
+    },
     "aria-label": "\uBA54\uBAA8 \uB5BC\uAE30"
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "x",
@@ -4724,12 +4849,14 @@ function NotiTab({
   const C = useC();
   const fresh = C.activity.filter(x => x.isNew);
   const old = C.activity.filter(x => !x.isNew);
-  const row = x => /*#__PURE__*/React.createElement("button", {
+  const row = x => /*#__PURE__*/React.createElement("div", {
     key: x.key,
-    className: "lt",
+    className: "ltw",
     style: x.isNew ? {
       background: '#FFF7F3'
-    } : undefined,
+    } : undefined
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "lt",
     onClick: x.go
   }, /*#__PURE__*/React.createElement(Avatar, {
     m: C.getM(x.who),
@@ -4750,7 +4877,14 @@ function NotiTab({
       borderRadius: 10,
       objectFit: 'cover'
     }
-  }));
+  })), /*#__PURE__*/React.createElement("button", {
+    className: "ltx",
+    onClick: () => C.hideNoti(x.key),
+    "aria-label": "\uC774 \uC54C\uB9BC \uC9C0\uC6B0\uAE30"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "x",
+    size: 18
+  })));
   const soon = C.members.map(m => ({
     m,
     d: C.bdayDays(m.id)
@@ -4771,7 +4905,18 @@ function NotiTab({
     size: 28
   })), /*#__PURE__*/React.createElement("span", {
     className: "h1"
-  }, "\uC54C\uB9BC"))), /*#__PURE__*/React.createElement("div", {
+  }, "\uC54C\uB9BC")), C.activity.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: () => {
+      if (window.confirm('알림을 모두 지울까요? (이 폰에서만 지워져요)')) {
+        C.clearNoti();
+        C.toast('알림을 모두 지웠어요');
+      }
+    }
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "trash-2",
+    size: 16
+  }), "\uBAA8\uB450 \uC9C0\uC6B0\uAE30")), /*#__PURE__*/React.createElement("div", {
     className: "sheetcard"
   }, soon.map(({
     m,
@@ -6883,8 +7028,33 @@ function App() {
     answers: [],
     bank: [],
     prayers: [],
-    pmarks: []
+    pmarks: [],
+    nreacts: [],
+    nreplies: []
   });
+  const [noteView, setNoteView] = useState(null);
+  /* 알림 지우기: 이 폰에서만 숨긴다 (지운 알림 열쇠들 + "이때까지 모두 지움") */
+  const [notiHide, setNotiHide] = useState(() => {
+    try {
+      const j = JSON.parse(store.get('fz_noti_hide') || '{}');
+      return {
+        keys: j.keys || [],
+        before: j.before || ''
+      };
+    } catch (e) {
+      return {
+        keys: [],
+        before: ''
+      };
+    }
+  });
+  const saveHide = h => {
+    setNotiHide(h);
+    store.set('fz_noti_hide', JSON.stringify({
+      keys: h.keys.slice(-600),
+      before: h.before
+    }));
+  };
   const [speaking, setSpeaking] = useState(null);
   const [fontSize, setFontSizeState] = useState(store.get('fz_fs') || 'm');
   const [seen, setSeen] = useState(() => {
@@ -6931,7 +7101,7 @@ function App() {
   }, [fontSize]);
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => [])]);
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []), db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []), db.list('note_replies', 'select=*&order=created_at,id').catch(() => [])]);
       if (!ms.length && !(await db.rpc('is_family'))) {
         leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.');
         return;
@@ -6952,7 +7122,9 @@ function App() {
         answers: as,
         bank: bk,
         prayers: pr,
-        pmarks: pk
+        pmarks: pk,
+        nreacts: nr,
+        nreplies: ny
       });
       setLoaded(true);
       setLoadErr('');
@@ -6993,8 +7165,8 @@ function App() {
         if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요');
         return false;
       }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
       const data = {
         app: 'THE FAMILY ZONE',
         saved_at: new Date().toISOString(),
@@ -7230,11 +7402,38 @@ function App() {
       text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`,
       go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ)
     }));
-    return out.map(x => ({
+    D.nreplies.filter(y => y.author_id !== me && y.created_at > since).forEach(y => {
+      const n = D.notes.find(x => x.id === y.note_id);
+      if (n && (n.author_id === me || D.nreplies.some(z => z.note_id === n.id && z.author_id === me))) out.push({
+        key: 'ny' + y.id,
+        who: y.author_id,
+        t: y.created_at,
+        text: `${josa(getM(y.author_id).name, '이', '가')} 냉장고 메모에 답했어요 📌 “${y.content.slice(0, 30)}”`,
+        go: () => {
+          setNotiOpen(false);
+          setNoteView(n);
+        }
+      });
+    });
+    D.nreacts.filter(r => r.member_id !== me && r.created_at > since).forEach(r => {
+      const n = D.notes.find(x => x.id === r.note_id);
+      if (n && n.author_id === me) out.push({
+        key: 'nr' + r.note_id + r.member_id,
+        who: r.member_id,
+        t: r.created_at,
+        text: `${josa(getM(r.member_id).name, '이', '가')} 내 메모에 ${r.emoji} ${reactWord(r.emoji)}`,
+        go: () => {
+          setNotiOpen(false);
+          setNoteView(n);
+        }
+      });
+    });
+    const hid = new Set(notiHide.keys);
+    return out.filter(x => !hid.has(x.key) && !(notiHide.before && x.t <= notiHide.before)).map(x => ({
       ...x,
       isNew: x.unread || x.t > prevSeen
     })).sort((a, b) => b.t.localeCompare(a.t));
-  }, [posts, D, me, prevSeen]);
+  }, [posts, D, me, prevSeen, notiHide]);
   const newCount = activity.filter(x => x.isNew).length;
   const C = {
     me,
@@ -7460,6 +7659,50 @@ function App() {
     openBook: y => setBook(y),
     openSettings: () => setSettings(true),
     reload: loadAll,
+    hideNoti: key => saveHide({
+      ...notiHide,
+      keys: [...notiHide.keys, key]
+    }),
+    clearNoti: () => saveHide({
+      keys: [],
+      before: new Date().toISOString()
+    }),
+    openNote: n => setNoteView(n),
+    noteReactsOf: id => D.nreacts.filter(r => r.note_id === id),
+    noteRepliesOf: id => D.nreplies.filter(r => r.note_id === id),
+    reactNote: async (n, emoji) => {
+      // 메모마다 한 사람 한 마음: 같은 걸 다시 누르면 지우고, 다른 걸 누르면 바꾼다
+      const cur = (D.nreacts.find(r => r.note_id === n.id && r.member_id === me) || {}).emoji;
+      const off = cur === emoji;
+      setD(d => ({
+        ...d,
+        nreacts: [...d.nreacts.filter(r => !(r.note_id === n.id && r.member_id === me)), ...(off ? [] : [{
+          note_id: n.id,
+          member_id: me,
+          emoji,
+          created_at: new Date().toISOString()
+        }])]
+      }));
+      try {
+        if (cur) await db.del('note_reacts', `note_id=eq.${n.id}&member_id=eq.${me}`);
+        if (!off) await db.add('note_reacts', {
+          note_id: n.id,
+          member_id: me,
+          emoji
+        });
+      } catch (e) {
+        toast('마음을 저장하지 못했어요');
+        loadAll();
+      }
+    },
+    replyNote: (n, content) => write(() => db.add('note_replies', {
+      note_id: n.id,
+      author_id: me,
+      content
+    }), '답글을 남겼어요'),
+    deleteNoteReply: r => {
+      if (window.confirm('이 답글을 지울까요?')) write(() => db.del('note_replies', `id=eq.${r.id}`), '답글을 지웠어요');
+    },
     openAdmin: () => setAdmin(true),
     isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true),
@@ -7546,6 +7789,11 @@ function App() {
     if (pid) {
       setTab('pray');
       setPrayFocus(pid);
+    }
+    const nid = q.get('note');
+    if (nid) {
+      const n = D.notes.find(x => x.id === nid);
+      if (n) setNoteView(n);
     }
   }, [loaded, linkReq, me, D]);
 
@@ -7726,6 +7974,9 @@ function App() {
   }), /*#__PURE__*/React.createElement(NotiPage, {
     open: notiOpen,
     onClose: closeNoti
+  }), /*#__PURE__*/React.createElement(NoteSheet, {
+    note: noteView,
+    onClose: () => setNoteView(null)
   }), /*#__PURE__*/React.createElement(Page, {
     open: !!postView,
     onClose: () => setPostView(null),

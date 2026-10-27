@@ -285,6 +285,10 @@
   .qcard .rec{background:#fff;border-radius:20px;padding:6px 13px;font-weight:700;color:#d2502c;display:flex;align-items:center;gap:5px;white-space:nowrap}
   .fil{display:flex;gap:7px;padding:8px 14px 4px}
   .lt{display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);width:100%;text-align:left}
+  .ltw{display:flex;align-items:center;border-bottom:1px solid var(--line)}
+  .ltw .lt{border-bottom:0;flex:1;min-width:0}
+  .ltx{width:40px;height:40px;flex-shrink:0;margin-right:6px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#aaa;background:none;border:0}
+  .ltx:active{background:#f1f1f1}
   .lt .env{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .lt b{font-size:1rem;display:block}.lt span{font-size:.88rem;color:var(--sub);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lt .new{background:#F0403A;color:#fff;font-size:.72rem;border-radius:10px;padding:1px 8px;font-weight:700;flex-shrink:0}
@@ -324,6 +328,12 @@
   .fridge .notes{padding:14px 14px 16px}
   .fridge .note{min-height:120px;display:flex;flex-direction:column;gap:6px}
   .nt-who{display:flex;align-items:center;gap:5px;font-size:.8rem;font-weight:700;color:#6b5f4a}
+  button.note{border:0;text-align:left;font-family:inherit;color:inherit;cursor:pointer}
+  .note{cursor:pointer}
+  .nt-meta{display:flex;gap:10px;font-size:.8rem;color:#5a4f3a;margin-top:2px}
+  .note.big{width:auto;min-height:0;transform:none;margin:0 0 12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+  .note.big .nt-txt{font-size:1.9rem}
+  .rbar.inline{position:static;animation:none;box-shadow:none;background:#f6f4f0;justify-content:space-between;margin:0 0 6px}
   .nt-txt{flex:1;font-family:'Nanum Pen Script',cursive;font-size:1.45rem;line-height:1.15;color:#3a3226}
   .note{flex-shrink:0;width:150px;min-height:110px;border-radius:6px;padding:10px;font-size:.92rem;box-shadow:0 2px 6px rgba(0,0,0,.1);position:relative;white-space:pre-wrap}
   .note .x{position:absolute;top:2px;right:2px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;opacity:.5}
@@ -401,6 +411,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=04e77d25"></script>
+<script src="app.js?v=ddb9e09c"></script>
 </body>
 </html>

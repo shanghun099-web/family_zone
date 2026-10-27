@@ -1036,15 +1036,61 @@ function FridgeCard({ notes }) {
       <button className="feed-band fr" onClick={C.openLetters}><span>📌 냉장고 메모</span><span className="go">냉장고 열기 <LIcon name="chevron-right" size={16}/></span></button>
       <div className="notes">
         {notes.map((n, i) => (
-          <div key={n.id} className="note" style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}>
+          <button key={n.id} className="note" onClick={() => C.openNote(n)} style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}>
             <div className="nt-who"><Avatar m={C.getM(n.author_id)} size={20}/><span>{C.getM(n.author_id).name}</span></div>
             <div className="nt-txt">{n.content}</div>
             <div className="tiny muted">{relTime(n.created_at)}</div>
-          </div>
+            <NoteMeta n={n}/>
+          </button>
         ))}
       </div>
     </article>
   );
+}
+
+/* 📌 냉장고 메모 하나: 마음(이모지 하나)·답글 */
+function NoteSheet({ note, onClose }) {
+  const C = useC(); const [t, setT] = useState(''); const [busy, setBusy] = useState(false);
+  const dict = useDictation(x => setT(s => joinText(s, x)));
+  useEffect(() => { if (note) setT(''); }, [note && note.id]);
+  const n = note && (C.notes.find(x => x.id === note.id) || note);
+  const reacts = n ? C.noteReactsOf(n.id) : []; const mine = n ? (reacts.find(r => r.member_id === C.me) || {}).emoji : null;
+  const replies = n ? C.noteRepliesOf(n.id) : [];
+  const send = async () => { if (!t.trim()) return; setBusy(true); if (await C.replyNote(n, t.trim())) setT(''); setBusy(false); };
+  return (
+    <Sheet open={!!n} onClose={onClose} title="📌 냉장고 메모">
+      {n && <>
+        <div className="note big" style={{ background: n.color && n.color !== '#F7F4EB' ? n.color : '#FFF6B8' }}>
+          <div className="nt-who"><Avatar m={C.getM(n.author_id)} size={24}/><span>{C.getM(n.author_id).name} · {relTime(n.created_at)}</span></div>
+          <div className="nt-txt">{n.content}</div>
+        </div>
+        <div className="rbar inline" role="group" aria-label="마음 남기기">
+          {REACTS.map(([e, w]) => <button key={e} className={mine === e ? 'on' : ''} onClick={() => C.reactNote(n, e)} aria-label={w}>{e}</button>)}
+        </div>
+        {reacts.length > 0 && <div className="small muted" style={{ margin: '2px 4px 12px' }}>{reacts.map(r => C.getM(r.member_id).name + r.emoji).join(', ')}</div>}
+        <div className="sec-t" style={{ padding: '6px 0' }}>답글 {replies.length > 0 ? replies.length : ''}</div>
+        {!replies.length && <p className="small muted" style={{ margin: '0 2px 10px' }}>"내가 사 올게요!"처럼 한마디 남겨 보세요.</p>}
+        {replies.map(r => (
+          <div className="cmt" key={r.id}>
+            <Avatar m={C.getM(r.author_id)} size={28}/>
+            <div className="body"><div><b>{C.getM(r.author_id).name}</b> <span>{r.content}</span></div>
+              <div className="meta"><span>{relTime(r.created_at)}</span>{(r.author_id === C.me || C.isAdmin) && <button onClick={() => C.deleteNoteReply(r)}>지우기</button>}</div></div>
+          </div>
+        ))}
+        <div className="row gap" style={{ marginTop: 10 }}>
+          <input className="input grow" placeholder="답글 한마디" value={t} onChange={e => setT(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send(); }}/>
+          <button className="btn primary sm" disabled={busy || !t.trim()} onClick={send}>{busy ? <span className="spin"/> : '보내기'}</button>
+        </div>
+        <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+      </>}
+    </Sheet>
+  );
+}
+/* 메모 아래 작은 줄: 남긴 마음·답글 수 (누르면 메모 창) */
+function NoteMeta({ n }) {
+  const C = useC(); const rs = C.noteReactsOf(n.id); const k = C.noteRepliesOf(n.id).length;
+  const kinds = [...new Set(rs.map(r => r.emoji))].slice(0, 3).join('');
+  return <div className="nt-meta">{rs.length ? <span>{kinds} {rs.length}</span> : <span className="muted">♡</span>}<span className={k ? '' : 'muted'}>💬 {k || ''}</span></div>;
 }
 
 /* ═══════════ 홈 ═══════════ */
@@ -1300,7 +1346,7 @@ function LettersTab({ onBack }) {
       })}
       <div className="sec-t">📌 냉장고 메모</div>
       <div className="notes">
-        {C.notes.map((n, i) => <div key={n.id} className="note" style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}><button className="x" onClick={() => C.deleteNote(n)} aria-label="메모 떼기"><LIcon name="x" size={16}/></button><div className="tiny muted">{C.getM(n.author_id).name}</div>{n.content}</div>)}
+        {C.notes.map((n, i) => <div key={n.id} className="note" onClick={() => C.openNote(n)} style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}><button className="x" onClick={e => { e.stopPropagation(); C.deleteNote(n); }} aria-label="메모 떼기"><LIcon name="x" size={16}/></button><div className="tiny muted">{C.getM(n.author_id).name}</div>{n.content}</div>)}
         {!C.notes.length && <p className="small muted">"우유 사 오기" 같은 짧은 쪽지를 붙여 두세요.</p>}
       </div>
       <div className="row gap pad">
@@ -1819,16 +1865,19 @@ function NotiTab({ onBack }) {
   const C = useC();
   const fresh = C.activity.filter(x => x.isNew); const old = C.activity.filter(x => !x.isNew);
   const row = x => (
-    <button key={x.key} className="lt" style={x.isNew ? { background: '#FFF7F3' } : undefined} onClick={x.go}>
-      <Avatar m={C.getM(x.who)} size={46}/>
-      <div className="grow"><b style={{ fontSize: '.98rem', whiteSpace: 'normal' }}>{x.text}</b><span>{relTime(x.t)}</span></div>
-      {x.thumb && <img src={x.thumb} alt="" style={{ width: 50, height: 50, borderRadius: 10, objectFit: 'cover' }}/>}
-    </button>
+    <div key={x.key} className="ltw" style={x.isNew ? { background: '#FFF7F3' } : undefined}>
+      <button className="lt" onClick={x.go}>
+        <Avatar m={C.getM(x.who)} size={46}/>
+        <div className="grow"><b style={{ fontSize: '.98rem', whiteSpace: 'normal' }}>{x.text}</b><span>{relTime(x.t)}</span></div>
+        {x.thumb && <img src={x.thumb} alt="" style={{ width: 50, height: 50, borderRadius: 10, objectFit: 'cover' }}/>}
+      </button>
+      <button className="ltx" onClick={() => C.hideNoti(x.key)} aria-label="이 알림 지우기"><LIcon name="x" size={18}/></button>
+    </div>
   );
   const soon = C.members.map(m => ({ m, d: C.bdayDays(m.id) })).filter(x => x.d !== null && x.d <= 14).sort((x, y) => x.d - y.d);
   return (
     <>
-      <div className="topbar" style={{ paddingLeft: 4 }}><div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">알림</span></div></div>
+      <div className="topbar" style={{ paddingLeft: 4 }}><div className="row">{onBack && <button className="iconbtn" onClick={onBack} aria-label="뒤로"><LIcon name="chevron-left" size={28}/></button>}<span className="h1">알림</span></div>{C.activity.length > 0 && <button className="btn sm soft" onClick={() => { if (window.confirm('알림을 모두 지울까요? (이 폰에서만 지워져요)')) { C.clearNoti(); C.toast('알림을 모두 지웠어요'); } }}><LIcon name="trash-2" size={16}/>모두 지우기</button>}</div>
       <div className="sheetcard">
         {soon.map(({ m, d }) => (
           <button key={m.id} className="lt" onClick={() => C.openProfile(m.id)}>
@@ -2555,7 +2604,11 @@ function App() {
   const [loaded, setLoaded] = useState(false); const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState('home');
   const [toastMsg, setToastMsg] = useState('');
-  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [] });
+  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [], nreacts: [], nreplies: [] });
+  const [noteView, setNoteView] = useState(null);
+  /* 알림 지우기: 이 폰에서만 숨긴다 (지운 알림 열쇠들 + "이때까지 모두 지움") */
+  const [notiHide, setNotiHide] = useState(() => { try { const j = JSON.parse(store.get('fz_noti_hide') || '{}'); return { keys: j.keys || [], before: j.before || '' }; } catch (e) { return { keys: [], before: '' }; } });
+  const saveHide = h => { setNotiHide(h); store.set('fz_noti_hide', JSON.stringify({ keys: h.keys.slice(-600), before: h.before })); };
   const [speaking, setSpeaking] = useState(null);
   const [fontSize, setFontSizeState] = useState(store.get('fz_fs') || 'm');
   const [seen, setSeen] = useState(() => { try { return JSON.parse(store.get('fz_story') || '[]'); } catch (e) { return []; } });
@@ -2575,7 +2628,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk] = await Promise.all([
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny] = await Promise.all([
         db.list('members', 'select=*&order=sort,created_at,id'),
         db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
         db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
@@ -2587,10 +2640,12 @@ function App() {
         db.list('answers', 'select=*&order=created_at,id'),
         db.list('question_bank', 'select=*&order=created_at,id').catch(() => []),
         db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []),
-        db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => [])
+        db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []),
+        db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []),
+        db.list('note_replies', 'select=*&order=created_at,id').catch(() => [])
       ]);
       if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
-      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk });
+      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk, nreacts: nr, nreplies: ny });
       setLoaded(true); setLoadErr('');
       return { ms, qs };
     } catch (e) { setLoadErr(navigator.onLine === false ? '인터넷이 끊겨 있어요' : e.message); toast(navigator.onLine === false ? '인터넷 연결을 확인해 주세요' : '가족 공간을 읽지 못했어요: ' + e.message); }
@@ -2610,8 +2665,8 @@ function App() {
   const runBackup = async manual => {
     try {
       if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
       const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
       tables.forEach((t, i) => data[t] = all[i]);
       await gw('backup', { day: ymd(), data: JSON.stringify(data) });
@@ -2682,8 +2737,11 @@ function App() {
     D.pmarks.filter(k => k.member_id !== me && k.created_at > since).forEach(k => { const p = D.prayers.find(x => x.id === k.prayer_id); if (p && p.author_id === me) out.push({ key: 'pk' + k.prayer_id + k.member_id + k.day, who: k.member_id, t: k.created_at, text: `${josa(getM(k.member_id).name, '이', '가')} 내 기도 제목으로 함께 기도했어요 🙏`, go: () => { setNotiOpen(false); setTab('pray'); setPrayFocus(p.id); } }); });
     D.questions.filter(q => q.text && q.asker_id && q.asker_id !== me && q.picked_at && q.picked_at > since).forEach(q => out.push({ key: 'q' + q.id, who: q.asker_id, t: q.picked_at, text: `${josa(getM(q.asker_id).name, '이', '가')} 이번 주 질문을 냈어요 ❓ “${q.text.slice(0, 30)}”`, go: () => setQuestion(q) }));
     D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
-    return out.map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
-  }, [posts, D, me, prevSeen]);
+    D.nreplies.filter(y => y.author_id !== me && y.created_at > since).forEach(y => { const n = D.notes.find(x => x.id === y.note_id); if (n && (n.author_id === me || D.nreplies.some(z => z.note_id === n.id && z.author_id === me))) out.push({ key: 'ny' + y.id, who: y.author_id, t: y.created_at, text: `${josa(getM(y.author_id).name, '이', '가')} 냉장고 메모에 답했어요 📌 “${y.content.slice(0, 30)}”`, go: () => { setNotiOpen(false); setNoteView(n); } }); });
+    D.nreacts.filter(r => r.member_id !== me && r.created_at > since).forEach(r => { const n = D.notes.find(x => x.id === r.note_id); if (n && n.author_id === me) out.push({ key: 'nr' + r.note_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 메모에 ${r.emoji} ${reactWord(r.emoji)}`, go: () => { setNotiOpen(false); setNoteView(n); } }); });
+    const hid = new Set(notiHide.keys);
+    return out.filter(x => !hid.has(x.key) && !(notiHide.before && x.t <= notiHide.before)).map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
+  }, [posts, D, me, prevSeen, notiHide]);
   const newCount = activity.filter(x => x.isNew).length;
 
   const C = {
@@ -2751,7 +2809,20 @@ function App() {
     leave: () => leave(), changeMe: () => setMe(''),
     openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
     openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
-    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true), reload: loadAll, openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
+    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true), reload: loadAll,
+    hideNoti: key => saveHide({ ...notiHide, keys: [...notiHide.keys, key] }),
+    clearNoti: () => saveHide({ keys: [], before: new Date().toISOString() }),
+    openNote: n => setNoteView(n),
+    noteReactsOf: id => D.nreacts.filter(r => r.note_id === id),
+    noteRepliesOf: id => D.nreplies.filter(r => r.note_id === id),
+    reactNote: async (n, emoji) => {   // 메모마다 한 사람 한 마음: 같은 걸 다시 누르면 지우고, 다른 걸 누르면 바꾼다
+      const cur = (D.nreacts.find(r => r.note_id === n.id && r.member_id === me) || {}).emoji; const off = cur === emoji;
+      setD(d => ({ ...d, nreacts: [...d.nreacts.filter(r => !(r.note_id === n.id && r.member_id === me)), ...(off ? [] : [{ note_id: n.id, member_id: me, emoji, created_at: new Date().toISOString() }])] }));
+      try { if (cur) await db.del('note_reacts', `note_id=eq.${n.id}&member_id=eq.${me}`); if (!off) await db.add('note_reacts', { note_id: n.id, member_id: me, emoji }); }
+      catch (e) { toast('마음을 저장하지 못했어요'); loadAll(); }
+    },
+    replyNote: (n, content) => write(() => db.add('note_replies', { note_id: n.id, author_id: me, content }), '답글을 남겼어요'),
+    deleteNoteReply: r => { if (window.confirm('이 답글을 지울까요?')) write(() => db.del('note_replies', `id=eq.${r.id}`), '답글을 지웠어요'); }, openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
     openPray: id => { setTab('pray'); setPrayFocus(id); },
     /* 🙏 기도했어요: 오늘 한 번 (다시 누르면 취소) */
@@ -2786,6 +2857,7 @@ function App() {
     const qq = q.get('q') && D.questions.find(x => x.id === q.get('q')); if (qq) setQuestion(qq);
     const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
     const pid = q.get('pray'); if (pid) { setTab('pray'); setPrayFocus(pid); }
+    const nid = q.get('note'); if (nid) { const n = D.notes.find(x => x.id === nid); if (n) setNoteView(n); }
   }, [loaded, linkReq, me, D]);
 
   /* 폰 뒤로가기: 홈이 아닌 탭(달력·기도·내 프로필)에서는 홈으로, 홈에서는 앱이 닫힌다.
@@ -2836,6 +2908,7 @@ function App() {
       <LettersPage open={lettersOpen} onClose={() => setLettersOpen(false)}/>
       <TagPage tag={tagView} onClose={() => setTagView(null)}/>
       <NotiPage open={notiOpen} onClose={closeNoti}/>
+      <NoteSheet note={noteView} onClose={() => setNoteView(null)}/>
       <Page open={!!postView} onClose={() => setPostView(null)} title="소식">{postView && (posts.find(p => p.id === postView) ? <PostCard p={posts.find(p => p.id === postView)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
       <StoryViewer items={story} onClose={() => setStory(null)}/>
       <BookView year={book} onClose={() => setBook(null)}/>

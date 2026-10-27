@@ -1,5 +1,5 @@
 // Familygram 폰 알림 보내기 (Supabase Edge Function "notify")
-// - 표에 새 줄이 생기면(posts·comments·letters·answers·reactions·questions·prayers·prayer_marks) DB 트리거가 이 함수를 부른다
+// - 표에 새 줄이 생기면(posts·comments·letters·answers·reactions·questions·prayers·prayer_marks·note_reacts·note_replies) DB 트리거가 이 함수를 부른다
 // - 밤 10시~아침 8시(한국)에는 바로 안 보내고 push_outbox 에 모았다가 ?mode=morning(아침 8시 cron)에 보낸다
 // - 아침에는 내일 생일·행사도 알려 준다
 // 열쇠(VAPID)·비밀값은 private.push_config 에 있고 push_cfg() 로만 읽는다 (코드에 없음)
@@ -9,6 +9,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const APP = "https://shanghun099-web.github.io/family_zone/";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
+const REACT_WORD: Record<string, string> = { "❤️": "좋아요", "🥰": "사랑스러워요", "😂": "웃겨요", "👍": "최고예요", "😮": "놀라워요", "😢": "슬퍼요", "🙏": "기도해요", "🎉": "축하해요" };
 type Msg = { to: string[]; pref: string; title: string; body?: string; url?: string; tag?: string; image?: string };
 type Sub = { id: string; member_id: string; endpoint: string; p256dh: string; auth: string; prefs: Record<string, boolean>; unread: number };
 
@@ -124,8 +125,19 @@ async function build(table: string, r: any, op = "INSERT", old: any = null): Pro
     if (r.emoji === "🔖") return [];
     const { data: p } = await sb.from("posts").select("id,author_id,content").eq("id", r.post_id).maybeSingle();
     if (!p || p.author_id === r.member_id) return [];
-    const word: Record<string, string> = { "❤️": "좋아요", "🥰": "사랑스러워요", "😂": "웃겨요", "👍": "최고예요", "😮": "놀라워요", "😢": "슬퍼요", "🙏": "기도해요", "🎉": "축하해요" };
-    return [{ to: [p.author_id], pref: "react", title: `${josa(name(r.member_id), "이", "가")} 내 소식에 ${r.emoji} ${word[r.emoji] || "마음을 남겼어요"}`, body: cut(p.content, 60), url: `${APP}?post=${p.id}`, tag: `like-${p.id}` }];
+    return [{ to: [p.author_id], pref: "react", title: `${josa(name(r.member_id), "이", "가")} 내 소식에 ${r.emoji} ${REACT_WORD[r.emoji] || "마음을 남겼어요"}`, body: cut(p.content, 60), url: `${APP}?post=${p.id}`, tag: `like-${p.id}` }];
+  }
+  if (table === "note_replies") {   // 냉장고 메모 답글: 메모 쓴 사람 + 앞서 답한 식구에게
+    const { data: n } = await sb.from("notes").select("id,author_id,content").eq("id", r.note_id).maybeSingle();
+    if (!n) return [];
+    const { data: rs } = await sb.from("note_replies").select("author_id").eq("note_id", r.note_id);
+    const to = [...new Set([n.author_id, ...(rs || []).map((x: { author_id: string }) => x.author_id)])].filter(id => id && id !== r.author_id);
+    return [{ to, pref: "post", title: `${josa(name(r.author_id), "이", "가")} 냉장고 메모에 답했어요 📌`, body: `“${cut(n.content, 30)}” · ${cut(r.content, 60)}`, url: `${APP}?note=${n.id}`, tag: `nrep-${r.id}` }];
+  }
+  if (table === "note_reacts") {
+    const { data: n } = await sb.from("notes").select("id,author_id,content").eq("id", r.note_id).maybeSingle();
+    if (!n || n.author_id === r.member_id) return [];
+    return [{ to: [n.author_id], pref: "react", title: `${josa(name(r.member_id), "이", "가")} 내 메모에 ${r.emoji} ${REACT_WORD[r.emoji] || "마음을 남겼어요"}`, body: `📌 ${cut(n.content, 60)}`, url: `${APP}?note=${n.id}`, tag: `nlike-${n.id}` }];
   }
   if (table === "letters") {
     if (!r.receiver_id || r.receiver_id === r.sender_id) return [];
