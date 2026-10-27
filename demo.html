@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Familygram 체험판</title><meta name="robots" content="noindex"/><meta name="theme-color" content="#ffffff"/><link rel="icon" href="favicon-32.png"/></head>
+<body>
+<script>
+/* Familygram 체험판: 진짜 가족 공간 대신 가짜 가족(할머니·엄마·아빠·지우)으로 앱을 그대로 돌린다.
+   서버·드라이브로는 아무것도 나가지 않고, 새로 열면 처음 상태로 돌아간다 (demo.html 은 _test.html 에서 만든다) */
+/* 같은 주소(github.io)의 진짜 앱 저장값(가족 암호·PIN 열쇠)을 건드리지 않도록, 이 탭 전용 저장소로 바꿔 끼운다 */
+(function () {
+  const P = 'fzdemo:', S = window.sessionStorage;
+  Object.keys(S).filter(k => k.startsWith(P)).forEach(k => S.removeItem(k));   // 가짜 가족은 열 때마다 새로 만들어지니 저장값도 처음부터
+  const shim = { getItem: k => S.getItem(P + k), setItem: (k, v) => S.setItem(P + k, String(v)), removeItem: k => S.removeItem(P + k), clear() {}, key: () => null, get length() { return 0; } };
+  Object.defineProperty(window, 'localStorage', { value: shim, configurable: true });
+})();
+(function(){
+  const uid = () => 'x' + Math.random().toString(36).slice(2, 10);
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const T = new Date(); const day = n => { const d = new Date(T); d.setDate(d.getDate() + n); return ymd(d); };
+  const yago = n => { const d = new Date(T); d.setFullYear(d.getFullYear() - n); return ymd(d); };
+  const iso = n => new Date(Date.now() + n * 3600e3).toISOString();
+  const ph = s => ({ id: 'ph-' + s, url: `https://picsum.photos/seed/${s}/1200/1000`, thumb: `https://picsum.photos/seed/${s}/480/400`, w: 1200, h: 1000 });
+  const M = { g: uid(), mo: uid(), da: uid(), ji: uid() };
+  const bd = d => { const x = new Date(T); x.setDate(x.getDate() + d); return x; };
+  const daBirth = (() => { const x = bd(4); x.setFullYear(1981); return ymd(x); })();
+  const DB = window.__DB = {
+    members: [
+      { id: M.g, name: '할머니', emoji: '👵', color: '#D9407A', role: '텃밭 대장', sort: 1, birth_date: '1948-05-12', bday_lunar: true, likes: '고추 농사, 트로트', avatar: '', created_at: iso(-900) },
+      { id: M.mo, name: '엄마', emoji: '👩', color: '#2E7D5B', role: '다정한 요리사', sort: 2, birth_date: '1984-11-20', bday_lunar: false, likes: '', avatar: '', created_at: iso(-900) },
+      { id: M.da, name: '아빠', emoji: '👨', color: '#2F7BF6', role: '호기심 낚시꾼', sort: 3, birth_date: daBirth, bday_lunar: false, likes: '낚시', avatar: '', created_at: iso(-900) },
+      { id: M.ji, name: '지우', emoji: '🧒', color: '#F0603A', role: '막내 손주', sort: 4, birth_date: '2017-03-02', bday_lunar: false, likes: '김밥, 공룡, 할머니 텃밭', avatar: '', created_at: iso(-900) }
+    ],
+    posts: [
+      { id: 'p0', author_id: M.da, title: '우리, 오늘도 함께 ♡', content: '바다 보며 힐링하는 주말 ☀️ #가족 #주말나들이 #행복한순간', photos: [ph('seaside12')], happened_on: day(0), kind: 'post', tagged: [M.mo, M.ji], open_on: null, ask_to: null, ask_text: '', created_at: iso(-2), audio_url: null },
+      { id: 'p1', author_id: M.mo, title: '', content: '지우가 처음으로 혼자 김밥을 말았어요 🍙 옆구리는 터졌지만 맛은 최고!', photos: [ph('kimbap1'), ph('kimbap2')], happened_on: day(-1), kind: 'post', tagged: [M.ji], open_on: null, ask_to: M.g, ask_text: '엄마도 어릴 때 김밥 말아 봤어요?', created_at: iso(-20), audio_url: null },
+      { id: 'p2', author_id: M.g, title: '', content: '올해 고추가 유난히 맵게 열렸다', photos: [ph('garden9')], happened_on: day(-3), kind: 'post', tagged: [], open_on: null, ask_to: null, ask_text: '', created_at: iso(-72) },
+      { id: 'p3', author_id: M.mo, title: '', content: '제주도 첫날 🌊 #가족 #제주도', photos: [ph('jeju1'), ph('jeju2'), ph('jeju3')], happened_on: yago(3), kind: 'post', tagged: [M.ji, M.da, M.g], open_on: null, ask_to: null, ask_text: '', created_at: iso(-300) },
+      { id: 'p4', author_id: M.da, title: '', content: '스무 살 지우에게 보여 줄 사진', photos: [ph('baby5')], happened_on: day(-10), kind: 'post', tagged: [M.ji], open_on: '2037-03-02', ask_to: null, ask_text: '', created_at: iso(-240) },
+      { id: 'p5', author_id: M.g, title: '', content: '아침 텃밭', photos: [ph('morning7')], happened_on: day(0), kind: 'daily', tagged: [], open_on: null, ask_to: null, ask_text: '', created_at: iso(-3) },
+      { id: 'p6', author_id: M.ji, title: '', content: '공룡 그림 그렸다', photos: [ph('dino3')], happened_on: day(0), kind: 'daily', tagged: [], open_on: null, ask_to: null, ask_text: '', created_at: iso(-1) },
+      { id: 'p7', author_id: M.ji, title: '', content: '', photos: [ph('bike4')], happened_on: day(-5), kind: 'daily', tagged: [], open_on: null, ask_to: null, ask_text: '', created_at: iso(-120) },
+      { id: 'p8', author_id: M.mo, title: '', content: '작년 눈 오던 날', photos: [ph('snow5')], happened_on: '2025-01-15', kind: 'post', tagged: [M.ji], open_on: null, ask_to: null, ask_text: '', created_at: iso(-500) }
+    ],
+    reactions: [ { post_id: 'p0', member_id: M.g, emoji: '🥰', created_at: iso(-1) }, { post_id: 'p0', member_id: M.ji, emoji: '😂', created_at: iso(-1) }, { post_id: 'p0', member_id: M.mo, emoji: '❤️', created_at: iso(-1) }, { post_id: 'p1', member_id: M.g, emoji: '❤️', created_at: iso(-10) }, { post_id: 'p1', member_id: M.da, emoji: '❤️', created_at: iso(-9) }, { post_id: 'p2', member_id: M.ji, emoji: '❤️', created_at: iso(-50) } ],
+    comments: [
+      { id: 'c1', post_id: 'p1', author_id: M.da, content: '아빠 것도 남겨 놔!', audio_url: null, is_answer: false, created_at: iso(-15) },
+      { id: 'c2', post_id: 'p1', author_id: M.g, content: '아이고 우리 강아지, 할미 줄 것도 남겨놔라', audio_url: 'drive:v1#12', is_answer: false, created_at: iso(-8) }
+    ],
+    notes: [ { id: 'n1', author_id: M.mo, content: '우유 사 오기 🥛', color: '#FFF6B8', angle: -1.2, created_at: iso(-5) }, { id: 'n2', author_id: M.da, content: '토요일 저녁은 외식!', color: '#FFF6B8', angle: 1.4, created_at: iso(-4.8) } ],
+    events: [ { id: 'e1', title: '할아버지 기일', kind: 'memorial', member_id: null, calendar: 'lunar', event_date: null, lunar_month: 9, lunar_day: 20, lunar_leap: false, yearly: true, memo: '', created_at: iso(-800) },
+              { id: 'e2', title: '엄마아빠 결혼기념일', kind: 'anniversary', member_id: M.mo, calendar: 'solar', event_date: '2011-10-22', lunar_month: null, lunar_day: null, lunar_leap: false, yearly: true, memo: '', created_at: iso(-800) } ],
+    letters: [
+      { id: 'l1', sender_id: M.ji, receiver_id: M.g, title: '할머니께', content: '할머니 텃밭 고추 또 따러 가요! 사랑해요', read_at: null, open_on: null, audio_url: null, created_at: iso(-30) },
+      { id: 'l2', sender_id: M.mo, receiver_id: M.ji, title: '스무 살의 지우에게', content: '...', read_at: null, open_on: '2037-03-02', audio_url: null, created_at: iso(-200) },
+      { id: 'l3', sender_id: M.da, receiver_id: M.mo, title: '결혼 15주년', content: '늘 고마워요.', read_at: iso(-90), open_on: null, audio_url: null, created_at: iso(-100) }
+    ],
+    questions: [], answers: [], memories: [], wishes: [], event_tasks: [], question_bank: [], push_subs: [], prayers: [{ id: 'r1', author_id: M.mo, kind: 'request', content: '지우 다음 주 수술 잘 끝나도록 함께 기도해 주세요', for_member: M.ji, for_text: null, due_on: null, answered_at: null, answer_note: null, audio_url: null, created_at: iso(-0.5) }], prayer_marks: [{ prayer_id: 'r1', member_id: M.g, day: new Date().toISOString().slice(0, 10), created_at: iso(-2) }]
+  };
+  DB.members.forEach(m => { if (m.id === M.da) m.is_admin = true; });
+  DB.visits = [M.mo, M.ji, M.g].flatMap((id, j) => [0, 1, 2, 4].filter(n => !(j === 2 && n < 3)).map(n => ({ member_id: id, day: day(-n), opens: 3 - j, first_at: iso(-24 * n - 5), last_at: iso(-24 * n - 1 - j) })));
+  DB.views = [{ item_id: 'p0', member_id: M.mo, kind: 'post', created_at: iso(-1) }, { item_id: 'p0', member_id: M.g, kind: 'post', created_at: iso(-1) }, { item_id: 'r1', member_id: M.da, kind: 'pray', created_at: iso(-0.2) }];
+  DB.app_settings = []; DB.push_subs = [{ id: 's1', member_id: M.mo }, { id: 's2', member_id: M.da }];
+  window.__ME = { g: M.g, mo: M.mo, da: M.da, ji: M.ji };
+  /* 질문 상자 + 지난주 질문(할머니가 질문, 답 2개) */
+  ['어릴 때 가장 좋아했던 놀이는 무엇이었나요?', '가장 기억에 남는 생일은 언제였나요?', '어릴 때 꿈은 무엇이었나요?', '10년 뒤 우리 가족은 어떤 모습일까요?', '가장 많이 웃었던 날은 언제였나요?', '명절에 가장 기억나는 장면은 무엇인가요?', '처음 가 본 여행은 어디였나요?', '가장 좋아하는 계절과 그 이유는?', '받은 선물 중 가장 감동적이었던 것은?', '우리 동네에서 가장 좋아하는 장소는?']
+    .forEach((t, i) => DB.question_bank.push({ id: 'b' + i, text: t, added_by: null, created_at: iso(-2000 + i) }));
+  DB.question_bank.push({ id: 'bf1', text: '할머니가 처음 받은 선물은 무엇이었어요?', added_by: M.ji, created_at: iso(-30) });
+  const mon = (() => { const x = new Date(T.getFullYear(), T.getMonth(), T.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x; })();
+  const lastWk = ymd(new Date(mon.getTime() - 7 * 864e5));
+  DB.questions.push({ id: 'q0', text: '가장 기억에 남는 생일은 언제였나요?', target_id: null, asker_id: M.g, week_start: lastWk, note: '지우 생일 사진 보다가 궁금해졌어', audio_url: null, auto: false, picked_at: iso(-170), created_at: iso(-170) });
+  DB.answers.push({ id: 'a0', question_id: 'q0', member_id: M.mo, content: '스무 살 생일에 친구들이 깜짝 파티 해 준 날!', audio_url: null, created_at: iso(-150) }, { id: 'a1', question_id: 'q0', member_id: M.da, content: '지우가 태어난 해 내 생일', audio_url: null, created_at: iso(-140) });
+  /* 함께 기도해요: 기도 제목 3개(하나는 오늘이 그날), 목소리 기도 1개, 응답 1개 */
+  DB.prayers.push(
+    { id: 'pr1', author_id: M.mo, kind: 'request', content: '지우 받아쓰기 시험 떨지 않고 잘 보게 해 주세요', audio_url: null, for_member: M.ji, for_text: null, due_on: ymd(T), answered_at: null, answer_note: null, created_at: iso(-20) },
+    { id: 'pr2', author_id: M.da, kind: 'request', content: '할머니 무릎 수술이 잘 되고 빨리 회복하시도록', audio_url: null, for_member: M.g, for_text: null, due_on: day(5), answered_at: null, answer_note: null, created_at: iso(-30) },
+    { id: 'pr3', author_id: M.g, kind: 'prayer', content: '손주들을 위한 아침 기도', audio_url: 'drive:v1#40', for_member: null, for_text: null, due_on: null, answered_at: null, answer_note: null, created_at: iso(-6) },
+    { id: 'pr4', author_id: M.mo, kind: 'request', content: '외삼촌 새 직장 잘 구하게', audio_url: null, for_member: null, for_text: '외삼촌', due_on: null, answered_at: iso(-50), answer_note: '다음 주부터 출근하신대요! 함께 기도해 줘서 고마워요', created_at: iso(-400) });
+  DB.prayer_marks.push({ prayer_id: 'pr1', member_id: M.da, day: ymd(T), created_at: iso(-3) }, { prayer_id: 'pr1', member_id: M.g, day: ymd(T), created_at: iso(-2) }, { prayer_id: 'pr2', member_id: M.mo, day: day(-1), created_at: iso(-26) }, { prayer_id: 'pr4', member_id: M.da, day: day(-20), created_at: iso(-480) });
+  window.__ensureWeek = () => { const wk = ymd(mon); if (!DB.questions.some(q => q.week_start === wk)) DB.questions.push({ id: 'q1', text: '', target_id: null, asker_id: M[(new URLSearchParams(location.search).get('ask') || localStorage.getItem('fz_ask_test') || 'mo')], week_start: wk, note: null, audio_url: null, auto: false, picked_at: null, created_at: iso(-1) }); if (/qset=1/.test(location.search)) { const q = DB.questions.find(x => x.id === 'q1'); if (q && !q.text) Object.assign(q, { text: '가족과 꼭 함께 해 보고 싶은 일은?', note: '올겨울엔 다 같이 뭔가 해 보고 싶어서요', picked_at: iso(-5) }); if (!DB.answers.some(x => x.id === 'qa1')) DB.answers.push({ id: 'qa1', question_id: 'q1', member_id: M.ji, content: '캠핑!', audio_url: null, created_at: iso(-2) }); } return DB.questions.filter(q => q.week_start === wk); };
+  if (/empty=1/.test(location.search)) DB.posts.length = 0;   /* ?empty=1 : 소식 없는 첫 화면 */
+  /* ?big=1 : 소식 1200개·좋아요 2600개 — 1000줄 한계 시험 */
+  if (/big=1/.test(location.search)) {
+    const who = [M.g, M.mo, M.da, M.ji];
+    for (let i = 0; i < 1200; i++) DB.posts.push({ id: 'b' + i, author_id: who[i % 4], title: '', content: '시험 소식 ' + i, photos: [], happened_on: day(-30 - i), kind: 'post', tagged: [], open_on: null, ask_to: null, ask_text: '', created_at: iso(-800 - i * 24) });
+    for (let i = 0; i < 1300; i++) for (const w of [M.g, M.da]) DB.reactions.push({ post_id: 'b' + (i % 1200), member_id: w, emoji: i < 1200 ? '❤️' : '🔖', created_at: iso(-900) });
+  }
+  const files = { v1: { mime: 'audio/wav', data: '' } };
+  // 무음 1초 wav
+  (function () { const sr = 8000, n = sr; const b = new ArrayBuffer(44 + n); const v = new DataView(b); const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true); for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    let s = ''; new Uint8Array(b).forEach(x => s += String.fromCharCode(x)); files.v1.data = btoa(s); })();
+  window.__LOG = [];
+  const J = (o, st = 200) => new Response(JSON.stringify(o), { status: st, headers: { 'Content-Type': 'application/json' } });
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (url, opt = {}) => {
+    url = String(url);
+    if (url.includes('supabase.co/rest/v1/')) {
+      const path = url.split('/rest/v1/')[1]; const [tbl, qs] = path.split('?'); const q = new URLSearchParams(qs || ''); const m = (opt.method || 'GET').toUpperCase();
+      window.__LOG.push(m + ' ' + decodeURIComponent(path));
+      if (tbl === 'rpc/log_visit') { const b = JSON.parse(opt.body), d = ymd(new Date()); const v = DB.visits.find(x => x.member_id === b.p_member && x.day === d); if (v) { v.opens++; v.last_at = new Date().toISOString(); } else DB.visits.push({ member_id: b.p_member, day: d, opens: 1, first_at: new Date().toISOString(), last_at: new Date().toISOString() }); return J(null); }
+      if (tbl === 'rpc/family_points') { const b = JSON.parse(opt.body); const R = Object.assign({ visit: 2, post: 10, daily: 5, answer: 10, comment: 3, comment_cap: 10, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1 }, (DB.app_settings.find(s => s.k === 'points') || {}).v || {}); const inR = t => { const d = ymd(new Date(t)); return d >= b.p_from && d <= b.p_to; };
+        const out = DB.members.map(m => { const c = { member_id: m.id, visits: DB.visits.filter(v => v.member_id === m.id && v.day >= b.p_from && v.day <= b.p_to).length, opens: DB.visits.filter(v => v.member_id === m.id).reduce((n, v) => n + v.opens, 0), views: DB.views.filter(v => v.member_id === m.id && inR(v.created_at)).length, posts: DB.posts.filter(p => p.author_id === m.id && p.kind !== 'daily' && inR(p.created_at)).length, daily: DB.posts.filter(p => p.author_id === m.id && p.kind === 'daily' && inR(p.created_at)).length, comments: DB.comments.filter(x => x.author_id === m.id && inR(x.created_at)).length, answers: DB.answers.filter(x => x.member_id === m.id && inR(x.created_at)).length, letters: DB.letters.filter(x => x.sender_id === m.id && inR(x.created_at)).length, prayers: DB.prayers.filter(x => x.author_id === m.id && inR(x.created_at)).length, pmarks: DB.prayer_marks.filter(x => x.member_id === m.id).length, reacts: DB.reactions.filter(x => x.member_id === m.id && x.emoji !== '🔖').length };
+          c.points = c.visits * R.visit + c.views * R.view + c.posts * R.post + c.daily * R.daily + c.comments * R.comment + c.answers * R.answer + c.letters * R.letter + c.prayers * R.prayer + c.pmarks * R.pmark + c.reacts * R.react; return c; }).sort((x, y) => y.points - x.points); return J(out); }
+      if (tbl === 'rpc/admin_pin_set') return J(!!window.__PIN);
+      if (tbl === 'rpc/whoami') return J(window.__NOPIN ? null : localStorage.getItem('fz_me'));
+      if (tbl === 'rpc/pins_state') return J(window.__PINS || []);
+      if (tbl === 'rpc/claim_member') { const b = JSON.parse(opt.body); window.__PINS = [...(window.__PINS || []), b.p_member]; window.__NOPIN = false; return J({ ok: true, token: 'tok-' + b.p_member, first: true }); }
+      if (tbl === 'rpc/reset_member_pin' || tbl === 'rpc/change_my_pin') return J({ ok: true });
+      if (tbl === 'rpc/restore_backup') { const b = JSON.parse(opt.body); if (b.p_pin !== window.__PIN) return J({ ok: false, error: '관리자 PIN이 맞지 않아요' }); return J({ ok: true, dry: b.p_dry, added: { posts: 2, comments: 1 } }); }
+      if (tbl === 'rpc/set_admin_pin') { const b = JSON.parse(opt.body); if (window.__PIN && b.p_old !== window.__PIN) return J({ ok: false, error: '지금 PIN이 맞지 않아요' }); window.__PIN = b.p_new; return J({ ok: true }); }
+      if (tbl === 'rpc/set_points') { const b = JSON.parse(opt.body); if (b.p_pin !== window.__PIN) return J({ ok: false, error: '관리자 PIN이 맞지 않아요' }); DB.app_settings = [{ k: 'points', v: b.p_rules }]; return J({ ok: true }); }
+      if (tbl.startsWith('rpc/')) { const fn = tbl.slice(4); return J(fn === 'family_ready' || fn === 'is_family' ? true : fn === 'ensure_week_q' ? window.__ensureWeek() : null); }
+      const rows = DB[tbl] || (DB[tbl] = []);
+      const filt = [...q.entries()].filter(([k]) => !['select', 'order', 'limit', 'offset', 'on_conflict'].includes(k));
+      const match = r => filt.every(([k, v]) => v.startsWith('gte.') ? String(r[k]) >= v.slice(4) : v.startsWith('in.(') ? v.slice(4, -1).split(',').includes(String(r[k])) : v.startsWith('neq.') ? String(r[k]) !== decodeURIComponent(v.slice(4)) : String(r[k]) === decodeURIComponent(v.replace(/^eq\./, '')));
+      if (m === 'GET') { window.__gets = (window.__gets || 0) + 1; const off = +(q.get('offset') || 0), lim = +(q.get('limit') || 1e9); return J(rows.filter(match).slice(off, off + Math.min(lim, 1000))); }
+      if (m === 'POST') { const body = JSON.parse(opt.body); const arr = Array.isArray(body) ? body : [body]; const oc = q.get('on_conflict'); const out = [];
+        arr.forEach(b => { if (oc && rows.some(r => oc.split(',').every(c => r[c] === b[c]))) { if (/merge/.test(opt.headers && opt.headers.Prefer || '')) Object.assign(rows.find(r => oc.split(',').every(c => r[c] === b[c])), b); return; } const row = { id: uid(), created_at: new Date().toISOString(), ...b }; if (tbl === 'posts') { row.tagged = row.tagged || []; row.photos = row.photos || []; row.happened_on = row.happened_on || ymd(new Date()); row.kind = row.kind || 'post'; row.ask_text = row.ask_text || ''; } rows.push(row); out.push(row); }); return J(out, 201); }
+      if (m === 'PATCH') { const body = JSON.parse(opt.body); const out = rows.filter(match); out.forEach(r => Object.assign(r, body)); return J(out); }
+      if (m === 'DELETE') { const keep = rows.filter(r => !match(r)); DB[tbl] = keep; if (tbl === 'posts') { DB.comments = DB.comments.filter(c => keep.some(p => p.id === c.post_id)); DB.reactions = DB.reactions.filter(c => keep.some(p => p.id === c.post_id)); } return J(null, 204 === 204 ? 200 : 200); }
+    }
+    if (url.includes('supabase.co/functions/')) return J({ sent: 1 });
+    if (url.includes('script.google.com')) {
+      if ((opt.method || 'GET') === 'GET') return J({ ok: true, v: 4 });
+      const p = JSON.parse(opt.body); window.__LOG.push('GW ' + p.action + (p.kind ? ' ' + p.kind : ''));
+      if (p.action === 'vstart') return J({ ok: true, url: 'https://upload.test.invalid/session' + uid() });
+      if (p.action === 'vchunk') { window.__VB = (window.__VB || 0) + atob(p.data).length; return J(p.start + atob(p.data).length >= p.total ? { ok: true, done: true, id: 'vid' + uid() } : { ok: true, done: false }); }
+      if (p.action === 'vdone') return J({ ok: true, id: p.id });
+      if (p.action === 'bklist') return J({ ok: true, list: [{ id: 'bk1', day: ymd(new Date()), size: 13287 }, { id: 'bk0', day: '2026-10-26', size: 13084 }] });
+      if (p.action === 'get' && /^bk/.test(p.id)) { const t = JSON.stringify({ app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), posts: DB.posts.slice(0, 2) }); return J({ ok: true, mime: 'application/json', data: btoa(unescape(encodeURIComponent(t))) }); }
+      if (p.action === 'upload') { const id = uid(); files[id] = { mime: p.mime, data: p.data }; if (p.kind === 'voice') return J({ ok: true, id }); const u = `data:${p.mime};base64,${p.data}`; return J({ ok: true, id, url: u, thumb: u }); }
+      if (p.action === 'get') { const f = files[p.id]; return J(f ? { ok: true, mime: f.mime, data: f.data } : { ok: false, error: '없음' }); }
+      if (p.action === 'delete') return J({ ok: true });
+      if (p.action === 'backup') { window.__BACKUP = p.data; return J({ ok: true, name: '가족기록_' + p.day + '.json' }); }
+      if (p.action === 'bkinfo') return J({ ok: true, count: window.__BACKUP ? 1 : 0, last: window.__BACKUP ? ymd(new Date()) : '', folder: 'https://drive.google.com/' });
+      return J({ ok: true });
+    }
+    return realFetch(url, opt);
+  };
+  localStorage.setItem('fz_key', 'test-key-only');
+  localStorage.setItem('fz_me', window.__ME.da); localStorage.setItem('fz_tok', 'demo-tok');   // 처음엔 아빠(관리자)로
+  localStorage.setItem('fz_seen', iso(-48));
+  localStorage.removeItem('fz_bk');
+})();
+/* index.html 을 읽어서 그대로 띄운다 */
+(async function () {
+  const html = await (await fetch((new URLSearchParams(location.search).get('f') || 'index.html') + '?' + Date.now())).text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.head.querySelectorAll('link,style').forEach(n => { if (n.rel !== 'manifest') document.head.appendChild(n.cloneNode(true)); });
+  document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:9999;background:rgba(20,20,20,.78);color:#fff;font:600 12px/1.2 sans-serif;padding:6px 12px;border-radius:14px;pointer-events:none;white-space:nowrap">체험판 · 가짜 가족 자료 · 새로 열면 처음부터</div>');
+  document.body.insertAdjacentHTML('beforeend', '<div id="root"></div>');
+  for (const s of doc.querySelectorAll('script')) {
+    if (s.src) await new Promise((ok, no) => { const x = document.createElement('script'); x.src = s.src; x.onload = ok; x.onerror = no; document.head.appendChild(x); });
+    else if (s.type === 'text/babel') { const code = Babel.transform(s.textContent, { presets: ['react'] }).code; (0, eval)(code); }
+  }
+})();
+</script>
+</body></html>
