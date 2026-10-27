@@ -2454,7 +2454,7 @@ function SettingsSheet({ open, onClose }) {
 /* 지난번 이후 새 소식 */
 /* ═══════════ 연말 가족 책 ═══════════ */
 function BookView({ year, onClose }) {
-  const C = useC(); const [y, setY] = useState(year); const [withLetters, setWithLetters] = useState(false);
+  const C = useC(); const [y, setY] = useState(year); const [withLetters, setWithLetters] = useState(false); const [withTalk, setWithTalk] = useState(true);
   useLayer(!!year, onClose);
   useEffect(() => { if (year) setY(year); }, [year]);
   if (!year) return null;
@@ -2470,6 +2470,7 @@ function BookView({ year, onClose }) {
         <button className="iconbtn" onClick={onClose} aria-label="닫기"><LIcon name="x"/></button>
         <select className="input" style={{ width: 'auto', minHeight: 40 }} value={y} onChange={e => setY(+e.target.value)}>{years.map(x => <option key={x} value={x}>{x}년</option>)}</select>
         <label className="row gap small" style={{ minHeight: 40 }}><input type="checkbox" checked={withLetters} onChange={e => setWithLetters(e.target.checked)} style={{ width: 20, height: 20 }}/>편지도 넣기</label>
+        <label className="row gap small" style={{ minHeight: 40 }}><input type="checkbox" checked={withTalk} onChange={e => setWithTalk(e.target.checked)} style={{ width: 20, height: 20 }}/>댓글·마음 넣기</label>
         <span className="grow"/>
         <button className="btn sm primary" onClick={() => window.print()}><LIcon name="printer" size={18}/>PDF로 저장 · 인쇄</button>
       </div>
@@ -2490,6 +2491,13 @@ function BookView({ year, onClose }) {
                 <div className="m">{fmtDate(p.happened_on, true)} · {C.getM(p.author_id).name}{p.kind === 'daily' ? ' · 오늘의 한 장' : ''}{(p.tagged || []).length ? ` · 함께: ${(p.tagged || []).map(id => C.getM(id).name).join(', ')}` : ''}</div>
                 {ph.length > 0 && <div className={'bk-ph' + (ph.length === 1 ? ' one' : '')}>{ph.map((x, i) => <img key={i} src={x.url} alt=""/>)}</div>}
                 {p.content && <div style={{ whiteSpace: 'pre-wrap' }}>{p.content}</div>}
+                {withTalk && (() => {   /* 가족이 남긴 마음(이모지)과 댓글도 책에 */
+                  const rs = C.reactsOf(p.id); const cm = C.commentsOf(p.id).filter(c => !c.is_answer);
+                  return <>
+                    {rs.length > 0 && <div className="bk-re">{[...new Set(rs.map(r => r.emoji))].join('')} {rs.length} · {rs.map(r => C.getM(r.member_id).name + r.emoji).join(', ')}</div>}
+                    {cm.length > 0 && <div className="bk-cm">{cm.map(c => <div key={c.id}><b>{C.getM(c.author_id).name}</b> {c.content || '(목소리 댓글)'}{c.audio_url && c.content ? ' 🎙' : ''}</div>)}</div>}
+                  </>;
+                })()}
                 {p.ask_to && <div style={{ marginTop: 6, color: '#8a4a2a' }}>Q. {C.getM(p.ask_to).name}께 — {p.ask_text}{ans.map(a => <div key={a.id} style={{ color: '#333' }}>A. {C.getM(a.author_id).name}: {a.content || '(목소리 답)'}</div>)}</div>}
               </div>); })}
           </div>

@@ -6658,6 +6658,7 @@ function BookView({
   const C = useC();
   const [y, setY] = useState(year);
   const [withLetters, setWithLetters] = useState(false);
+  const [withTalk, setWithTalk] = useState(true);
   useLayer(!!year, onClose);
   useEffect(() => {
     if (year) setY(year);
@@ -6704,7 +6705,20 @@ function BookView({
       width: 20,
       height: 20
     }
-  }), "\uD3B8\uC9C0\uB3C4 \uB123\uAE30"), /*#__PURE__*/React.createElement("span", {
+  }), "\uD3B8\uC9C0\uB3C4 \uB123\uAE30"), /*#__PURE__*/React.createElement("label", {
+    className: "row gap small",
+    style: {
+      minHeight: 40
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: withTalk,
+    onChange: e => setWithTalk(e.target.checked),
+    style: {
+      width: 20,
+      height: 20
+    }
+  }), "\uB313\uAE00\xB7\uB9C8\uC74C \uB123\uAE30"), /*#__PURE__*/React.createElement("span", {
     className: "grow"
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn sm primary",
@@ -6754,7 +6768,18 @@ function BookView({
       style: {
         whiteSpace: 'pre-wrap'
       }
-    }, p.content), p.ask_to && /*#__PURE__*/React.createElement("div", {
+    }, p.content), withTalk && (() => {
+      /* 가족이 남긴 마음(이모지)과 댓글도 책에 */
+      const rs = C.reactsOf(p.id);
+      const cm = C.commentsOf(p.id).filter(c => !c.is_answer);
+      return /*#__PURE__*/React.createElement(React.Fragment, null, rs.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "bk-re"
+      }, [...new Set(rs.map(r => r.emoji))].join(''), " ", rs.length, " \xB7 ", rs.map(r => C.getM(r.member_id).name + r.emoji).join(', ')), cm.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "bk-cm"
+      }, cm.map(c => /*#__PURE__*/React.createElement("div", {
+        key: c.id
+      }, /*#__PURE__*/React.createElement("b", null, C.getM(c.author_id).name), " ", c.content || '(목소리 댓글)', c.audio_url && c.content ? ' 🎙' : ''))));
+    })(), p.ask_to && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 6,
         color: '#8a4a2a'
