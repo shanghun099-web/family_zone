@@ -193,7 +193,7 @@ const blobToB64 = blob => new Promise((ok, no) => {
   fr.onerror = no;
   fr.readAsDataURL(blob);
 });
-async function uploadPhoto(file, max) {
+async function uploadPhoto(file, max, keepOrig) {
   const {
     blob,
     w,
@@ -205,14 +205,35 @@ async function uploadPhoto(file, max) {
     mime: 'image/jpeg',
     data: await blobToB64(blob)
   });
+  const orig = keepOrig ? await uploadOriginal(file) : null;
   return {
     id: r.id,
     url: r.url,
     thumb: r.thumb,
     w,
-    h
+    h,
+    ...(orig ? {
+      orig
+    } : {})
   };
 }
+/* 원본: 줄이지 않은 파일 그대로 드라이브 "사진" 폴더에 "원본_…"으로 한 장 더 (인쇄용·찍은 날짜와 장소 보관). 실패해도 소식은 올라간다 */
+async function uploadOriginal(file) {
+  if (!file || !file.size || file.size > 45e6) return null;
+  try {
+    const mime = /^image\//.test(file.type || '') ? file.type : 'image/jpeg';
+    const r = await gw('upload', {
+      kind: 'photo',
+      name: '원본_' + (file.name || '사진').replace(/\.\w+$/, ''),
+      mime,
+      data: await blobToB64(file)
+    });
+    return r.id || null;
+  } catch (e) {
+    return null;
+  }
+}
+const photoFiles = ph => [ph.id, ph.orig].filter(Boolean);
 /* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
 async function uploadVoice(blob, sec) {
   const mime = (blob.type || 'audio/webm').split(';')[0];
@@ -2004,12 +2025,12 @@ function Composer({
       const photos = [];
       try {
         for (let i = 0; i < files.length; i++) {
-          setBusy(`사진 올리는 중 ${i + 1}/${files.length}`);
-          photos.push(await uploadPhoto(files[i].f));
+          setBusy(`사진 올리는 중 ${i + 1}/${files.length} · 원본도 저장`);
+          photos.push(await uploadPhoto(files[i].f, undefined, true));
         }
       } catch (e) {
-        photos.forEach(ph => gw('delete', {
-          id: ph.id
+        photos.flatMap(photoFiles).forEach(id => gw('delete', {
+          id
         }).catch(() => {}));
         throw e;
       }
@@ -2035,8 +2056,8 @@ function Composer({
       const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
       if (ok) onClose();else {
         setBusy('');
-        photos.forEach(ph => gw('delete', {
-          id: ph.id
+        photos.flatMap(photoFiles).forEach(id => gw('delete', {
+          id
         }).catch(() => {}));
       }
     } catch (e) {
@@ -4647,14 +4668,21 @@ const POINT_DEF = {
   daily: 5,
   answer: 10,
   comment: 3,
-  comment_cap: 10,
   letter: 5,
   prayer: 5,
   pmark: 2,
   react: 1,
-  view: 1
+  view: 1,
+  post_cap: 3,
+  daily_cap: 1,
+  comment_cap: 10,
+  letter_cap: 3,
+  prayer_cap: 3,
+  view_cap: 30
 };
-const POINT_ROWS = [['visit', '앱 들어오기', 'visits', '하루 1번만'], ['post', '새 소식 올리기', 'posts'], ['daily', '오늘의 한 장', 'daily'], ['answer', '이번 주 질문에 답', 'answers'], ['comment', '댓글', 'comments', '하루 최대 개수까지'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks'], ['react', '마음(이모지) 남기기', 'reacts', '남의 소식에만'], ['view', '소식 보기 (조회)', 'views', '하나당 1번']];
+/* [규칙, 이름, 기록 칸, 따로 붙는 설명] · 규칙_cap 이 있으면 "하루 n개까지"를 붙인다 */
+const POINT_ROWS = [['visit', '앱 들어오기', 'visits', '하루 1번만'], ['post', '새 소식 올리기', 'posts'], ['daily', '오늘의 한 장', 'daily'], ['answer', '이번 주 질문에 답', 'answers'], ['comment', '댓글', 'comments'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks', '기도마다 하루 1번'], ['react', '마음(이모지) 남기기', 'reacts', '남의 소식에만'], ['view', '소식 보기 (조회)', 'views', '하나당 1번']];
+const ruleNote = (k, rules, note) => [note, rules[k + '_cap'] !== undefined ? `하루 ${rules[k + '_cap']}개까지` : ''].filter(Boolean).join(' · ');
 const dayAdd = (s, n) => {
   const d = parseYmd(s);
   d.setDate(d.getDate() + n);
@@ -4680,6 +4708,9 @@ function AdminSheet({
   const [rules, setRules] = useState(POINT_DEF);
   const [edit, setEdit] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [pin, setPin] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [pinMode, setPinMode] = useState(null); // 'new' 처음 정하기 · 'change' 바꾸기
   const recent = useMemo(() => [...C.posts.filter(p => !isLocked(p)).map(p => ({
     id: p.id,
     kind: 'post',
@@ -4696,7 +4727,7 @@ function AdminSheet({
   const load = async () => {
     const since = dayAdd(today, -40);
     const ids = recent.map(x => x.id);
-    const [vs, ws, ps, st, first] = await Promise.all([db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []), ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [], db.list('push_subs', 'select=member_id&order=member_id').catch(() => []), db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []), sb('visits?select=day&order=day.asc&limit=1').catch(() => [])]);
+    const [vs, ws, ps, st, first, hasPin] = await Promise.all([db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []), ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [], db.list('push_subs', 'select=member_id&order=member_id').catch(() => []), db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []), sb('visits?select=day&order=day.asc&limit=1').catch(() => []), db.rpc('admin_pin_set').catch(() => false)]);
     setRules({
       ...POINT_DEF,
       ...(st[0] && st[0].v || {})
@@ -4705,7 +4736,8 @@ function AdminSheet({
       vs,
       ws,
       ps,
-      first: first[0] && first[0].day
+      first: first[0] && first[0].day,
+      hasPin: !!hasPin
     });
   };
   const loadPts = async k => {
@@ -4731,19 +4763,42 @@ function AdminSheet({
     setPer(k);
     loadPts(k);
   };
+  /* 점수 규칙은 관리자 PIN 이 맞아야 서버가 바꿔 준다 (가족 암호만으로는 못 바꿈) */
   const saveRules = async () => {
+    if (!pin) {
+      C.toast('관리자 PIN을 넣어 주세요');
+      return;
+    }
     const v = {};
     Object.keys(POINT_DEF).forEach(k => {
       v[k] = Math.max(0, Math.round(+edit[k] || 0));
     });
-    if (await C.write(() => db.upsert('app_settings', {
-      k: 'points',
-      v,
-      updated_at: new Date().toISOString()
-    }, 'k'), '점수 규칙을 바꿨어요')) {
+    if (await C.write(() => db.rpc('set_points', {
+      p_pin: pin,
+      p_rules: v
+    }), '점수 규칙을 바꿨어요')) {
       setRules(v);
       setEdit(null);
+      setPin('');
       loadPts(per);
+    }
+  };
+  const savePin = async () => {
+    if (!/^\d{4,8}$/.test(pin2)) {
+      C.toast('PIN은 숫자 4~8자리로 정해 주세요');
+      return;
+    }
+    if (await C.write(() => db.rpc('set_admin_pin', {
+      p_new: pin2,
+      p_old: pinMode === 'change' ? pin : null
+    }), pinMode === 'change' ? '관리자 PIN을 바꿨어요' : '관리자 PIN을 정했어요')) {
+      setPin('');
+      setPin2('');
+      setPinMode(null);
+      setD(x => ({
+        ...x,
+        hasPin: true
+      }));
     }
   };
   const ms = C.members;
@@ -4893,22 +4948,64 @@ function AdminSheet({
     style: {
       justifyContent: 'space-between'
     }
-  }, "\uC810\uC218 \uADDC\uCE59", !edit && /*#__PURE__*/React.createElement("button", {
+  }, "\uC810\uC218 \uADDC\uCE59", !edit && D && D.hasPin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm soft",
-    onClick: () => setEdit({
-      ...rules
-    })
+    onClick: () => {
+      setEdit({
+        ...rules
+      });
+      setPin('');
+    }
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "pencil",
     size: 16
-  }), "\uBC14\uAFB8\uAE30")), POINT_ROWS.map(([k, l,, note]) => /*#__PURE__*/React.createElement("div", {
+  }), "\uBC14\uAFB8\uAE30")), D && !D.hasPin && !pinMode && /*#__PURE__*/React.createElement("div", {
+    className: "pinbox"
+  }, /*#__PURE__*/React.createElement("b", null, "\uD83D\uDD12 \uBA3C\uC800 \uAD00\uB9AC\uC790 PIN\uC744 \uC815\uD574 \uC8FC\uC138\uC694"), /*#__PURE__*/React.createElement("span", null, "\uC810\uC218 \uADDC\uCE59\uC740 \uC774 PIN\uC744 \uC544\uB294 \uC0AC\uB78C\uB9CC \uBC14\uAFC0 \uC218 \uC788\uC5B4\uC694. \uAC00\uC871 \uC554\uD638\uC640 \uB2E4\uB978 \uC22B\uC790\uB85C \uC815\uD574 \uC8FC\uC138\uC694."), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm primary",
+    onClick: () => {
+      setPinMode('new');
+      setPin('');
+      setPin2('');
+    }
+  }, "PIN \uC815\uD558\uAE30")), pinMode && /*#__PURE__*/React.createElement("div", {
+    className: "pinbox"
+  }, /*#__PURE__*/React.createElement("b", null, pinMode === 'change' ? '관리자 PIN 바꾸기' : '관리자 PIN 정하기'), pinMode === 'change' && /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uC9C0\uAE08 PIN",
+    value: pin,
+    onChange: e => setPin(e.target.value.trim())
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uC0C8 PIN (\uC22B\uC790 4~8\uC790\uB9AC)",
+    value: pin2,
+    onChange: e => setPin2(e.target.value.trim())
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    onClick: () => {
+      setPinMode(null);
+      setPin('');
+      setPin2('');
+    }
+  }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    onClick: savePin
+  }, "\uC800\uC7A5"))), POINT_ROWS.map(([k, l,, note]) => /*#__PURE__*/React.createElement("div", {
     className: "rule",
     key: k
   }, /*#__PURE__*/React.createElement("span", {
     className: "grow"
-  }, l, note && /*#__PURE__*/React.createElement("span", {
+  }, l, ruleNote(k, rules, note) && /*#__PURE__*/React.createElement("span", {
     className: "small muted"
-  }, " \xB7 ", k === 'comment' ? `하루 ${rules.comment_cap}개까지` : note)), edit ? /*#__PURE__*/React.createElement("input", {
+  }, " \xB7 ", ruleNote(k, rules, note))), edit ? /*#__PURE__*/React.createElement("input", {
     className: "input pt",
     type: "number",
     inputMode: "numeric",
@@ -4920,32 +5017,74 @@ function AdminSheet({
     }))
   }) : /*#__PURE__*/React.createElement("b", {
     className: "pt"
-  }, "+", rules[k]))), edit && /*#__PURE__*/React.createElement("div", {
-    className: "rule"
+  }, "+", rules[k]))), edit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t",
+    style: {
+      margin: '14px 0 2px',
+      fontSize: '.92rem'
+    }
+  }, "\uD558\uB8E8\uC5D0 \uC810\uC218\uB85C \uC138\uB294 \uCD5C\uB300 \uAC1C\uC218"), POINT_ROWS.filter(([k]) => POINT_DEF[k + '_cap'] !== undefined).map(([k, l]) => /*#__PURE__*/React.createElement("div", {
+    className: "rule",
+    key: k + '_cap'
   }, /*#__PURE__*/React.createElement("span", {
     className: "grow"
-  }, "\uB313\uAE00 \uC810\uC218 \uD558\uB8E8 \uCD5C\uB300 \uAC1C\uC218"), /*#__PURE__*/React.createElement("input", {
+  }, l), /*#__PURE__*/React.createElement("input", {
     className: "input pt",
     type: "number",
     inputMode: "numeric",
     min: "0",
-    value: edit.comment_cap,
+    value: edit[k + '_cap'],
     onChange: e => setEdit(x => ({
       ...x,
-      comment_cap: e.target.value
+      [k + '_cap']: e.target.value
     }))
-  })), edit && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, "\uAC1C"))), /*#__PURE__*/React.createElement("div", {
+    className: "rule"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, "\uD83D\uDD12 \uAD00\uB9AC\uC790 PIN"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    style: {
+      width: 120
+    },
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "PIN",
+    value: pin,
+    onChange: e => setPin(e.target.value.trim())
+  })), /*#__PURE__*/React.createElement("div", {
     className: "row gap",
     style: {
       marginTop: 10
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn soft grow",
-    onClick: () => setEdit(null)
+    onClick: () => {
+      setEdit(null);
+      setPin('');
+    }
   }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
     className: "btn primary grow",
     onClick: saveRules
-  }, "\uC800\uC7A5"))), /*#__PURE__*/React.createElement("div", {
+  }, "\uC800\uC7A5"))), !edit && !pinMode && D && D.hasPin && /*#__PURE__*/React.createElement("button", {
+    className: "more",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => {
+      setPinMode('change');
+      setPin('');
+      setPin2('');
+    }
+  }, "\uAD00\uB9AC\uC790 PIN \uBC14\uAFB8\uAE30"), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, "\uD558\uB8E8\uC5D0 \uC815\uD55C \uAC1C\uC218\uBCF4\uB2E4 \uB9CE\uC774 \uC62C\uB824\uB3C4 \uC810\uC218\uB294 \uADF8\uB9CC\uD07C\uB9CC \uC138\uC694. \uC18C\uC2DD\uC744 \uC9C0\uC6B0\uBA74 \uADF8 \uC810\uC218\uB3C4 \uBE60\uC838\uC694.")), /*#__PURE__*/React.createElement("div", {
     className: "adm"
   }, /*#__PURE__*/React.createElement("div", {
     className: "adm-t"
@@ -5020,7 +5159,7 @@ function AdminSheet({
     }
   }, detail.points, "\uC810")), /*#__PURE__*/React.createElement("p", {
     className: "small muted"
-  }, "\uC571\uC740 ", detail.opens, "\uBC88 \uC5F4\uC5C8\uC5B4\uC694 (\uC810\uC218\uB294 \uD558\uB8E8 1\uBC88\uB9CC). \uB313\uAE00\uC740 \uD558\uB8E8 ", rules.comment_cap, "\uAC1C\uAE4C\uC9C0\uB9CC \uC138\uC694."))));
+  }, "\uC571\uC740 ", detail.opens, "\uBC88 \uC5F4\uC5C8\uC5B4\uC694 (\uC810\uC218\uB294 \uD558\uB8E8 1\uBC88\uB9CC). \uD69F\uC218\uB294 \uD558\uB8E8 \uCD5C\uB300 \uAC1C\uC218\uAE4C\uC9C0\uB9CC \uC13C \uC22B\uC790\uC608\uC694."))));
 }
 
 /* ═══════════ 내 프로필 (+ 우리 식구) ═══════════ */
@@ -6625,7 +6764,7 @@ function App() {
     },
     deletePost: async p => {
       if (!window.confirm('이 소식을 지울까요? 사진과 댓글도 함께 지워져요.')) return;
-      const files = [...photosOf(p).map(x => x.id), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
+      const files = [...photosOf(p).flatMap(photoFiles), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
       if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) files.forEach(id => gw('delete', {
         id
       }).catch(() => {}));

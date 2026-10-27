@@ -303,6 +303,8 @@
   .rule{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f2efeb}
   .rule .pt{min-width:56px;text-align:right;color:#B0461F}
   .rule input.pt{width:72px;min-width:0;padding:6px 8px;text-align:center}
+  .pinbox{display:flex;flex-direction:column;gap:8px;background:#FFF8E6;border:1px solid #F3D27A;border-radius:14px;padding:12px;margin:4px 0 10px}
+  .pinbox span{font-size:.85rem;color:#6b5a2a}.pinbox .btn{align-self:flex-start}
   .pill{font-size:.78rem;font-weight:800;border-radius:10px;padding:2px 9px}.pill.ok{background:#E3F4EA;color:#227a52}.pill.no{background:#FDEDE3;color:#b2502c}
   .seen{padding:8px 0;border-bottom:1px solid #f2efeb}.seen:last-child{border-bottom:0}
   .ell{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
@@ -391,6 +393,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=80d71bcf"></script>
+<script src="app.js?v=5b7fbee6"></script>
 </body>
 </html>

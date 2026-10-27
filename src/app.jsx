@@ -97,11 +97,22 @@ async function shrinkImage(file, max = 1600, q = 0.82) {
   return { blob, w, h };
 }
 const blobToB64 = blob => new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); });
-async function uploadPhoto(file, max) {
+async function uploadPhoto(file, max, keepOrig) {
   const { blob, w, h } = await shrinkImage(file, max);
   const r = await gw('upload', { kind: 'photo', name: (file.name || '사진').replace(/\.\w+$/, ''), mime: 'image/jpeg', data: await blobToB64(blob) });
-  return { id: r.id, url: r.url, thumb: r.thumb, w, h };
+  const orig = keepOrig ? await uploadOriginal(file) : null;
+  return { id: r.id, url: r.url, thumb: r.thumb, w, h, ...(orig ? { orig } : {}) };
 }
+/* 원본: 줄이지 않은 파일 그대로 드라이브 "사진" 폴더에 "원본_…"으로 한 장 더 (인쇄용·찍은 날짜와 장소 보관). 실패해도 소식은 올라간다 */
+async function uploadOriginal(file) {
+  if (!file || !file.size || file.size > 45e6) return null;
+  try {
+    const mime = /^image\//.test(file.type || '') ? file.type : 'image/jpeg';
+    const r = await gw('upload', { kind: 'photo', name: '원본_' + (file.name || '사진').replace(/\.\w+$/, ''), mime, data: await blobToB64(file) });
+    return r.id || null;
+  } catch (e) { return null; }
+}
+const photoFiles = ph => [ph.id, ph.orig].filter(Boolean);
 /* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
 async function uploadVoice(blob, sec) {
   const mime = (blob.type || 'audio/webm').split(';')[0];
@@ -837,14 +848,14 @@ function Composer({ cfg, onClose }) {
         return;
       }
       const photos = [];
-      try { for (let i = 0; i < files.length; i++) { setBusy(`사진 올리는 중 ${i + 1}/${files.length}`); photos.push(await uploadPhoto(files[i].f)); } }
-      catch (e) { photos.forEach(ph => gw('delete', { id: ph.id }).catch(() => {})); throw e; }
+      try { for (let i = 0; i < files.length; i++) { setBusy(`사진 올리는 중 ${i + 1}/${files.length} · 원본도 저장`); photos.push(await uploadPhoto(files[i].f, undefined, true)); } }
+      catch (e) { photos.flatMap(photoFiles).forEach(id => gw('delete', { id }).catch(() => {})); throw e; }
       setBusy('소식 올리는 중…');
       const row = daily
         ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
         : { author_id: C.me, kind: 'post', content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '' };
       const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
-      if (ok) onClose(); else { setBusy(''); photos.forEach(ph => gw('delete', { id: ph.id }).catch(() => {})); }
+      if (ok) onClose(); else { setBusy(''); photos.flatMap(photoFiles).forEach(id => gw('delete', { id }).catch(() => {})); }
     } catch (e) { setBusy(''); C.toast('올리지 못했어요: ' + e.message); }
   };
   return (
@@ -1782,10 +1793,13 @@ function useViewed(ref, id, kind, author) {
 }
 
 /* 점수 규칙 (서버 family_points 와 같은 기본값) */
-const POINT_DEF = { visit: 2, post: 10, daily: 5, answer: 10, comment: 3, comment_cap: 10, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1 };
+const POINT_DEF = { visit: 2, post: 10, daily: 5, answer: 10, comment: 3, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1,
+  post_cap: 3, daily_cap: 1, comment_cap: 10, letter_cap: 3, prayer_cap: 3, view_cap: 30 };
+/* [규칙, 이름, 기록 칸, 따로 붙는 설명] · 규칙_cap 이 있으면 "하루 n개까지"를 붙인다 */
 const POINT_ROWS = [['visit', '앱 들어오기', 'visits', '하루 1번만'], ['post', '새 소식 올리기', 'posts'], ['daily', '오늘의 한 장', 'daily'], ['answer', '이번 주 질문에 답', 'answers'],
-  ['comment', '댓글', 'comments', '하루 최대 개수까지'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks'],
+  ['comment', '댓글', 'comments'], ['letter', '편지 보내기', 'letters'], ['prayer', '기도 제목 나누기', 'prayers'], ['pmark', '기도했어요', 'pmarks', '기도마다 하루 1번'],
   ['react', '마음(이모지) 남기기', 'reacts', '남의 소식에만'], ['view', '소식 보기 (조회)', 'views', '하나당 1번']];
+const ruleNote = (k, rules, note) => [note, rules[k + '_cap'] !== undefined ? `하루 ${rules[k + '_cap']}개까지` : ''].filter(Boolean).join(' · ');
 const dayAdd = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
 function periodOf(k) {
   const t = ymd(), d = parseYmd(t);
@@ -1799,6 +1813,7 @@ function AdminSheet({ open, onClose }) {
   const C = useC(); const today = ymd();
   const [D, setD] = useState(null); const [per, setPer] = useState('month'); const [pts, setPts] = useState(null);
   const [rules, setRules] = useState(POINT_DEF); const [edit, setEdit] = useState(null); const [detail, setDetail] = useState(null);
+  const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMode, setPinMode] = useState(null);   // 'new' 처음 정하기 · 'change' 바꾸기
   const recent = useMemo(() => [
     ...C.posts.filter(p => !isLocked(p)).map(p => ({ id: p.id, kind: 'post', author: p.author_id, t: p.created_at, text: p.kind === 'daily' ? `오늘의 한 장${p.content ? ' · ' + p.content : ''}` : (p.title || p.content || `사진 ${photosOf(p).length}장`) })),
     ...C.prayers.map(p => ({ id: p.id, kind: 'pray', author: p.author_id, t: p.created_at, text: `🙏 ${p.content || '목소리 기도'}` }))
@@ -1806,22 +1821,29 @@ function AdminSheet({ open, onClose }) {
   const load = async () => {
     const since = dayAdd(today, -40);
     const ids = recent.map(x => x.id);
-    const [vs, ws, ps, st, first] = await Promise.all([
+    const [vs, ws, ps, st, first, hasPin] = await Promise.all([
       db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []),
       ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [],
       db.list('push_subs', 'select=member_id&order=member_id').catch(() => []),
       db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []),
-      sb('visits?select=day&order=day.asc&limit=1').catch(() => [])
+      sb('visits?select=day&order=day.asc&limit=1').catch(() => []),
+      db.rpc('admin_pin_set').catch(() => false)
     ]);
     setRules({ ...POINT_DEF, ...((st[0] && st[0].v) || {}) });
-    setD({ vs, ws, ps, first: first[0] && first[0].day });
+    setD({ vs, ws, ps, first: first[0] && first[0].day, hasPin: !!hasPin });
   };
   const loadPts = async k => { setPts(null); const [a, b] = periodOf(k); try { setPts(await db.rpc('family_points', { p_from: a, p_to: b }) || []); } catch (e) { setPts([]); } };
   useEffect(() => { if (open) { setD(null); load(); loadPts(per); } }, [open]);
   const pick = k => { setPer(k); loadPts(k); };
+  /* 점수 규칙은 관리자 PIN 이 맞아야 서버가 바꿔 준다 (가족 암호만으로는 못 바꿈) */
   const saveRules = async () => {
+    if (!pin) { C.toast('관리자 PIN을 넣어 주세요'); return; }
     const v = {}; Object.keys(POINT_DEF).forEach(k => { v[k] = Math.max(0, Math.round(+edit[k] || 0)); });
-    if (await C.write(() => db.upsert('app_settings', { k: 'points', v, updated_at: new Date().toISOString() }, 'k'), '점수 규칙을 바꿨어요')) { setRules(v); setEdit(null); loadPts(per); }
+    if (await C.write(() => db.rpc('set_points', { p_pin: pin, p_rules: v }), '점수 규칙을 바꿨어요')) { setRules(v); setEdit(null); setPin(''); loadPts(per); }
+  };
+  const savePin = async () => {
+    if (!/^\d{4,8}$/.test(pin2)) { C.toast('PIN은 숫자 4~8자리로 정해 주세요'); return; }
+    if (await C.write(() => db.rpc('set_admin_pin', { p_new: pin2, p_old: pinMode === 'change' ? pin : null }), pinMode === 'change' ? '관리자 PIN을 바꿨어요' : '관리자 PIN을 정했어요')) { setPin(''); setPin2(''); setPinMode(null); setD(x => ({ ...x, hasPin: true })); }
   };
   const ms = C.members;
   const vs = D ? D.vs : [];
@@ -1882,15 +1904,35 @@ function AdminSheet({ open, onClose }) {
       </div>
 
       <div className="adm">
-        <div className="adm-t row" style={{ justifyContent: 'space-between' }}>점수 규칙{!edit && <button className="btn sm soft" onClick={() => setEdit({ ...rules })}><LIcon name="pencil" size={16}/>바꾸기</button>}</div>
+        <div className="adm-t row" style={{ justifyContent: 'space-between' }}>점수 규칙{!edit && D && D.hasPin && <button className="btn sm soft" onClick={() => { setEdit({ ...rules }); setPin(''); }}><LIcon name="pencil" size={16}/>바꾸기</button>}</div>
+        {D && !D.hasPin && !pinMode && (
+          <div className="pinbox"><b>🔒 먼저 관리자 PIN을 정해 주세요</b><span>점수 규칙은 이 PIN을 아는 사람만 바꿀 수 있어요. 가족 암호와 다른 숫자로 정해 주세요.</span>
+            <button className="btn sm primary" onClick={() => { setPinMode('new'); setPin(''); setPin2(''); }}>PIN 정하기</button></div>
+        )}
+        {pinMode && (
+          <div className="pinbox">
+            <b>{pinMode === 'change' ? '관리자 PIN 바꾸기' : '관리자 PIN 정하기'}</b>
+            {pinMode === 'change' && <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="지금 PIN" value={pin} onChange={e => setPin(e.target.value.trim())}/>}
+            <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="새 PIN (숫자 4~8자리)" value={pin2} onChange={e => setPin2(e.target.value.trim())}/>
+            <div className="row gap"><button className="btn soft grow" onClick={() => { setPinMode(null); setPin(''); setPin2(''); }}>그만두기</button><button className="btn primary grow" onClick={savePin}>저장</button></div>
+          </div>
+        )}
         {POINT_ROWS.map(([k, l, , note]) => (
           <div className="rule" key={k}>
-            <span className="grow">{l}{note && <span className="small muted"> · {k === 'comment' ? `하루 ${rules.comment_cap}개까지` : note}</span>}</span>
+            <span className="grow">{l}{ruleNote(k, rules, note) && <span className="small muted"> · {ruleNote(k, rules, note)}</span>}</span>
             {edit ? <input className="input pt" type="number" inputMode="numeric" min="0" value={edit[k]} onChange={e => setEdit(x => ({ ...x, [k]: e.target.value }))}/> : <b className="pt">+{rules[k]}</b>}
           </div>
         ))}
-        {edit && <div className="rule"><span className="grow">댓글 점수 하루 최대 개수</span><input className="input pt" type="number" inputMode="numeric" min="0" value={edit.comment_cap} onChange={e => setEdit(x => ({ ...x, comment_cap: e.target.value }))}/></div>}
-        {edit && <div className="row gap" style={{ marginTop: 10 }}><button className="btn soft grow" onClick={() => setEdit(null)}>그만두기</button><button className="btn primary grow" onClick={saveRules}>저장</button></div>}
+        {edit && <>
+          <div className="adm-t" style={{ margin: '14px 0 2px', fontSize: '.92rem' }}>하루에 점수로 세는 최대 개수</div>
+          {POINT_ROWS.filter(([k]) => POINT_DEF[k + '_cap'] !== undefined).map(([k, l]) => (
+            <div className="rule" key={k + '_cap'}><span className="grow">{l}</span><input className="input pt" type="number" inputMode="numeric" min="0" value={edit[k + '_cap']} onChange={e => setEdit(x => ({ ...x, [k + '_cap']: e.target.value }))}/><span className="small muted">개</span></div>
+          ))}
+          <div className="rule"><span className="grow">🔒 관리자 PIN</span><input className="input" style={{ width: 120 }} type="password" inputMode="numeric" autoComplete="off" placeholder="PIN" value={pin} onChange={e => setPin(e.target.value.trim())}/></div>
+          <div className="row gap" style={{ marginTop: 10 }}><button className="btn soft grow" onClick={() => { setEdit(null); setPin(''); }}>그만두기</button><button className="btn primary grow" onClick={saveRules}>저장</button></div>
+        </>}
+        {!edit && !pinMode && D && D.hasPin && <button className="more" style={{ marginTop: 8 }} onClick={() => { setPinMode('change'); setPin(''); setPin2(''); }}>관리자 PIN 바꾸기</button>}
+        <p className="small muted" style={{ margin: '8px 2px 0' }}>하루에 정한 개수보다 많이 올려도 점수는 그만큼만 세요. 소식을 지우면 그 점수도 빠져요.</p>
       </div>
 
       <div className="adm">
@@ -1925,7 +1967,7 @@ function AdminSheet({ open, onClose }) {
             <div className="rule" key={k}><span className="grow">{l}</span><span className="small muted">{detail[f]}번 × {rules[k]}</span><b className="pt">{detail[f] * rules[k]}점</b></div>
           ))}
           <div className="rule" style={{ borderTop: '2px solid #222' }}><b className="grow">합계</b><b className="pt" style={{ fontSize: '1.2rem' }}>{detail.points}점</b></div>
-          <p className="small muted">앱은 {detail.opens}번 열었어요 (점수는 하루 1번만). 댓글은 하루 {rules.comment_cap}개까지만 세요.</p>
+          <p className="small muted">앱은 {detail.opens}번 열었어요 (점수는 하루 1번만). 횟수는 하루 최대 개수까지만 센 숫자예요.</p>
         </>}
       </Sheet>
     </Sheet>
@@ -2481,7 +2523,7 @@ function App() {
     deleteComment: c => { if (window.confirm('이 댓글을 지울까요?')) { write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요'); const id = driveId(c.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
     deletePost: async p => {
       if (!window.confirm('이 소식을 지울까요? 사진과 댓글도 함께 지워져요.')) return;
-      const files = [...photosOf(p).map(x => x.id), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
+      const files = [...photosOf(p).flatMap(photoFiles), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
       if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) files.forEach(id => gw('delete', { id }).catch(() => {}));
     },
     addNote: content => write(() => db.add('notes', { author_id: me, content, color: '#FFF6B8', angle: +(Math.random() * 4 - 2).toFixed(1) })),
