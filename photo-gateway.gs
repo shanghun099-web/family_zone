@@ -1,5 +1,5 @@
 /**
- * THE FAMILY ZONE → 사진·목소리·동영상 창구 (Apps Script 웹앱, v3)
+ * THE FAMILY ZONE → 사진·목소리·동영상 창구 (Apps Script 웹앱, v4)
  *   가족 앱이 보낸 사진과 음성을 "내 구글 드라이브"의 가족 폴더에 넣어 준다.
  *   가족 암호가 맞는 요청만 받는다 (Supabase 의 is_family 로 확인).
  *
@@ -9,6 +9,7 @@
  *   - 백업(v2): 가족 글 전체를 "THE FAMILY ZONE/백업" 폴더에 날짜별 파일로 쌓는다 (같은 날은 덮어씀, 지난 날 파일은 지우지 않음)
  *   - 동영상(v3): 크기 제한 없이 올리도록, 창구는 드라이브 "이어 올리기" 자리만 열어 주고 폰이 조각조각 보낸다
  *                 (폰이 바로 못 보내면 창구가 조각을 받아 대신 보낸다) → "THE FAMILY ZONE/동영상", 링크가 있는 사람만 보기
+ *   - 백업 목록(v4): 관리자 화면 "백업에서 되살리기"가 날짜별 백업 파일을 고를 수 있게 목록을 준다 (내용은 get 으로)
  *
  * 설치 (한 번만):
  *  1. https://script.google.com 에서 "새 프로젝트" → 이 파일 내용을 전부 붙여넣고 저장 (프로젝트 이름: 패밀리 존 사진 창구)
@@ -30,7 +31,7 @@
 const SUPABASE_URL = 'https://ijpbmlphaanmqnsixckt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_lZIA-d3DTswNZOKdhEn4iw_W8k7BDQl';   // 공개용 키 (앱 코드에도 들어 있음)
 const ROOT_NAME = 'THE FAMILY ZONE';
-const VERSION = 3;
+const VERSION = 4;
 
 /* 연결 확인용. 암호 없이도 살아 있는지만 알려 준다 */
 function doGet() {
@@ -47,6 +48,7 @@ function doPost(e) {
     if (p.action === 'delete') return json_(trash_(p.id));
     if (p.action === 'backup') return json_(backup_(p));
     if (p.action === 'bkinfo') return json_(backupInfo_());
+    if (p.action === 'bklist') return json_(backupList_());
     if (p.action === 'vstart') return json_(videoStart_(p));
     if (p.action === 'vchunk') return json_(videoChunk_(p));
     if (p.action === 'vdone') return json_(videoDone_(p));
@@ -168,6 +170,19 @@ function backup_(p) {
   while (old.hasNext()) old.next().setTrashed(true);
   const file = folder.createFile(Utilities.newBlob(text, 'application/json', name));
   return { ok: true, id: file.getId(), name: name, folder: folder.getUrl() };
+}
+
+/* 백업 파일 목록 (최근 것부터 60개) */
+function backupList_() {
+  const it = sub_('백업').getFiles();
+  const out = [];
+  while (it.hasNext()) {
+    const f = it.next();
+    const m = f.getName().match(/(\d{4}-\d{2}-\d{2})/);
+    if (m && !f.isTrashed()) out.push({ id: f.getId(), day: m[1], size: f.getSize() });
+  }
+  out.sort(function (a, b) { return a.day < b.day ? 1 : a.day > b.day ? -1 : 0; });
+  return { ok: true, list: out.slice(0, 60) };
 }
 
 /* 마지막 백업 날짜와 쌓인 개수 */

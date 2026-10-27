@@ -33,10 +33,12 @@ const store = {
   del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
 let familyKey = store.get('fz_key') || '';
+let memberTok = store.get('fz_tok') || '';   // 이 폰이 누구인지 증명하는 열쇠 (개인 PIN 으로 받음)
 
 async function sb(path, opt = {}) {
   const headers = { apikey: SB_KEY, 'Content-Type': 'application/json' };
   if (familyKey) headers['x-family-key'] = familyKey;
+  if (memberTok) headers['x-member-token'] = memberTok;
   if (opt.prefer) headers.Prefer = opt.prefer;
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method: opt.method || 'GET', headers,
@@ -67,6 +69,8 @@ const db = {
   del:    (t, filter) => sb(`${t}?${filter}`, { method: 'DELETE' }),
   rpc:    (fn, args = {}) => sb(`rpc/${fn}`, { method: 'POST', body: args })
 };
+/* {ok:false,error} 로 답하는 서버 함수 (PIN 틀린 횟수가 남게 예외 대신 결과로 답함) */
+const rpcOk = async (fn, args) => { const r = await db.rpc(fn, args); if (!r || r.ok === false) throw new Error((r && r.error) || '서버가 거절했어요'); return r; };
 
 /* 창구: 헤더 없는 text/plain POST (Apps Script 가 받는 방식) */
 async function gw(action, payload = {}) {
@@ -773,7 +777,7 @@ function PostCard({ p }) {
           <div><b>{a.name}</b>{p.isNew && <span className="newdot" title="새 소식"/>}</div>
           <div className="when">{relDay(p.happened_on, p.created_at)}{p.kind === 'daily' && <><LIcon name="camera" size={14}/>오늘의 한 장</>}{tagged.length > 0 && <><LIcon name="users" size={14}/>{josa(tagged.map(t => t.name).join(', '), '과', '와')} 함께</>}</div>
         </div>
-        <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>
+        {(p.author_id === C.me || C.isAdmin) && <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>}
       </div>
       {openedToday && <span className="opened">🎁 오늘 열린 타임캡슐 · {fmtDate(ymd(new Date(p.created_at)), true)}에 남김</span>}
       {isLocked(p) && <span className="opened" style={{ background: '#F3EEFF', color: '#6a3fc8' }}>🔒 {fmtDate(p.open_on, true)}에 열려요 (나만 미리 보는 중)</span>}
@@ -838,7 +842,7 @@ function PostCard({ p }) {
       </div>
       <Sheet open={menu} onClose={() => setMenu(false)} title="소식">
         <div style={{ display: 'grid', gap: 8 }}>
-          <button className="btn soft block" onClick={() => { setMenu(false); C.openComposer({ edit: p }); }}><LIcon name="pencil" size={18}/>글 고치기</button>
+          {p.author_id === C.me && <button className="btn soft block" onClick={() => { setMenu(false); C.openComposer({ edit: p }); }}><LIcon name="pencil" size={18}/>글 고치기</button>}
           <button className="btn soft block danger" onClick={() => { setMenu(false); C.deletePost(p); }}><LIcon name="trash-2" size={18}/>소식 지우기</button>
         </div>
       </Sheet>
@@ -1869,6 +1873,8 @@ function useViewed(ref, id, kind, author) {
   }, [id, C.me]);
 }
 
+const TABLE_KO = { members: '식구', posts: '소식', comments: '댓글', reactions: '마음', notes: '냉장고 메모', events: '일정', letters: '편지', questions: '이번 주 질문', answers: '답', question_bank: '질문 상자',
+  prayers: '기도', prayer_marks: '기도했어요', memories: '추억', wishes: '바라는 것', event_tasks: '할 일', visits: '방문 기록', views: '조회 기록', app_settings: '설정' };
 /* 점수 규칙 (서버 family_points 와 같은 기본값) */
 const POINT_DEF = { visit: 2, post: 10, daily: 5, answer: 10, comment: 3, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1,
   post_cap: 3, daily_cap: 1, comment_cap: 10, letter_cap: 3, prayer_cap: 3, view_cap: 30 };
@@ -1890,7 +1896,8 @@ function AdminSheet({ open, onClose }) {
   const C = useC(); const today = ymd();
   const [D, setD] = useState(null); const [per, setPer] = useState('month'); const [pts, setPts] = useState(null);
   const [rules, setRules] = useState(POINT_DEF); const [edit, setEdit] = useState(null); const [detail, setDetail] = useState(null);
-  const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMode, setPinMode] = useState(null);   // 'new' 처음 정하기 · 'change' 바꾸기
+  const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMode, setPinMode] = useState(null);
+  const [resetFor, setResetFor] = useState(null); const [rpin, setRpin] = useState(''); const [bk, setBk] = useState({});   // 'new' 처음 정하기 · 'change' 바꾸기
   const recent = useMemo(() => [
     ...C.posts.filter(p => !isLocked(p)).map(p => ({ id: p.id, kind: 'post', author: p.author_id, t: p.created_at, text: p.kind === 'daily' ? `오늘의 한 장${p.content ? ' · ' + p.content : ''}` : (p.title || p.content || `사진 ${photosOf(p).length}장`) })),
     ...C.prayers.map(p => ({ id: p.id, kind: 'pray', author: p.author_id, t: p.created_at, text: `🙏 ${p.content || '목소리 기도'}` }))
@@ -1898,16 +1905,17 @@ function AdminSheet({ open, onClose }) {
   const load = async () => {
     const since = dayAdd(today, -40);
     const ids = recent.map(x => x.id);
-    const [vs, ws, ps, st, first, hasPin] = await Promise.all([
+    const [vs, ws, ps, st, first, hasPin, pins] = await Promise.all([
       db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []),
       ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [],
       db.list('push_subs', 'select=member_id&order=member_id').catch(() => []),
       db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []),
       sb('visits?select=day&order=day.asc&limit=1').catch(() => []),
-      db.rpc('admin_pin_set').catch(() => false)
+      db.rpc('admin_pin_set').catch(() => false),
+      db.rpc('pins_state').catch(() => [])
     ]);
     setRules({ ...POINT_DEF, ...((st[0] && st[0].v) || {}) });
-    setD({ vs, ws, ps, first: first[0] && first[0].day, hasPin: !!hasPin });
+    setD({ vs, ws, ps, first: first[0] && first[0].day, hasPin: !!hasPin, pins: pins || [] });
   };
   const loadPts = async k => { setPts(null); const [a, b] = periodOf(k); try { setPts(await db.rpc('family_points', { p_from: a, p_to: b }) || []); } catch (e) { setPts([]); } };
   useEffect(() => { if (open) { setD(null); load(); loadPts(per); } }, [open]);
@@ -1916,11 +1924,36 @@ function AdminSheet({ open, onClose }) {
   const saveRules = async () => {
     if (!pin) { C.toast('관리자 PIN을 넣어 주세요'); return; }
     const v = {}; Object.keys(POINT_DEF).forEach(k => { v[k] = Math.max(0, Math.round(+edit[k] || 0)); });
-    if (await C.write(() => db.rpc('set_points', { p_pin: pin, p_rules: v }), '점수 규칙을 바꿨어요')) { setRules(v); setEdit(null); setPin(''); loadPts(per); }
+    if (await C.write(() => rpcOk('set_points', { p_pin: pin, p_rules: v }), '점수 규칙을 바꿨어요')) { setRules(v); setEdit(null); setPin(''); loadPts(per); }
+  };
+  /* 백업에서 되살리기: 목록(창구 v4) 또는 파일 → 미리 세어 보기 → 되살리기 */
+  const loadBackups = async () => {
+    setBk({ busy: true });
+    if ((await gwVersion()) < 4) { setBk({}); C.toast('사진 창구를 v4로 배포하면 목록이 보여요. 지금은 "파일에서 고르기"를 써 주세요'); return; }
+    try { setBk({ list: (await gw('bklist')).list || [] }); } catch (e) { setBk({}); C.toast('백업 목록을 못 불러왔어요: ' + e.message); }
+  };
+  const pickBackup = async x => {
+    setBk(b => ({ ...b, busy: true }));
+    try {
+      let text = x.text;
+      if (!text) { const r = await gw('get', { id: x.id }); const bin = atob(r.data); text = new TextDecoder().decode(Uint8Array.from(bin, ch => ch.charCodeAt(0))); }
+      const data = JSON.parse(text);
+      if (data.app !== 'THE FAMILY ZONE') throw new Error('패밀리그램 백업 파일이 아니에요');
+      setBk(b => ({ ...b, busy: false, data, day: x.day && /^\d{4}-/.test(x.day) ? fmtDate(x.day, true) : x.day }));
+    } catch (e) { setBk(b => ({ ...b, busy: false })); C.toast('백업을 읽지 못했어요: ' + e.message); }
+  };
+  const runRestore = async dry => {
+    if (!rpin) { C.toast('관리자 PIN을 넣어 주세요'); return; }
+    setBk(b => ({ ...b, busy: true }));
+    try {
+      const r = await rpcOk('restore_backup', { p_pin: rpin, p_data: bk.data, p_dry: dry });
+      if (dry) setBk(b => ({ ...b, busy: false, added: r.added || {} }));
+      else { C.toast(`되살렸어요 · ${Object.entries(r.added || {}).map(([t, n]) => `${TABLE_KO[t] || t} ${n}개`).join(', ')}`); setBk({}); setRpin(''); await C.reload(); load(); }
+    } catch (e) { setBk(b => ({ ...b, busy: false })); C.toast(e.message); }
   };
   const savePin = async () => {
     if (!/^\d{4,8}$/.test(pin2)) { C.toast('PIN은 숫자 4~8자리로 정해 주세요'); return; }
-    if (await C.write(() => db.rpc('set_admin_pin', { p_new: pin2, p_old: pinMode === 'change' ? pin : null }), pinMode === 'change' ? '관리자 PIN을 바꿨어요' : '관리자 PIN을 정했어요')) { setPin(''); setPin2(''); setPinMode(null); setD(x => ({ ...x, hasPin: true })); }
+    if (await C.write(() => rpcOk('set_admin_pin', { p_new: pin2, p_old: pinMode === 'change' ? pin : null }), pinMode === 'change' ? '관리자 PIN을 바꿨어요' : '관리자 PIN을 정했어요')) { setPin(''); setPin2(''); setPinMode(null); setD(x => ({ ...x, hasPin: true })); }
   };
   const ms = C.members;
   const vs = D ? D.vs : [];
@@ -2019,6 +2052,53 @@ function AdminSheet({ open, onClose }) {
           <div className="adm-r"><span className="pill no">꺼짐</span><span className="grow">{ms.filter(m => !pushOn.has(m.id)).map(m => m.name).join(', ') || '없음 · 모두 켜져 있어요'}</span></div>
           <p className="small muted" style={{ margin: '4px 2px 0' }}>꺼진 식구는 앱을 한 번 열고 "알림 받기"를 눌러야 소식 알림이 가요.</p>
         </>}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">식구 PIN</div>
+        <p className="small muted" style={{ margin: '0 0 6px' }}>식구가 PIN을 잊었으면 지워 주세요. 그 식구 폰에서 앱을 열면 새 PIN을 정하게 돼요.</p>
+        {D && ms.map(m => (
+          <div className="adm-r" key={m.id}>
+            <Avatar m={m} size={28}/><b className="grow">{m.name}</b>
+            {D.pins.includes(m.id) ? <span className="pill ok">PIN 있음</span> : <span className="pill no">아직 없음</span>}
+            {D.pins.includes(m.id) && <button className="btn sm soft" onClick={() => setResetFor(m)}>지우기</button>}
+          </div>
+        ))}
+        {resetFor && (
+          <div className="pinbox">
+            <b>{resetFor.name}의 PIN 지우기</b>
+            <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="관리자 PIN" value={rpin} onChange={e => setRpin(e.target.value.replace(/\D/g, ''))}/>
+            <div className="row gap"><button className="btn soft grow" onClick={() => { setResetFor(null); setRpin(''); }}>그만두기</button>
+              <button className="btn primary grow" onClick={async () => { if (await C.write(() => rpcOk('reset_member_pin', { p_pin: rpin, p_member: resetFor.id }), `${resetFor.name}의 PIN을 지웠어요`)) { setResetFor(null); setRpin(''); load(); } }}>지우기</button></div>
+          </div>
+        )}
+      </div>
+
+      <div className="adm">
+        <div className="adm-t">백업에서 되살리기</div>
+        <p className="small muted" style={{ margin: '0 0 8px' }}>드라이브에 날마다 쌓인 백업에서 <b>지워진 것만</b> 다시 넣어요. 지금 있는 소식은 그대로예요. 되살리는 동안 폰 알림은 가지 않아요.</p>
+        {!bk.list && <div className="row gap">
+          <button className="btn sm soft" disabled={bk.busy} onClick={loadBackups}>{bk.busy ? <span className="spin dark"/> : <LIcon name="cloud-download" size={16}/>}백업 목록 보기</button>
+          <label className="btn sm soft"><LIcon name="file-up" size={16}/>파일에서 고르기<input type="file" accept="application/json,.json" hidden onChange={async e => { const f = e.target.files[0]; e.target.value = ''; if (f) pickBackup({ day: f.name, text: await f.text() }); }}/></label>
+        </div>}
+        {bk.list && !bk.data && <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+          {bk.list.map(x => <button key={x.id} className="rank" onClick={() => pickBackup(x)}><LIcon name="file-json" size={18}/><span className="grow">{fmtDate(x.day, true)} 백업</span><span className="small muted">{Math.max(1, Math.round(x.size / 1024))}KB</span></button>)}
+          {!bk.list.length && <p className="small muted">아직 백업이 없어요.</p>}
+        </div>}
+        {bk.data && <div className="pinbox">
+          <b>📦 {bk.day} 백업</b>
+          <span>{bk.data.saved_at ? `${new Date(bk.data.saved_at).toLocaleString('ko-KR')}에 저장` : ''}</span>
+          <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="관리자 PIN" value={rpin} onChange={e => setRpin(e.target.value.replace(/\D/g, ''))}/>
+          {bk.added && (Object.keys(bk.added).length
+            ? <div className="small"><b>되살릴 것:</b> {Object.entries(bk.added).map(([t, n]) => `${TABLE_KO[t] || t} ${n}개`).join(' · ')}</div>
+            : <div className="small"><b>빠진 게 없어요.</b> 이 백업의 내용이 지금 모두 있어요.</div>)}
+          <div className="row gap">
+            <button className="btn soft grow" onClick={() => { setBk({}); setRpin(''); }}>그만두기</button>
+            {!bk.added
+              ? <button className="btn primary grow" disabled={bk.busy} onClick={() => runRestore(true)}>{bk.busy ? <span className="spin"/> : '무엇이 돌아오는지 보기'}</button>
+              : Object.keys(bk.added).length > 0 && <button className="btn primary grow" disabled={bk.busy} onClick={() => runRestore(false)}>{bk.busy ? <span className="spin"/> : '되살리기'}</button>}
+          </div>
+        </div>}
       </div>
 
       <div className="adm">
@@ -2266,7 +2346,7 @@ function MemberEdit({ m, onClose }) {
 }
 
 function SettingsSheet({ open, onClose }) {
-  const C = useC(); const [ko, setKo] = useState(''); const [kn, setKn] = useState(''); const [bk, setBk] = useState(null); const [busy, setBusy] = useState(false);
+  const C = useC(); const [pinCh, setPinCh] = useState(null); const [ko, setKo] = useState(''); const [kn, setKn] = useState(''); const [bk, setBk] = useState(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!open) return; setBk(null); gwVersion().then(v => { if (v >= 2) gw('bkinfo').then(setBk).catch(() => setBk({ err: true })); else setBk({ old: true, v }); }); }, [open]);
   const fs = C.fontSize;
   return (
@@ -2274,7 +2354,13 @@ function SettingsSheet({ open, onClose }) {
       {!isStandalone() && <div className="field"><label>📲 앱으로 설치</label><InstallCard inSettings/></div>}
       <div className="field"><label>🔔 새 소식 알림</label><PushSettings/></div>
       <div className="field"><label>글씨 크기</label><div className="seg seg3">{[['m', '보통'], ['l', '크게'], ['xl', '아주 크게']].map(([k, l]) => <button key={k} className={fs === k ? 'on' : ''} onClick={() => C.setFontSize(k)}>{l}</button>)}</div></div>
-      <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div></div>
+      <div className="field"><label>이 폰은</label><div className="row gap"><Avatar m={C.getM(C.me)} size={40}/><b className="grow">{C.getM(C.me).name}</b><button className="btn sm soft" onClick={() => setPinCh(x => x ? null : { a: '', b: '' })}>내 PIN 바꾸기</button><button className="btn sm soft" onClick={() => { onClose(); C.changeMe(); }}>나 바꾸기</button></div>
+        {pinCh && <div className="pinbox" style={{ marginTop: 10 }}>
+          <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="지금 PIN" value={pinCh.a} onChange={e => setPinCh(x => ({ ...x, a: e.target.value.replace(/\D/g, '') }))}/>
+          <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="새 PIN (숫자 4~8자리)" value={pinCh.b} onChange={e => setPinCh(x => ({ ...x, b: e.target.value.replace(/\D/g, '') }))}/>
+          <div className="row gap"><button className="btn soft grow" onClick={() => setPinCh(null)}>그만두기</button><button className="btn primary grow" onClick={async () => { if (await C.write(() => rpcOk('change_my_pin', { p_old: pinCh.a, p_new: pinCh.b }), '내 PIN을 바꿨어요')) setPinCh(null); }}>저장</button></div>
+        </div>}
+      </div>
       <div className="field">
         <label>☁️ 자동 백업 (내 구글 드라이브)</label>
         <div style={{ background: '#f6f6f6', borderRadius: 14, padding: 12, fontSize: '.95rem' }}>
@@ -2424,10 +2510,49 @@ function PickMe({ members, onPick, onLeave }) {
   );
 }
 
+/* 이 폰이 누구인지 서버에 증명: 식구마다 개인 PIN → 폰 열쇠. 열쇠가 있어야 그 이름으로 글을 쓸 수 있다 */
+function PinGate({ member, onDone, onOther }) {
+  const [state, setState] = useState(null);   // 'new' 처음 정하기 · 'enter' 넣기
+  const [a, setA] = useState(''); const [b, setB] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { db.rpc('pins_state').then(ids => setState((ids || []).includes(member.id) ? 'enter' : 'new')).catch(() => setState('enter')); }, [member.id]);
+  const go = async () => {
+    setErr('');
+    if (!/^\d{4,8}$/.test(a)) { setErr('숫자 4~8자리로 넣어 주세요'); return; }
+    if (state === 'new' && a !== b) { setErr('두 번 넣은 숫자가 달라요'); return; }
+    setBusy(true);
+    try { const r = await rpcOk('claim_member', { p_member: member.id, p_pin: a }); onDone(r.token); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+  const pinInput = (v, set, ph) => <input className="input pin" type="password" inputMode="numeric" autoComplete="off" maxLength={8} placeholder={ph} value={v} onChange={e => set(e.target.value.replace(/\D/g, ''))} onKeyDown={e => { if (e.key === 'Enter') go(); }}/>;
+  return (
+    <div className="gate">
+      <div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div>
+      <Avatar m={member} size={84}/>
+      <h2 style={{ margin: '12px 0 4px', fontSize: '1.3rem' }}>{member.name}{state === 'new' ? ' · 나만의 PIN 정하기' : ' · PIN 넣기'}</h2>
+      {!state ? <p className="muted"><span className="spin dark"/></p> : <>
+        <p className="small muted" style={{ margin: '0 0 14px', textAlign: 'center', lineHeight: 1.6 }}>
+          {state === 'new'
+            ? <>{member.name}만 아는 숫자 4자리를 정해 주세요.<br/>다른 식구가 {member.name} 이름으로 글을 쓸 수 없게 지켜 줘요.<br/>이 폰에서는 한 번만 넣으면 돼요.</>
+            : <>{member.name}의 PIN을 넣어 주세요.<br/>이 폰에서는 한 번만 넣으면 돼요.</>}
+        </p>
+        <div style={{ display: 'grid', gap: 10, width: '100%', maxWidth: 260 }}>
+          {pinInput(a, setA, state === 'new' ? '숫자 4자리' : 'PIN')}
+          {state === 'new' && pinInput(b, setB, '한 번 더')}
+          {err && <div className="small" style={{ color: '#d0402a', textAlign: 'center' }}>{err}</div>}
+          <button className="btn primary block" disabled={busy} onClick={go}>{busy ? <span className="spin"/> : state === 'new' ? 'PIN 정하고 들어가기' : '들어가기'}</button>
+        </div>
+        <p className="small muted" style={{ marginTop: 16, textAlign: 'center' }}>PIN을 잊었으면 관리자(아빠)에게 지워 달라고 하세요.</p>
+      </>}
+      <button className="linkbtn" style={{ marginTop: 10 }} onClick={onOther}>{josa(member.name, '이', '가')} 아니에요</button>
+    </div>
+  );
+}
+
 /* ═══════════ 앱 ═══════════ */
 function App() {
   const [hasKey, setHasKey] = useState(!!familyKey);
   const [me, setMeState] = useState(store.get('fz_me') || '');
+  const [auth, setAuth] = useState('');   // '' 확인 중 · 'need' PIN 필요 · 'ok'
   const [loaded, setLoaded] = useState(false); const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState('home');
   const [toastMsg, setToastMsg] = useState('');
@@ -2518,8 +2643,14 @@ function App() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('online', onOnline); };
   }, []);
 
-  const setMe = id => { store.set('fz_me', id); setMeState(id); };
-  const leave = msg => { store.del('fz_key'); store.del('fz_me'); familyKey = ''; setMeState(''); setLoaded(false); setHasKey(false); if (msg) toast(msg); };
+  const setMe = id => { if (id !== store.get('fz_me')) { store.del('fz_tok'); memberTok = ''; } store.set('fz_me', id); setMeState(id); setAuth(''); };
+  /* 이 폰의 열쇠가 고른 식구와 맞는지 서버에 묻는다 (안 맞거나 없으면 PIN 화면) */
+  useEffect(() => {
+    if (!loaded || !me || auth) return;
+    if (!memberTok) { setAuth('need'); return; }
+    db.rpc('whoami').then(w => { if (w === me) setAuth('ok'); else { store.del('fz_tok'); memberTok = ''; setAuth('need'); } }).catch(() => setAuth('ok'));
+  }, [loaded, me, auth]);
+  const leave = msg => { store.del('fz_key'); store.del('fz_me'); store.del('fz_tok'); memberTok = ''; familyKey = ''; setMeState(''); setLoaded(false); setHasKey(false); if (msg) toast(msg); };
 
   /* ── 계산해 두는 것들 ── */
   const today = ymd();
@@ -2621,7 +2752,7 @@ function App() {
     leave: () => leave(), changeMe: () => setMe(''),
     openComposer: cfg => setComposer(cfg || {}), openComments: (p, mode) => { setCmtMode(mode || ''); setCmtPost(p); },
     openProfile: id => setProfile(id), openStory: items => items && items.length && setStory(items), openLetterCompose: cfg => setLetterCfg(cfg || {}),
-    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true), openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
+    openLetter: l => setLetterView(l), openQuestion: q => setQuestion(q), openBook: y => setBook(y), openSettings: () => setSettings(true), reload: loadAll, openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
     openPray: id => { setTab('pray'); setPrayFocus(id); },
     /* 🙏 기도했어요: 오늘 한 번 (다시 누르면 취소) */
@@ -2670,6 +2801,8 @@ function App() {
         : <p className="muted"><span className="spin dark"/> 가족 소식을 펼치는 중…</p>}
     </div>);
   if (!D.members.some(m => m.id === me)) return <PickMe members={D.members} onPick={id => setMe(id)} onLeave={() => leave()}/>;
+  if (auth === 'need') return <PinGate member={D.members.find(m => m.id === me)} onDone={tok => { store.set('fz_tok', tok); memberTok = tok; setAuth('ok'); logVisit(me); }} onOther={() => setMe('')}/>;
+  if (!auth) return <div className="gate"><div className="brand">Familygram<LIcon name="heart" size={26} fill="#ED4956" stroke="#ED4956"/></div><p className="muted"><span className="spin dark"/></p></div>;
 
   /* 알림 탭을 떠날 때 "여기까지 봤어요" 로 적는다 */
   const goTab = t => { setTab(t); if (t !== 'pray') setPrayFocus(null); };

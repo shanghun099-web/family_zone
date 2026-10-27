@@ -69,12 +69,15 @@ const store = {
   }
 };
 let familyKey = store.get('fz_key') || '';
+let memberTok = store.get('fz_tok') || ''; // 이 폰이 누구인지 증명하는 열쇠 (개인 PIN 으로 받음)
+
 async function sb(path, opt = {}) {
   const headers = {
     apikey: SB_KEY,
     'Content-Type': 'application/json'
   };
   if (familyKey) headers['x-family-key'] = familyKey;
+  if (memberTok) headers['x-member-token'] = memberTok;
   if (opt.prefer) headers.Prefer = opt.prefer;
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method: opt.method || 'GET',
@@ -130,6 +133,12 @@ const db = {
     method: 'POST',
     body: args
   })
+};
+/* {ok:false,error} 로 답하는 서버 함수 (PIN 틀린 횟수가 남게 예외 대신 결과로 답함) */
+const rpcOk = async (fn, args) => {
+  const r = await db.rpc(fn, args);
+  if (!r || r.ok === false) throw new Error(r && r.error || '서버가 거절했어요');
+  return r;
 };
 
 /* 창구: 헤더 없는 text/plain POST (Apps Script 가 받는 방식) */
@@ -1750,7 +1759,7 @@ function PostCard({
   }), "\uC624\uB298\uC758 \uD55C \uC7A5"), tagged.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LIcon, {
     name: "users",
     size: 14
-  }), josa(tagged.map(t => t.name).join(', '), '과', '와'), " \uD568\uAED8"))), /*#__PURE__*/React.createElement("button", {
+  }), josa(tagged.map(t => t.name).join(', '), '과', '와'), " \uD568\uAED8"))), (p.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: () => setMenu(true),
     "aria-label": "\uB354 \uBCF4\uAE30"
@@ -1975,7 +1984,7 @@ function PostCard({
       display: 'grid',
       gap: 8
     }
-  }, /*#__PURE__*/React.createElement("button", {
+  }, p.author_id === C.me && /*#__PURE__*/React.createElement("button", {
     className: "btn soft block",
     onClick: () => {
       setMenu(false);
@@ -4842,7 +4851,26 @@ function useViewed(ref, id, kind, author) {
     };
   }, [id, C.me]);
 }
-
+const TABLE_KO = {
+  members: '식구',
+  posts: '소식',
+  comments: '댓글',
+  reactions: '마음',
+  notes: '냉장고 메모',
+  events: '일정',
+  letters: '편지',
+  questions: '이번 주 질문',
+  answers: '답',
+  question_bank: '질문 상자',
+  prayers: '기도',
+  prayer_marks: '기도했어요',
+  memories: '추억',
+  wishes: '바라는 것',
+  event_tasks: '할 일',
+  visits: '방문 기록',
+  views: '조회 기록',
+  app_settings: '설정'
+};
 /* 점수 규칙 (서버 family_points 와 같은 기본값) */
 const POINT_DEF = {
   visit: 2,
@@ -4892,7 +4920,10 @@ function AdminSheet({
   const [detail, setDetail] = useState(null);
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
-  const [pinMode, setPinMode] = useState(null); // 'new' 처음 정하기 · 'change' 바꾸기
+  const [pinMode, setPinMode] = useState(null);
+  const [resetFor, setResetFor] = useState(null);
+  const [rpin, setRpin] = useState('');
+  const [bk, setBk] = useState({}); // 'new' 처음 정하기 · 'change' 바꾸기
   const recent = useMemo(() => [...C.posts.filter(p => !isLocked(p)).map(p => ({
     id: p.id,
     kind: 'post',
@@ -4909,7 +4940,7 @@ function AdminSheet({
   const load = async () => {
     const since = dayAdd(today, -40);
     const ids = recent.map(x => x.id);
-    const [vs, ws, ps, st, first, hasPin] = await Promise.all([db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []), ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [], db.list('push_subs', 'select=member_id&order=member_id').catch(() => []), db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []), sb('visits?select=day&order=day.asc&limit=1').catch(() => []), db.rpc('admin_pin_set').catch(() => false)]);
+    const [vs, ws, ps, st, first, hasPin, pins] = await Promise.all([db.list('visits', `select=*&day=gte.${since}&order=day,member_id`).catch(() => []), ids.length ? db.list('views', `select=item_id,member_id&item_id=in.(${ids.join(',')})&order=item_id,member_id`).catch(() => []) : [], db.list('push_subs', 'select=member_id&order=member_id').catch(() => []), db.list('app_settings', 'select=*&k=eq.points&order=k').catch(() => []), sb('visits?select=day&order=day.asc&limit=1').catch(() => []), db.rpc('admin_pin_set').catch(() => false), db.rpc('pins_state').catch(() => [])]);
     setRules({
       ...POINT_DEF,
       ...(st[0] && st[0].v || {})
@@ -4919,7 +4950,8 @@ function AdminSheet({
       ws,
       ps,
       first: first[0] && first[0].day,
-      hasPin: !!hasPin
+      hasPin: !!hasPin,
+      pins: pins || []
     });
   };
   const loadPts = async k => {
@@ -4955,7 +4987,7 @@ function AdminSheet({
     Object.keys(POINT_DEF).forEach(k => {
       v[k] = Math.max(0, Math.round(+edit[k] || 0));
     });
-    if (await C.write(() => db.rpc('set_points', {
+    if (await C.write(() => rpcOk('set_points', {
       p_pin: pin,
       p_rules: v
     }), '점수 규칙을 바꿨어요')) {
@@ -4965,12 +4997,95 @@ function AdminSheet({
       loadPts(per);
     }
   };
+  /* 백업에서 되살리기: 목록(창구 v4) 또는 파일 → 미리 세어 보기 → 되살리기 */
+  const loadBackups = async () => {
+    setBk({
+      busy: true
+    });
+    if ((await gwVersion()) < 4) {
+      setBk({});
+      C.toast('사진 창구를 v4로 배포하면 목록이 보여요. 지금은 "파일에서 고르기"를 써 주세요');
+      return;
+    }
+    try {
+      setBk({
+        list: (await gw('bklist')).list || []
+      });
+    } catch (e) {
+      setBk({});
+      C.toast('백업 목록을 못 불러왔어요: ' + e.message);
+    }
+  };
+  const pickBackup = async x => {
+    setBk(b => ({
+      ...b,
+      busy: true
+    }));
+    try {
+      let text = x.text;
+      if (!text) {
+        const r = await gw('get', {
+          id: x.id
+        });
+        const bin = atob(r.data);
+        text = new TextDecoder().decode(Uint8Array.from(bin, ch => ch.charCodeAt(0)));
+      }
+      const data = JSON.parse(text);
+      if (data.app !== 'THE FAMILY ZONE') throw new Error('패밀리그램 백업 파일이 아니에요');
+      setBk(b => ({
+        ...b,
+        busy: false,
+        data,
+        day: x.day && /^\d{4}-/.test(x.day) ? fmtDate(x.day, true) : x.day
+      }));
+    } catch (e) {
+      setBk(b => ({
+        ...b,
+        busy: false
+      }));
+      C.toast('백업을 읽지 못했어요: ' + e.message);
+    }
+  };
+  const runRestore = async dry => {
+    if (!rpin) {
+      C.toast('관리자 PIN을 넣어 주세요');
+      return;
+    }
+    setBk(b => ({
+      ...b,
+      busy: true
+    }));
+    try {
+      const r = await rpcOk('restore_backup', {
+        p_pin: rpin,
+        p_data: bk.data,
+        p_dry: dry
+      });
+      if (dry) setBk(b => ({
+        ...b,
+        busy: false,
+        added: r.added || {}
+      }));else {
+        C.toast(`되살렸어요 · ${Object.entries(r.added || {}).map(([t, n]) => `${TABLE_KO[t] || t} ${n}개`).join(', ')}`);
+        setBk({});
+        setRpin('');
+        await C.reload();
+        load();
+      }
+    } catch (e) {
+      setBk(b => ({
+        ...b,
+        busy: false
+      }));
+      C.toast(e.message);
+    }
+  };
   const savePin = async () => {
     if (!/^\d{4,8}$/.test(pin2)) {
       C.toast('PIN은 숫자 4~8자리로 정해 주세요');
       return;
     }
-    if (await C.write(() => db.rpc('set_admin_pin', {
+    if (await C.write(() => rpcOk('set_admin_pin', {
       p_new: pin2,
       p_old: pinMode === 'change' ? pin : null
     }), pinMode === 'change' ? '관리자 PIN을 바꿨어요' : '관리자 PIN을 정했어요')) {
@@ -5288,6 +5403,149 @@ function AdminSheet({
       margin: '4px 2px 0'
     }
   }, "\uAEBC\uC9C4 \uC2DD\uAD6C\uB294 \uC571\uC744 \uD55C \uBC88 \uC5F4\uACE0 \"\uC54C\uB9BC \uBC1B\uAE30\"\uB97C \uB20C\uB7EC\uC57C \uC18C\uC2DD \uC54C\uB9BC\uC774 \uAC00\uC694."))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uC2DD\uAD6C PIN"), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '0 0 6px'
+    }
+  }, "\uC2DD\uAD6C\uAC00 PIN\uC744 \uC78A\uC5C8\uC73C\uBA74 \uC9C0\uC6CC \uC8FC\uC138\uC694. \uADF8 \uC2DD\uAD6C \uD3F0\uC5D0\uC11C \uC571\uC744 \uC5F4\uBA74 \uC0C8 PIN\uC744 \uC815\uD558\uAC8C \uB3FC\uC694."), D && ms.map(m => /*#__PURE__*/React.createElement("div", {
+    className: "adm-r",
+    key: m.id
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: m,
+    size: 28
+  }), /*#__PURE__*/React.createElement("b", {
+    className: "grow"
+  }, m.name), D.pins.includes(m.id) ? /*#__PURE__*/React.createElement("span", {
+    className: "pill ok"
+  }, "PIN \uC788\uC74C") : /*#__PURE__*/React.createElement("span", {
+    className: "pill no"
+  }, "\uC544\uC9C1 \uC5C6\uC74C"), D.pins.includes(m.id) && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: () => setResetFor(m)
+  }, "\uC9C0\uC6B0\uAE30"))), resetFor && /*#__PURE__*/React.createElement("div", {
+    className: "pinbox"
+  }, /*#__PURE__*/React.createElement("b", null, resetFor.name, "\uC758 PIN \uC9C0\uC6B0\uAE30"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uAD00\uB9AC\uC790 PIN",
+    value: rpin,
+    onChange: e => setRpin(e.target.value.replace(/\D/g, ''))
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    onClick: () => {
+      setResetFor(null);
+      setRpin('');
+    }
+  }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    onClick: async () => {
+      if (await C.write(() => rpcOk('reset_member_pin', {
+        p_pin: rpin,
+        p_member: resetFor.id
+      }), `${resetFor.name}의 PIN을 지웠어요`)) {
+        setResetFor(null);
+        setRpin('');
+        load();
+      }
+    }
+  }, "\uC9C0\uC6B0\uAE30")))), /*#__PURE__*/React.createElement("div", {
+    className: "adm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "adm-t"
+  }, "\uBC31\uC5C5\uC5D0\uC11C \uB418\uC0B4\uB9AC\uAE30"), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '0 0 8px'
+    }
+  }, "\uB4DC\uB77C\uC774\uBE0C\uC5D0 \uB0A0\uB9C8\uB2E4 \uC313\uC778 \uBC31\uC5C5\uC5D0\uC11C ", /*#__PURE__*/React.createElement("b", null, "\uC9C0\uC6CC\uC9C4 \uAC83\uB9CC"), " \uB2E4\uC2DC \uB123\uC5B4\uC694. \uC9C0\uAE08 \uC788\uB294 \uC18C\uC2DD\uC740 \uADF8\uB300\uB85C\uC608\uC694. \uB418\uC0B4\uB9AC\uB294 \uB3D9\uC548 \uD3F0 \uC54C\uB9BC\uC740 \uAC00\uC9C0 \uC54A\uC544\uC694."), !bk.list && /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    disabled: bk.busy,
+    onClick: loadBackups
+  }, bk.busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  }) : /*#__PURE__*/React.createElement(LIcon, {
+    name: "cloud-download",
+    size: 16
+  }), "\uBC31\uC5C5 \uBAA9\uB85D \uBCF4\uAE30"), /*#__PURE__*/React.createElement("label", {
+    className: "btn sm soft"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "file-up",
+    size: 16
+  }), "\uD30C\uC77C\uC5D0\uC11C \uACE0\uB974\uAE30", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "application/json,.json",
+    hidden: true,
+    onChange: async e => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (f) pickBackup({
+        day: f.name,
+        text: await f.text()
+      });
+    }
+  }))), bk.list && !bk.data && /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxHeight: 240,
+      overflowY: 'auto'
+    }
+  }, bk.list.map(x => /*#__PURE__*/React.createElement("button", {
+    key: x.id,
+    className: "rank",
+    onClick: () => pickBackup(x)
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "file-json",
+    size: 18
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "grow"
+  }, fmtDate(x.day, true), " \uBC31\uC5C5"), /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, Math.max(1, Math.round(x.size / 1024)), "KB"))), !bk.list.length && /*#__PURE__*/React.createElement("p", {
+    className: "small muted"
+  }, "\uC544\uC9C1 \uBC31\uC5C5\uC774 \uC5C6\uC5B4\uC694.")), bk.data && /*#__PURE__*/React.createElement("div", {
+    className: "pinbox"
+  }, /*#__PURE__*/React.createElement("b", null, "\uD83D\uDCE6 ", bk.day, " \uBC31\uC5C5"), /*#__PURE__*/React.createElement("span", null, bk.data.saved_at ? `${new Date(bk.data.saved_at).toLocaleString('ko-KR')}에 저장` : ''), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uAD00\uB9AC\uC790 PIN",
+    value: rpin,
+    onChange: e => setRpin(e.target.value.replace(/\D/g, ''))
+  }), bk.added && (Object.keys(bk.added).length ? /*#__PURE__*/React.createElement("div", {
+    className: "small"
+  }, /*#__PURE__*/React.createElement("b", null, "\uB418\uC0B4\uB9B4 \uAC83:"), " ", Object.entries(bk.added).map(([t, n]) => `${TABLE_KO[t] || t} ${n}개`).join(' · ')) : /*#__PURE__*/React.createElement("div", {
+    className: "small"
+  }, /*#__PURE__*/React.createElement("b", null, "\uBE60\uC9C4 \uAC8C \uC5C6\uC5B4\uC694."), " \uC774 \uBC31\uC5C5\uC758 \uB0B4\uC6A9\uC774 \uC9C0\uAE08 \uBAA8\uB450 \uC788\uC5B4\uC694.")), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    onClick: () => {
+      setBk({});
+      setRpin('');
+    }
+  }, "\uADF8\uB9CC\uB450\uAE30"), !bk.added ? /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    disabled: bk.busy,
+    onClick: () => runRestore(true)
+  }, bk.busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '무엇이 돌아오는지 보기') : Object.keys(bk.added).length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    disabled: bk.busy,
+    onClick: () => runRestore(false)
+  }, bk.busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '되살리기')))), /*#__PURE__*/React.createElement("div", {
     className: "adm"
   }, /*#__PURE__*/React.createElement("div", {
     className: "adm-t"
@@ -5993,6 +6251,7 @@ function SettingsSheet({
   onClose
 }) {
   const C = useC();
+  const [pinCh, setPinCh] = useState(null);
   const [ko, setKo] = useState('');
   const [kn, setKn] = useState('');
   const [bk, setBk] = useState(null);
@@ -6040,11 +6299,57 @@ function SettingsSheet({
     className: "grow"
   }, C.getM(C.me).name), /*#__PURE__*/React.createElement("button", {
     className: "btn sm soft",
+    onClick: () => setPinCh(x => x ? null : {
+      a: '',
+      b: ''
+    })
+  }, "\uB0B4 PIN \uBC14\uAFB8\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
     onClick: () => {
       onClose();
       C.changeMe();
     }
-  }, "\uB098 \uBC14\uAFB8\uAE30"))), /*#__PURE__*/React.createElement("div", {
+  }, "\uB098 \uBC14\uAFB8\uAE30")), pinCh && /*#__PURE__*/React.createElement("div", {
+    className: "pinbox",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uC9C0\uAE08 PIN",
+    value: pinCh.a,
+    onChange: e => setPinCh(x => ({
+      ...x,
+      a: e.target.value.replace(/\D/g, '')
+    }))
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    placeholder: "\uC0C8 PIN (\uC22B\uC790 4~8\uC790\uB9AC)",
+    value: pinCh.b,
+    onChange: e => setPinCh(x => ({
+      ...x,
+      b: e.target.value.replace(/\D/g, '')
+    }))
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    onClick: () => setPinCh(null)
+  }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    onClick: async () => {
+      if (await C.write(() => rpcOk('change_my_pin', {
+        p_old: pinCh.a,
+        p_new: pinCh.b
+      }), '내 PIN을 바꿨어요')) setPinCh(null);
+    }
+  }, "\uC800\uC7A5")))), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\u2601\uFE0F \uC790\uB3D9 \uBC31\uC5C5 (\uB0B4 \uAD6C\uAE00 \uB4DC\uB77C\uC774\uBE0C)"), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6445,10 +6750,122 @@ function PickMe({
   }, "\uC774 \uD3F0\uC5D0\uC11C \uB098\uAC00\uAE30"));
 }
 
+/* 이 폰이 누구인지 서버에 증명: 식구마다 개인 PIN → 폰 열쇠. 열쇠가 있어야 그 이름으로 글을 쓸 수 있다 */
+function PinGate({
+  member,
+  onDone,
+  onOther
+}) {
+  const [state, setState] = useState(null); // 'new' 처음 정하기 · 'enter' 넣기
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    db.rpc('pins_state').then(ids => setState((ids || []).includes(member.id) ? 'enter' : 'new')).catch(() => setState('enter'));
+  }, [member.id]);
+  const go = async () => {
+    setErr('');
+    if (!/^\d{4,8}$/.test(a)) {
+      setErr('숫자 4~8자리로 넣어 주세요');
+      return;
+    }
+    if (state === 'new' && a !== b) {
+      setErr('두 번 넣은 숫자가 달라요');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await rpcOk('claim_member', {
+        p_member: member.id,
+        p_pin: a
+      });
+      onDone(r.token);
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  };
+  const pinInput = (v, set, ph) => /*#__PURE__*/React.createElement("input", {
+    className: "input pin",
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    maxLength: 8,
+    placeholder: ph,
+    value: v,
+    onChange: e => set(e.target.value.replace(/\D/g, '')),
+    onKeyDown: e => {
+      if (e.key === 'Enter') go();
+    }
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    className: "gate"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "brand"
+  }, "Familygram", /*#__PURE__*/React.createElement(LIcon, {
+    name: "heart",
+    size: 26,
+    fill: "#ED4956",
+    stroke: "#ED4956"
+  })), /*#__PURE__*/React.createElement(Avatar, {
+    m: member,
+    size: 84
+  }), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: '12px 0 4px',
+      fontSize: '1.3rem'
+    }
+  }, member.name, state === 'new' ? ' · 나만의 PIN 정하기' : ' · PIN 넣기'), !state ? /*#__PURE__*/React.createElement("p", {
+    className: "muted"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '0 0 14px',
+      textAlign: 'center',
+      lineHeight: 1.6
+    }
+  }, state === 'new' ? /*#__PURE__*/React.createElement(React.Fragment, null, member.name, "\uB9CC \uC544\uB294 \uC22B\uC790 4\uC790\uB9AC\uB97C \uC815\uD574 \uC8FC\uC138\uC694.", /*#__PURE__*/React.createElement("br", null), "\uB2E4\uB978 \uC2DD\uAD6C\uAC00 ", member.name, " \uC774\uB984\uC73C\uB85C \uAE00\uC744 \uC4F8 \uC218 \uC5C6\uAC8C \uC9C0\uCF1C \uC918\uC694.", /*#__PURE__*/React.createElement("br", null), "\uC774 \uD3F0\uC5D0\uC11C\uB294 \uD55C \uBC88\uB9CC \uB123\uC73C\uBA74 \uB3FC\uC694.") : /*#__PURE__*/React.createElement(React.Fragment, null, member.name, "\uC758 PIN\uC744 \uB123\uC5B4 \uC8FC\uC138\uC694.", /*#__PURE__*/React.createElement("br", null), "\uC774 \uD3F0\uC5D0\uC11C\uB294 \uD55C \uBC88\uB9CC \uB123\uC73C\uBA74 \uB3FC\uC694.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gap: 10,
+      width: '100%',
+      maxWidth: 260
+    }
+  }, pinInput(a, setA, state === 'new' ? '숫자 4자리' : 'PIN'), state === 'new' && pinInput(b, setB, '한 번 더'), err && /*#__PURE__*/React.createElement("div", {
+    className: "small",
+    style: {
+      color: '#d0402a',
+      textAlign: 'center'
+    }
+  }, err), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary block",
+    disabled: busy,
+    onClick: go
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : state === 'new' ? 'PIN 정하고 들어가기' : '들어가기')), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      marginTop: 16,
+      textAlign: 'center'
+    }
+  }, "PIN\uC744 \uC78A\uC5C8\uC73C\uBA74 \uAD00\uB9AC\uC790(\uC544\uBE60)\uC5D0\uAC8C \uC9C0\uC6CC \uB2EC\uB77C\uACE0 \uD558\uC138\uC694.")), /*#__PURE__*/React.createElement("button", {
+    className: "linkbtn",
+    style: {
+      marginTop: 10
+    },
+    onClick: onOther
+  }, josa(member.name, '이', '가'), " \uC544\uB2C8\uC5D0\uC694"));
+}
+
 /* ═══════════ 앱 ═══════════ */
 function App() {
   const [hasKey, setHasKey] = useState(!!familyKey);
   const [me, setMeState] = useState(store.get('fz_me') || '');
+  const [auth, setAuth] = useState(''); // '' 확인 중 · 'need' PIN 필요 · 'ok'
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState('home');
@@ -6631,12 +7048,34 @@ function App() {
     };
   }, []);
   const setMe = id => {
+    if (id !== store.get('fz_me')) {
+      store.del('fz_tok');
+      memberTok = '';
+    }
     store.set('fz_me', id);
     setMeState(id);
+    setAuth('');
   };
+  /* 이 폰의 열쇠가 고른 식구와 맞는지 서버에 묻는다 (안 맞거나 없으면 PIN 화면) */
+  useEffect(() => {
+    if (!loaded || !me || auth) return;
+    if (!memberTok) {
+      setAuth('need');
+      return;
+    }
+    db.rpc('whoami').then(w => {
+      if (w === me) setAuth('ok');else {
+        store.del('fz_tok');
+        memberTok = '';
+        setAuth('need');
+      }
+    }).catch(() => setAuth('ok'));
+  }, [loaded, me, auth]);
   const leave = msg => {
     store.del('fz_key');
     store.del('fz_me');
+    store.del('fz_tok');
+    memberTok = '';
     familyKey = '';
     setMeState('');
     setLoaded(false);
@@ -7019,6 +7458,7 @@ function App() {
     openQuestion: q => setQuestion(q),
     openBook: y => setBook(y),
     openSettings: () => setSettings(true),
+    reload: loadAll,
     openAdmin: () => setAdmin(true),
     isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true),
@@ -7156,6 +7596,30 @@ function App() {
     onPick: id => setMe(id),
     onLeave: () => leave()
   });
+  if (auth === 'need') return /*#__PURE__*/React.createElement(PinGate, {
+    member: D.members.find(m => m.id === me),
+    onDone: tok => {
+      store.set('fz_tok', tok);
+      memberTok = tok;
+      setAuth('ok');
+      logVisit(me);
+    },
+    onOther: () => setMe('')
+  });
+  if (!auth) return /*#__PURE__*/React.createElement("div", {
+    className: "gate"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "brand"
+  }, "Familygram", /*#__PURE__*/React.createElement(LIcon, {
+    name: "heart",
+    size: 26,
+    fill: "#ED4956",
+    stroke: "#ED4956"
+  })), /*#__PURE__*/React.createElement("p", {
+    className: "muted"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  })));
 
   /* 알림 탭을 떠날 때 "여기까지 봤어요" 로 적는다 */
   const goTab = t => {
