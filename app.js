@@ -4804,11 +4804,12 @@ const logVisit = member => {
   const t = Date.now(),
     key = `${member}|${ymd()}`;
   if (store.get('fz_vis_k') === key && t - +(store.get('fz_vis_t') || 0) < 10 * 60e3) return;
-  store.set('fz_vis_k', key);
-  store.set('fz_vis_t', String(t));
   db.rpc('log_visit', {
     p_member: member
-  }).catch(() => {});
+  }).then(() => {
+    store.set('fz_vis_k', key);
+    store.set('fz_vis_t', String(t));
+  }).catch(() => {}); // 적힌 뒤에만 "적었음" (PIN 전 실패는 다음에 다시)
 };
 /* 조회: 남의 소식·기도가 화면에 1초 넘게 보이면 한 번 (같은 건 다시 안 셈) */
 const viewed = new Set((() => {
