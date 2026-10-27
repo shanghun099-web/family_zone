@@ -233,7 +233,6 @@ async function uploadOriginal(file) {
     return null;
   }
 }
-const photoFiles = ph => [ph.id, ph.orig].filter(Boolean);
 /* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
 async function uploadVoice(blob, sec) {
   const mime = (blob.type || 'audio/webm').split(';')[0];
@@ -2023,17 +2022,10 @@ function Composer({
         return;
       }
       const photos = [];
-      try {
-        for (let i = 0; i < files.length; i++) {
-          setBusy(`사진 올리는 중 ${i + 1}/${files.length} · 원본도 저장`);
-          photos.push(await uploadPhoto(files[i].f, undefined, true));
-        }
-      } catch (e) {
-        photos.flatMap(photoFiles).forEach(id => gw('delete', {
-          id
-        }).catch(() => {}));
-        throw e;
-      }
+      for (let i = 0; i < files.length; i++) {
+        setBusy(`사진 올리는 중 ${i + 1}/${files.length} · 원본도 저장`);
+        photos.push(await uploadPhoto(files[i].f, undefined, true));
+      } // 사진은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
       setBusy('소식 올리는 중…');
       const row = daily ? {
         author_id: C.me,
@@ -2054,12 +2046,7 @@ function Composer({
         ask_text: askTo ? askText.trim() : ''
       };
       const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
-      if (ok) onClose();else {
-        setBusy('');
-        photos.flatMap(photoFiles).forEach(id => gw('delete', {
-          id
-        }).catch(() => {}));
-      }
+      if (ok) onClose();else setBusy('');
     } catch (e) {
       setBusy('');
       C.toast('올리지 못했어요: ' + e.message);
@@ -6763,8 +6750,8 @@ function App() {
       }
     },
     deletePost: async p => {
-      if (!window.confirm('이 소식을 지울까요? 사진과 댓글도 함께 지워져요.')) return;
-      const files = [...photosOf(p).flatMap(photoFiles), ...(cmtMap[p.id] || []).map(c => driveId(c.audio_url))].filter(Boolean);
+      if (!window.confirm('이 소식을 지울까요? 댓글도 함께 지워져요. (사진은 구글 드라이브에 그대로 남아요)')) return;
+      const files = (cmtMap[p.id] || []).map(c => driveId(c.audio_url)).filter(Boolean); // 사진(줄인 것·원본)은 드라이브에 남긴다 (사용자 요청) · 목소리 댓글만 정리
       if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) files.forEach(id => gw('delete', {
         id
       }).catch(() => {}));
