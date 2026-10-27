@@ -723,7 +723,7 @@ function Tagged({ text }) {
     : s);
 }
 
-/* 내 댓글·답글 고치기: 글자만 고친다 (목소리 댓글은 받아 적은 글만) */
+/* 내 댓글·답글 수정: 글자만 고친다 (목소리 댓글은 받아 적은 글만) */
 function EditLine({ text, voice, onSave, onCancel }) {
   const [t, setT] = useState(text || ''); const [busy, setBusy] = useState(false);
   const save = async () => { if (!voice && !t.trim()) return; setBusy(true); if (!(await onSave(t.trim()))) setBusy(false); };
@@ -744,7 +744,7 @@ function CommentRow({ c, onDelete }) {
         <div>{c.is_answer && <span className="tag-ans">답</span>}<b>{a.name}</b> {c.content && !c.audio_url && !editing && <span>{c.content}</span>}</div>
         {c.audio_url && <><VoicePlayer src={c.audio_url}/>{c.content && !editing && <div className="small" style={{ color: '#5b4a86' }}>“{c.content}”</div>}</>}
         {editing && <EditLine text={c.content} voice={!!c.audio_url} onCancel={() => setEditing(false)} onSave={async t => { const ok = await C.editComment(c, t); if (ok) setEditing(false); return ok; }}/>}
-        {!editing && <div className="meta"><span>{relTime(c.created_at)}{c.edited_at ? ' · 고침' : ''}</span>{mine && <button onClick={() => setEditing(true)}>고치기</button>}{onDelete && mine && <button onClick={() => onDelete(c)}>지우기</button>}</div>}
+        {!editing && <div className="meta"><span>{relTime(c.created_at)}</span>{mine && <button onClick={() => setEditing(true)}>수정</button>}{onDelete && mine && <button onClick={() => onDelete(c)}>지우기</button>}</div>}
       </div>
     </div>
   );
@@ -1089,7 +1089,7 @@ function NoteSheet({ note, onClose }) {
             <div className="body"><div><b>{C.getM(r.author_id).name}</b> {editId !== r.id && <span>{r.content}</span>}</div>
               {editId === r.id
                 ? <EditLine text={r.content} onCancel={() => setEditId(null)} onSave={async x => { const ok = await C.editNoteReply(r, x); if (ok) setEditId(null); return ok; }}/>
-                : <div className="meta"><span>{relTime(r.created_at)}{r.edited_at ? ' · 고침' : ''}</span>{r.author_id === C.me && <button onClick={() => setEditId(r.id)}>고치기</button>}{(r.author_id === C.me || C.isAdmin) && <button onClick={() => C.deleteNoteReply(r)}>지우기</button>}</div>}</div>
+                : <div className="meta"><span>{relTime(r.created_at)}</span>{r.author_id === C.me && <button onClick={() => setEditId(r.id)}>수정</button>}{(r.author_id === C.me || C.isAdmin) && <button onClick={() => C.deleteNoteReply(r)}>지우기</button>}</div>}</div>
           </div>
         ))}
         <div className="row gap" style={{ marginTop: 10 }}>
@@ -2837,8 +2837,8 @@ function App() {
       catch (e) { toast('마음을 저장하지 못했어요'); loadAll(); }
     },
     replyNote: (n, content) => write(() => db.add('note_replies', { note_id: n.id, author_id: me, content }), '답글을 남겼어요'),
-    editNoteReply: (r, content) => write(() => db.patch('note_replies', r.id, { content, edited_at: new Date().toISOString() }), '답글을 고쳤어요'),
-    editComment: (c, content) => write(() => db.patch('comments', c.id, { content, edited_at: new Date().toISOString() }), '댓글을 고쳤어요'),
+    editNoteReply: (r, content) => write(() => db.patch('note_replies', r.id, { content, edited_at: new Date().toISOString() }), '답글을 수정했어요'),
+    editComment: (c, content) => write(() => db.patch('comments', c.id, { content, edited_at: new Date().toISOString() }), '댓글을 수정했어요'),
     deleteNoteReply: r => { if (window.confirm('이 답글을 지울까요?')) write(() => db.del('note_replies', `id=eq.${r.id}`), '답글을 지웠어요'); }, openAdmin: () => setAdmin(true), isAdmin: !!(memberMap[me] && memberMap[me].is_admin),
     openLetters: () => setLettersOpen(true), openNoti: () => setNotiOpen(true), prayers: D.prayers, pmarks: D.pmarks, prayFocus,
     openPray: id => { setTab('pray'); setPrayFocus(id); },

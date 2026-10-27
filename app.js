@@ -1616,7 +1616,7 @@ function Tagged({
   }, s) : s);
 }
 
-/* 내 댓글·답글 고치기: 글자만 고친다 (목소리 댓글은 받아 적은 글만) */
+/* 내 댓글·답글 수정: 글자만 고친다 (목소리 댓글은 받아 적은 글만) */
 function EditLine({
   text,
   voice,
@@ -1688,9 +1688,9 @@ function CommentRow({
     }
   }), !editing && /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at), c.edited_at ? ' · 고침' : ''), mine && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => setEditing(true)
-  }, "\uACE0\uCE58\uAE30"), onDelete && mine && /*#__PURE__*/React.createElement("button", {
+  }, "\uC218\uC815"), onDelete && mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(c)
   }, "\uC9C0\uC6B0\uAE30"))));
 }
@@ -2717,9 +2717,9 @@ function NoteSheet({
     }
   }) : /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(r.created_at), r.edited_at ? ' · 고침' : ''), r.author_id === C.me && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(r.created_at)), r.author_id === C.me && /*#__PURE__*/React.createElement("button", {
     onClick: () => setEditId(r.id)
-  }, "\uACE0\uCE58\uAE30"), (r.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
+  }, "\uC218\uC815"), (r.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
     onClick: () => C.deleteNoteReply(r)
   }, "\uC9C0\uC6B0\uAE30"))))), /*#__PURE__*/React.createElement("div", {
     className: "row gap",
@@ -7767,11 +7767,11 @@ function App() {
     editNoteReply: (r, content) => write(() => db.patch('note_replies', r.id, {
       content,
       edited_at: new Date().toISOString()
-    }), '답글을 고쳤어요'),
+    }), '답글을 수정했어요'),
     editComment: (c, content) => write(() => db.patch('comments', c.id, {
       content,
       edited_at: new Date().toISOString()
-    }), '댓글을 고쳤어요'),
+    }), '댓글을 수정했어요'),
     deleteNoteReply: r => {
       if (window.confirm('이 답글을 지울까요?')) write(() => db.del('note_replies', `id=eq.${r.id}`), '답글을 지웠어요');
     },
