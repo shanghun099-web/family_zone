@@ -10,6 +10,7 @@
   Object.keys(S).filter(k => k.startsWith(P)).forEach(k => S.removeItem(k));   // 가짜 가족은 열 때마다 새로 만들어지니 저장값도 처음부터
   const shim = { getItem: k => S.getItem(P + k), setItem: (k, v) => S.setItem(P + k, String(v)), removeItem: k => S.removeItem(P + k), clear() {}, key: () => null, get length() { return 0; } };
   Object.defineProperty(window, 'localStorage', { value: shim, configurable: true });
+  try { delete window.PushManager; delete Window.prototype.PushManager; } catch (e) {}   // 체험판은 폰 알림 받기 안내를 띄우지 않는다
 })();
 (function(){
   const uid = () => 'x' + Math.random().toString(36).slice(2, 10);
