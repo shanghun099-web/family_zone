@@ -1,5 +1,5 @@
 /**
- * THE FAMILY ZONE → 사진·목소리 창구 (Apps Script 웹앱, v2)
+ * THE FAMILY ZONE → 사진·목소리·동영상 창구 (Apps Script 웹앱, v3)
  *   가족 앱이 보낸 사진과 음성을 "내 구글 드라이브"의 가족 폴더에 넣어 준다.
  *   가족 암호가 맞는 요청만 받는다 (Supabase 의 is_family 로 확인).
  *
@@ -7,6 +7,8 @@
  *   - 목소리: 공유하지 않는다. 앱이 가족 암호로 이 창구를 통해서만 꺼내 듣는다
  *   - 지우기: 드라이브 휴지통으로 옮긴다 (30일 안에는 드라이브에서 되살릴 수 있음)
  *   - 백업(v2): 가족 글 전체를 "THE FAMILY ZONE/백업" 폴더에 날짜별 파일로 쌓는다 (같은 날은 덮어씀, 지난 날 파일은 지우지 않음)
+ *   - 동영상(v3): 크기 제한 없이 올리도록, 창구는 드라이브 "이어 올리기" 자리만 열어 주고 폰이 조각조각 보낸다
+ *                 (폰이 바로 못 보내면 창구가 조각을 받아 대신 보낸다) → "THE FAMILY ZONE/동영상", 링크가 있는 사람만 보기
  *
  * 설치 (한 번만):
  *  1. https://script.google.com 에서 "새 프로젝트" → 이 파일 내용을 전부 붙여넣고 저장 (프로젝트 이름: 패밀리 존 사진 창구)
@@ -28,7 +30,7 @@
 const SUPABASE_URL = 'https://ijpbmlphaanmqnsixckt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_lZIA-d3DTswNZOKdhEn4iw_W8k7BDQl';   // 공개용 키 (앱 코드에도 들어 있음)
 const ROOT_NAME = 'THE FAMILY ZONE';
-const VERSION = 2;
+const VERSION = 3;
 
 /* 연결 확인용. 암호 없이도 살아 있는지만 알려 준다 */
 function doGet() {
@@ -45,6 +47,9 @@ function doPost(e) {
     if (p.action === 'delete') return json_(trash_(p.id));
     if (p.action === 'backup') return json_(backup_(p));
     if (p.action === 'bkinfo') return json_(backupInfo_());
+    if (p.action === 'vstart') return json_(videoStart_(p));
+    if (p.action === 'vchunk') return json_(videoChunk_(p));
+    if (p.action === 'vdone') return json_(videoDone_(p));
     if (p.action === 'ping') return json_({ ok: true, v: VERSION, folder: root_().getUrl() });
     return json_({ ok: false, error: '모르는 요청입니다: ' + p.action });
   } catch (err) {
@@ -77,6 +82,62 @@ function upload_(p) {
     };
   }
   return { ok: true, id: file.getId() };
+}
+
+/* ---------- 동영상 (v3) ---------- */
+
+/* p: { name, mime, size, origin } → { url }: 드라이브 "이어 올리기" 자리 (이 주소로 조각을 보내면 동영상 폴더에 파일이 생긴다) */
+function videoStart_(p) {
+  const mime = String(p.mime || 'video/mp4').split(';')[0];
+  if (mime.indexOf('video/') !== 0) throw new Error('동영상 파일이 아닙니다');
+  const size = Number(p.size || 0);
+  if (!(size > 0)) throw new Error('파일 크기를 알 수 없습니다');
+  const name = today_() + '_' + safeName_(p.name || '동영상') + vext_(mime);
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+    method: 'post',
+    contentType: 'application/json; charset=UTF-8',
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'X-Upload-Content-Type': mime,
+      'X-Upload-Content-Length': String(size),
+      Origin: String(p.origin || 'https://shanghun099-web.github.io')   // 폰 브라우저가 이 자리로 바로 보낼 수 있게
+    },
+    payload: JSON.stringify({ name: name, mimeType: mime, parents: [sub_('동영상').getId()] }),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) throw new Error('동영상 자리를 열지 못했습니다 (' + res.getResponseCode() + ')');
+  const h = res.getHeaders();
+  return { ok: true, url: h.Location || h.location };
+}
+
+/* p: { url, start, total, data(base64) } → 폰이 바로 못 보낼 때 창구가 한 조각을 대신 보낸다 */
+function videoChunk_(p) {
+  const url = String(p.url || '');
+  if (url.indexOf('https://www.googleapis.com/upload/drive/v3/files?') !== 0) throw new Error('올리기 주소가 이상합니다');
+  const bytes = Utilities.base64Decode(String(p.data || ''));
+  const start = Number(p.start), total = Number(p.total), end = start + bytes.length - 1;
+  const res = UrlFetchApp.fetch(url, {
+    method: 'put', payload: bytes, contentType: 'application/octet-stream',
+    headers: { 'Content-Range': 'bytes ' + start + '-' + end + '/' + total },
+    muteHttpExceptions: true, followRedirects: false
+  });
+  const code = res.getResponseCode();
+  if (code === 308) return { ok: true, done: false };
+  if (code === 200 || code === 201) return { ok: true, done: true, id: JSON.parse(res.getContentText()).id };
+  throw new Error('동영상 조각을 보내지 못했습니다 (' + code + ')');
+}
+
+/* p: { id } → 다 올라간 동영상을 "링크가 있는 사람만 보기"로 (앱에서 재생되게) */
+function videoDone_(p) {
+  const file = inFamily_(p.id);
+  if (String(file.getMimeType()).indexOf('video/') !== 0) throw new Error('동영상 파일이 아닙니다');
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { ok: true, id: file.getId() };
+}
+
+function vext_(mime) {
+  const m = { 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'video/3gpp': '.3gp', 'video/x-matroska': '.mkv' };
+  return m[mime] || '.mp4';
 }
 
 /* ---------- 꺼내기 (목소리) ---------- */

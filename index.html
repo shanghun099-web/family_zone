@@ -172,7 +172,14 @@
   .tgl.on{background:#2f9e5b}.tgl.on::after{left:25px}
   .thumbs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
   .thumbs .t{width:84px;height:84px;border-radius:12px;overflow:hidden;position:relative;flex-shrink:0;background:#eee}
-  .thumbs .t img{width:100%;height:100%;object-fit:cover}
+  .thumbs .t img,.thumbs .t video{width:100%;height:100%;object-fit:cover;display:block}
+  .thumbs .t .vt{position:absolute;left:4px;bottom:4px;display:flex;align-items:center;gap:2px;background:rgba(0,0,0,.6);color:#fff;font-size:.7rem;border-radius:8px;padding:1px 6px}
+  .vslide{width:100%;height:100%;flex-shrink:0;scroll-snap-align:start;position:relative;background:#111}
+  .vslide iframe{width:100%;height:100%;border:0;display:block}
+  .vplay{width:100%;height:100%;padding:0;border:0;background:none;position:relative;display:block}
+  .vplay img{width:100%;height:100%;object-fit:cover;display:block}
+  .vplay .pb{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding-left:5px}
+  .vplay .vd{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.6);color:#fff;font-size:.78rem;border-radius:10px;padding:2px 8px}
   .thumbs .t .x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center}
   .thumbs .add{width:84px;height:84px;border-radius:12px;border:2px dashed #ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#999;font-size:.8rem;flex-shrink:0}
 
@@ -393,6 +400,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=9dc51021"></script>
+<script src="app.js?v=d3d642a8"></script>
 </body>
 </html>

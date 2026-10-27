@@ -112,6 +112,66 @@ async function uploadOriginal(file) {
     return r.id || null;
   } catch (e) { return null; }
 }
+/* ── 동영상 (사진 창구 v3) ──
+   창구가 드라이브 "이어 올리기" 자리를 열어 주면, 폰이 8MB씩 나눠 바로 보낸다.
+   폰이 바로 못 보내면(브라우저가 막으면) 창구가 조각을 받아 대신 보낸다. 원본 그대로 "동영상" 폴더에 쌓인다 */
+const VIDEO_MAX = 1.5e9;
+const VCHUNK = 8 * 1024 * 1024;   // 256KB 의 배수여야 한다
+const VIDEO_PH = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><rect width="100%" height="100%" fill="#2b2b2b"/><circle cx="450" cy="600" r="90" fill="rgba(255,255,255,.18)"/><path d="M420 545v110l95-55z" fill="#fff"/></svg>');
+const isVideo = ph => ph && ph.type === 'video';
+const fmtDur = s => s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '';
+/* 첫 장면 한 장을 떠서 목록에 사진처럼 보여 준다 (못 뜨면 검은 ▶ 그림) */
+function videoPoster(file) {
+  return new Promise((ok, no) => {
+    const v = document.createElement('video'); const u = URL.createObjectURL(file); let done = false;
+    const end = (r, e) => { if (done) return; done = true; clearTimeout(t); URL.revokeObjectURL(u); r ? ok(r) : no(e || new Error('첫 장면을 뜨지 못했어요')); };
+    const t = setTimeout(() => end(null), 9000);
+    v.muted = true; v.playsInline = true; v.preload = 'metadata';
+    v.onloadedmetadata = () => { v.currentTime = Math.min(0.6, (v.duration || 1) / 3); };
+    v.onseeked = () => {
+      try {
+        const k = Math.min(1, 1600 / Math.max(v.videoWidth || 1, v.videoHeight || 1));
+        const c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        c.toBlob(b => end(b && { blob: b, w: c.width, h: c.height, dur: Math.round(v.duration || 0) }), 'image/jpeg', 0.82);
+      } catch (e) { end(null, e); }
+    };
+    v.onerror = () => end(null);
+    v.src = u;
+  });
+}
+async function uploadVideo(file, onPct) {
+  const mime = /^video\//.test(file.type || '') ? file.type : 'video/mp4';
+  const pv = await videoPoster(file).catch(() => null);
+  let poster = null;
+  if (pv) try { poster = await gw('upload', { kind: 'photo', name: '동영상 첫 장면', mime: 'image/jpeg', data: await blobToB64(pv.blob) }); } catch (e) {}
+  const name = (file.name || '동영상').replace(/\.\w+$/, '');
+  let { url } = await gw('vstart', { name, mime, size: file.size, origin: location.origin });
+  let direct = true, id = null;
+  for (let start = 0; start < file.size;) {
+    const part = file.slice(start, Math.min(file.size, start + VCHUNK)); const last = start + part.size - 1;
+    let r = null;
+    for (let tryN = 0; !r && tryN < 3; tryN++) {
+      try {
+        if (direct) {
+          const res = await fetch(url, { method: 'PUT', headers: { 'Content-Range': `bytes ${start}-${last}/${file.size}` }, body: part });
+          if (res.status === 308) r = { done: false };
+          else if (res.ok) r = { done: true, id: (await res.json()).id };
+          else throw new Error('서버 ' + res.status);
+        } else r = await gw('vchunk', { url, start, total: file.size, data: await blobToB64(part) });
+      } catch (e) {
+        if (direct && start === 0) { direct = false; url = (await gw('vstart', { name, mime, size: file.size, origin: location.origin })).url; tryN = -1; continue; }   // 폰이 바로 못 보내면 새 자리를 열어 창구로
+        if (tryN === 2) throw new Error('동영상을 다 보내지 못했어요. 와이파이에서 다시 해 주세요');
+        await new Promise(w => setTimeout(w, 1500));
+      }
+    }
+    start = last + 1; onPct && onPct(Math.round(start / file.size * 100));
+    if (r.done) id = r.id;
+  }
+  if (!id) throw new Error('동영상 파일을 만들지 못했어요');
+  await gw('vdone', { id });
+  return { type: 'video', vid: id, id: poster ? poster.id : null, url: poster ? poster.url : VIDEO_PH, thumb: poster ? poster.thumb : VIDEO_PH, w: pv ? pv.w : 900, h: pv ? pv.h : 1200, dur: pv ? pv.dur : 0, mime, size: file.size };
+}
 /* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
 async function uploadVoice(blob, sec) {
   const mime = (blob.type || 'audio/webm').split(';')[0];
@@ -676,7 +736,7 @@ function CommentRow({ c, onDelete }) {
 function PostCard({ p }) {
   const C = useC(); const a = C.getM(p.author_id);
   const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
-  const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false);
+  const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false); const [playing, setPlaying] = useState(-1);
   const [bar, setBar] = useState(false); const barT = useRef(0); const press = useRef(null);
   const lastTap = useRef(0); const vref = useRef(null);
   useViewed(vref, isLocked(p) ? null : p.id, 'post', p.author_id);
@@ -720,7 +780,13 @@ function PostCard({ p }) {
       {photos.length > 0 && (
         <div className="car-wrap" onClick={tapImg} style={{ aspectRatio: String(r0) }}>
           <div className="car" style={{ height: '100%' }} onScroll={e => { const el = e.currentTarget; setIdx(Math.round(el.scrollLeft / el.clientWidth)); }}>
-            {photos.map((ph, i) => <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
+            {photos.map((ph, i) => isVideo(ph)
+              ? <div key={i} className="vslide" onClick={e => e.stopPropagation()}>
+                  {playing === i
+                    ? <iframe src={`https://drive.google.com/file/d/${ph.vid}/preview`} allow="autoplay; fullscreen" allowFullScreen title="동영상"/>
+                    : <button className="vplay" onClick={() => setPlaying(i)} aria-label="동영상 보기"><img src={ph.url} alt="" loading="lazy"/><span className="pb"><LIcon name="play" size={34} fill="#fff" stroke="#fff"/></span>{ph.dur > 0 && <span className="vd">{fmtDur(ph.dur)}</span>}</button>}
+                </div>
+              : <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
           </div>
           {photos.length > 1 && <><span className="pcount">{idx + 1}/{photos.length}</span><div className="dots">{photos.map((_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div></>}
           {p.title && idx === 0 && <span className="ovl">{p.title}</span>}
@@ -832,7 +898,14 @@ function Composer({ cfg, onClose }) {
     setTagged(e ? e.tagged || [] : []); setCap(!!(e && e.open_on)); setOpenOn(e && e.open_on || '');
     setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setOvl(e && e.title || ''); setBusy('');
   }, [cfg]);
-  const addFiles = list => { const arr = Array.from(list || []).filter(f => /^image\//.test(f.type)); setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f) }))].slice(0, daily ? 1 : 10)); };
+  const addFiles = async list => {
+    let arr = Array.from(list || []).filter(f => /^image\//.test(f.type) || (!daily && /^video\//.test(f.type)));
+    if (arr.some(f => /^video\//.test(f.type))) {
+      if ((await gwVersion()) < 3) { C.toast('사진 창구를 새 버전(v3)으로 배포해야 동영상을 올릴 수 있어요'); arr = arr.filter(f => !/^video\//.test(f.type)); }
+      else if (arr.some(f => f.size > VIDEO_MAX)) { C.toast('1.5GB보다 큰 동영상은 올릴 수 없어요'); arr = arr.filter(f => f.size <= VIDEO_MAX); }
+    }
+    setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f), video: /^video\//.test(f.type) }))].slice(0, daily ? 1 : 10));
+  };
   const others = C.members.filter(m => m.id !== C.me);
   const capMember = tagged.length === 1 ? C.getM(tagged[0]) : null;
   const can = !busy && (edit ? true : daily ? files.length > 0 : (files.length > 0 || text.trim()));
@@ -847,7 +920,13 @@ function Composer({ cfg, onClose }) {
         return;
       }
       const photos = [];
-      for (let i = 0; i < files.length; i++) { setBusy(`사진 올리는 중 ${i + 1}/${files.length} · 원본도 저장`); photos.push(await uploadPhoto(files[i].f, undefined, true)); }   // 사진은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
+      const vids = files.filter(x => x.video);
+      if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) { setBusy(''); return; }
+      for (let i = 0; i < files.length; i++) {
+        const x = files[i], at = `${i + 1}/${files.length}`;
+        if (x.video) { setBusy(`동영상 올리는 중 ${at} · 0%`); photos.push(await uploadVideo(x.f, p => setBusy(`동영상 올리는 중 ${at} · ${p}%`))); }
+        else { setBusy(`사진 올리는 중 ${at} · 원본도 저장`); photos.push(await uploadPhoto(x.f, undefined, true)); }
+      }   // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
       setBusy('소식 올리는 중…');
       const row = daily
         ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
@@ -864,10 +943,10 @@ function Composer({ cfg, onClose }) {
       {!edit && (
         <div className="field">
           <div className="thumbs">
-            {files.map((x, i) => <div className="t" key={i}><img src={x.url} alt=""/><button className="x" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
-            {files.length < (daily ? 1 : 10) && <button className="add" onClick={() => pick.current.click()}><LIcon name="image-plus" size={28}/>사진 고르기</button>}
+            {files.map((x, i) => <div className="t" key={i}>{x.video ? <><video src={x.url + '#t=0.5'} muted playsInline preload="metadata"/><span className="vt"><LIcon name="play" size={14} fill="#fff"/>{Math.round(x.f.size / 1e6)}MB</span></> : <img src={x.url} alt=""/>}<button className="x" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
+            {files.length < (daily ? 1 : 10) && <button className="add" onClick={() => pick.current.click()}><LIcon name="image-plus" size={28}/>{daily ? '사진 고르기' : '사진·동영상'}</button>}
           </div>
-          <input ref={pick} type="file" accept="image/*" multiple={!daily} hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }}/>
+          <input ref={pick} type="file" accept={daily ? 'image/*' : 'image/*,video/*'} multiple={!daily} hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }}/>
         </div>
       )}
       <div className="field">
