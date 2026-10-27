@@ -1615,12 +1615,51 @@ function Tagged({
     }
   }, s) : s);
 }
+
+/* 내 댓글·답글 고치기: 글자만 고친다 (목소리 댓글은 받아 적은 글만) */
+function EditLine({
+  text,
+  voice,
+  onSave,
+  onCancel
+}) {
+  const [t, setT] = useState(text || '');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!voice && !t.trim()) return;
+    setBusy(true);
+    if (!(await onSave(t.trim()))) setBusy(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "editline"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    className: "input",
+    rows: 2,
+    autoFocus: true,
+    value: t,
+    placeholder: voice ? '말한 내용 (선택)' : '',
+    onChange: e => setT(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn sm soft",
+    onClick: onCancel
+  }, "\uADF8\uB9CC\uB450\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm primary",
+    disabled: busy || !voice && !t.trim(),
+    onClick: save
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '저장')));
+}
 function CommentRow({
   c,
   onDelete
 }) {
   const C = useC();
   const a = C.getM(c.author_id);
+  const [editing, setEditing] = useState(false);
+  const mine = c.author_id === C.me;
   return /*#__PURE__*/React.createElement("div", {
     className: "cmt"
   }, /*#__PURE__*/React.createElement(Avatar, {
@@ -1631,16 +1670,27 @@ function CommentRow({
     className: "body"
   }, /*#__PURE__*/React.createElement("div", null, c.is_answer && /*#__PURE__*/React.createElement("span", {
     className: "tag-ans"
-  }, "\uB2F5"), /*#__PURE__*/React.createElement("b", null, a.name), " ", c.content && !c.audio_url && /*#__PURE__*/React.createElement("span", null, c.content)), c.audio_url && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(VoicePlayer, {
+  }, "\uB2F5"), /*#__PURE__*/React.createElement("b", null, a.name), " ", c.content && !c.audio_url && !editing && /*#__PURE__*/React.createElement("span", null, c.content)), c.audio_url && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(VoicePlayer, {
     src: c.audio_url
-  }), c.content && /*#__PURE__*/React.createElement("div", {
+  }), c.content && !editing && /*#__PURE__*/React.createElement("div", {
     className: "small",
     style: {
       color: '#5b4a86'
     }
-  }, "\u201C", c.content, "\u201D")), /*#__PURE__*/React.createElement("div", {
+  }, "\u201C", c.content, "\u201D")), editing && /*#__PURE__*/React.createElement(EditLine, {
+    text: c.content,
+    voice: !!c.audio_url,
+    onCancel: () => setEditing(false),
+    onSave: async t => {
+      const ok = await C.editComment(c, t);
+      if (ok) setEditing(false);
+      return ok;
+    }
+  }), !editing && /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), onDelete && c.author_id === C.me && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at), c.edited_at ? ' · 고침' : ''), mine && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEditing(true)
+  }, "\uACE0\uCE58\uAE30"), onDelete && mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(c)
   }, "\uC9C0\uC6B0\uAE30"))));
 }
@@ -2591,9 +2641,13 @@ function NoteSheet({
   const C = useC();
   const [t, setT] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editId, setEditId] = useState(null);
   const dict = useDictation(x => setT(s => joinText(s, x)));
   useEffect(() => {
-    if (note) setT('');
+    if (note) {
+      setT('');
+      setEditId(null);
+    }
   }, [note && note.id]);
   const n = note && (C.notes.find(x => x.id === note.id) || note);
   const reacts = n ? C.noteReactsOf(n.id) : [];
@@ -2653,9 +2707,19 @@ function NoteSheet({
     size: 28
   }), /*#__PURE__*/React.createElement("div", {
     className: "body"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, C.getM(r.author_id).name), " ", /*#__PURE__*/React.createElement("span", null, r.content)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, C.getM(r.author_id).name), " ", editId !== r.id && /*#__PURE__*/React.createElement("span", null, r.content)), editId === r.id ? /*#__PURE__*/React.createElement(EditLine, {
+    text: r.content,
+    onCancel: () => setEditId(null),
+    onSave: async x => {
+      const ok = await C.editNoteReply(r, x);
+      if (ok) setEditId(null);
+      return ok;
+    }
+  }) : /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(r.created_at)), (r.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(r.created_at), r.edited_at ? ' · 고침' : ''), r.author_id === C.me && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEditId(r.id)
+  }, "\uACE0\uCE58\uAE30"), (r.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
     onClick: () => C.deleteNoteReply(r)
   }, "\uC9C0\uC6B0\uAE30"))))), /*#__PURE__*/React.createElement("div", {
     className: "row gap",
@@ -7700,6 +7764,14 @@ function App() {
       author_id: me,
       content
     }), '답글을 남겼어요'),
+    editNoteReply: (r, content) => write(() => db.patch('note_replies', r.id, {
+      content,
+      edited_at: new Date().toISOString()
+    }), '답글을 고쳤어요'),
+    editComment: (c, content) => write(() => db.patch('comments', c.id, {
+      content,
+      edited_at: new Date().toISOString()
+    }), '댓글을 고쳤어요'),
     deleteNoteReply: r => {
       if (window.confirm('이 답글을 지울까요?')) write(() => db.del('note_replies', `id=eq.${r.id}`), '답글을 지웠어요');
     },
