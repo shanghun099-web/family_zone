@@ -1000,13 +1000,14 @@ function Composer({ cfg, onClose }) {
   const [files, setFiles] = useState([]); const [text, setText] = useState(''); const [day, setDay] = useState(ymd());
   const [tagged, setTagged] = useState([]); const [cap, setCap] = useState(false); const [openOn, setOpenOn] = useState('');
   const [askTo, setAskTo] = useState(''); const [askText, setAskText] = useState(''); const [busy, setBusy] = useState(''); const pick = useRef(null);
-  const [ovl, setOvl] = useState('');
+  const [ovl, setOvl] = useState(''); const [kept, setKept] = useState([]);   // 고치기: 이미 올라가 있는 사진·동영상 (빼거나 새로 더할 수 있다)
   const dict = useDictation(t => setText(s => joinText(s, t)));
   const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
+  const maxN = daily || (edit && edit.kind === 'daily') ? 1 : 10;
   useEffect(() => {
     if (!cfg) return;
     const e = cfg.edit;
-    setFiles([]); setText(e ? e.content || '' : ''); setDay(e ? e.happened_on : ymd());
+    setFiles([]); setKept(e ? photosOf(e) : []); setText(e ? e.content || '' : ''); setDay(e ? e.happened_on : ymd());
     setTagged(e ? e.tagged || [] : []); setCap(!!(e && e.open_on)); setOpenOn(e && e.open_on || '');
     setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setOvl(e && e.title || ''); setBusy('');
   }, [cfg]);
@@ -1016,7 +1017,26 @@ function Composer({ cfg, onClose }) {
       if ((await gwVersion()) < 3) { C.toast('사진 창구를 새 버전(v3)으로 배포해야 동영상을 올릴 수 있어요'); arr = arr.filter(f => !/^video\//.test(f.type)); }
       else if (arr.some(f => f.size > VIDEO_MAX)) { C.toast('1.5GB보다 큰 동영상은 올릴 수 없어요'); arr = arr.filter(f => f.size <= VIDEO_MAX); }
     }
-    setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f), video: /^video\//.test(f.type) }))].slice(0, daily ? 1 : 10));
+    setFiles(fs => [...fs, ...arr.map(f => ({ f, url: URL.createObjectURL(f), video: /^video\//.test(f.type) }))].slice(0, Math.max(0, maxN - kept.length)));
+  };
+  /* 고른 사진·동영상을 차례로 올린다 (동영상은 줄이기 → 드라이브 보관 → 틀기용 한 벌) */
+  const uploadAll = async () => {
+    const photos = [];
+    const vids = files.filter(x => x.video);
+    if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) return null;
+    for (let i = 0; i < files.length; i++) {
+      const x = files[i], at = `${i + 1}/${files.length}`;
+      if (x.video) {
+        setBusy(`동영상 줄이는 중 ${at} · 0%`);
+        const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
+        const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
+        setBusy(`동영상 올리는 중 ${at} · 0%${mb}`); const v = await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`));
+        setBusy(`바로 틀 수 있게 한 벌 더 저장하는 중 ${at}…`); const pc = await uploadPlayCopy(small);
+        photos.push(pc ? { ...v, ...pc } : v);
+      }
+      else { setBusy(`사진 올리는 중 ${at} · 원본도 저장`); photos.push(await uploadPhoto(x.f, undefined, true)); }
+    }   // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
+    return photos;
   };
   const others = C.members.filter(m => m.id !== C.me);
   const capMember = tagged.length === 1 ? C.getM(tagged[0]) : null;
@@ -1026,26 +1046,16 @@ function Composer({ cfg, onClose }) {
     if (askTo && !askText.trim()) { C.toast('질문 내용을 적어 주세요'); return; }
     try {
       if (edit) {
+        if (!kept.length && !files.length && !text.trim()) { C.toast('사진이나 글이 하나는 있어야 해요'); return; }
+        const added = await uploadAll(); if (!added) { setBusy(''); return; }
         setBusy('고치는 중…');
-        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), title: ovl.trim(), happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
-        if (ok) onClose(); else setBusy('');
+        const photos = [...kept, ...added];
+        const gone = photosOf(edit).filter(ph => !kept.includes(ph)).map(ph => ph.play_path).filter(Boolean);   // 뺀 동영상의 틀기용 한 벌만 지운다 (드라이브엔 남음)
+        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
+        if (ok) { if (gone.length) vfn('del', { paths: gone }).catch(() => {}); onClose(); } else setBusy('');
         return;
       }
-      const photos = [];
-      const vids = files.filter(x => x.video);
-      if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) { setBusy(''); return; }
-      for (let i = 0; i < files.length; i++) {
-        const x = files[i], at = `${i + 1}/${files.length}`;
-        if (x.video) {
-          setBusy(`동영상 줄이는 중 ${at} · 0%`);
-          const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
-          const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
-          setBusy(`동영상 올리는 중 ${at} · 0%${mb}`); const v = await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`));
-          setBusy(`바로 틀 수 있게 한 벌 더 저장하는 중 ${at}…`); const pc = await uploadPlayCopy(small);
-          photos.push(pc ? { ...v, ...pc } : v);
-        }
-        else { setBusy(`사진 올리는 중 ${at} · 원본도 저장`); photos.push(await uploadPhoto(x.f, undefined, true)); }
-      }   // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
+      const photos = await uploadAll(); if (!photos) { setBusy(''); return; }
       setBusy('소식 올리는 중…');
       const row = daily
         ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
@@ -1066,15 +1076,16 @@ function Composer({ cfg, onClose }) {
           <LIcon name="chevron-right"/>
         </button>
       )}
-      {!edit && (
-        <div className="field">
-          <div className="thumbs">
-            {files.map((x, i) => <div className="t" key={i}>{x.video ? <><video src={x.url + '#t=0.5'} muted playsInline preload="metadata"/><span className="vt"><LIcon name="play" size={14} fill="#fff"/>{Math.round(x.f.size / 1e6)}MB</span></> : <img src={x.url} alt=""/>}<button className="x" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
-            {files.length < (daily ? 1 : 10) && <button className="add" onClick={() => pick.current.click()}><LIcon name="image-plus" size={28}/>{daily ? '사진 고르기' : '사진·동영상'}</button>}
-          </div>
-          <input ref={pick} type="file" accept={daily ? 'image/*' : 'image/*,video/*'} multiple={!daily} hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }}/>
+      <div className="field">
+        {edit && <label>사진·동영상 <span className="muted" style={{ fontWeight: 400 }}>(✕로 빼고, ＋로 새로 더해요)</span></label>}
+        <div className="thumbs">
+          {kept.map((ph, i) => <div className="t" key={'k' + i}><img src={ph.thumb || ph.url} alt=""/>{isVideo(ph) && <span className="vt"><LIcon name="play" size={14} fill="#fff"/>{fmtDur(ph.dur) || '동영상'}</span>}<button className="x" onClick={() => setKept(ks => ks.filter(k => k !== ph))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
+          {files.map((x, i) => <div className="t" key={i}>{x.video ? <><video src={x.url + '#t=0.5'} muted playsInline preload="metadata"/><span className="vt"><LIcon name="play" size={14} fill="#fff"/>{Math.round(x.f.size / 1e6)}MB</span></> : <img src={x.url} alt=""/>}<button className="x" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label="빼기"><LIcon name="x" size={14}/></button></div>)}
+          {kept.length + files.length < maxN && <button className="add" onClick={() => pick.current.click()}><LIcon name="image-plus" size={28}/>{maxN === 1 ? '사진 고르기' : '사진·동영상'}</button>}
         </div>
-      )}
+        <input ref={pick} type="file" accept={maxN === 1 ? 'image/*' : 'image/*,video/*'} multiple={maxN > 1} hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }}/>
+        {edit && photosOf(edit).length > kept.length && <p className="small muted" style={{ margin: '8px 2px 0' }}>뺀 사진·동영상도 구글 드라이브에는 그대로 남아요.</p>}
+      </div>
       <div className="field">
         <label>{daily ? '한 줄 (선택)' : '무슨 일이 있었나요?'}</label>
         <textarea className="input" rows={daily ? 2 : 4} placeholder={daily ? '오늘 하루 한 줄' : '편하게 적거나, 아래 "말로 쓰기"를 눌러 말해 보세요'} value={text} onChange={e => setText(e.target.value)}/>

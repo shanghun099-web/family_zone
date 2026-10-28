@@ -2385,12 +2385,15 @@ function Composer({
   const [busy, setBusy] = useState('');
   const pick = useRef(null);
   const [ovl, setOvl] = useState('');
+  const [kept, setKept] = useState([]); // 고치기: 이미 올라가 있는 사진·동영상 (빼거나 새로 더할 수 있다)
   const dict = useDictation(t => setText(s => joinText(s, t)));
   const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
+  const maxN = daily || edit && edit.kind === 'daily' ? 1 : 10;
   useEffect(() => {
     if (!cfg) return;
     const e = cfg.edit;
     setFiles([]);
+    setKept(e ? photosOf(e) : []);
     setText(e ? e.content || '' : '');
     setDay(e ? e.happened_on : ymd());
     setTagged(e ? e.tagged || [] : []);
@@ -2416,7 +2419,34 @@ function Composer({
       f,
       url: URL.createObjectURL(f),
       video: /^video\//.test(f.type)
-    }))].slice(0, daily ? 1 : 10));
+    }))].slice(0, Math.max(0, maxN - kept.length)));
+  };
+  /* 고른 사진·동영상을 차례로 올린다 (동영상은 줄이기 → 드라이브 보관 → 틀기용 한 벌) */
+  const uploadAll = async () => {
+    const photos = [];
+    const vids = files.filter(x => x.video);
+    if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) return null;
+    for (let i = 0; i < files.length; i++) {
+      const x = files[i],
+        at = `${i + 1}/${files.length}`;
+      if (x.video) {
+        setBusy(`동영상 줄이는 중 ${at} · 0%`);
+        const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
+        const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
+        setBusy(`동영상 올리는 중 ${at} · 0%${mb}`);
+        const v = await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`));
+        setBusy(`바로 틀 수 있게 한 벌 더 저장하는 중 ${at}…`);
+        const pc = await uploadPlayCopy(small);
+        photos.push(pc ? {
+          ...v,
+          ...pc
+        } : v);
+      } else {
+        setBusy(`사진 올리는 중 ${at} · 원본도 저장`);
+        photos.push(await uploadPhoto(x.f, undefined, true));
+      }
+    } // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
+    return photos;
   };
   const others = C.members.filter(m => m.id !== C.me);
   const capMember = tagged.length === 1 ? C.getM(tagged[0]) : null;
@@ -2432,10 +2462,22 @@ function Composer({
     }
     try {
       if (edit) {
+        if (!kept.length && !files.length && !text.trim()) {
+          C.toast('사진이나 글이 하나는 있어야 해요');
+          return;
+        }
+        const added = await uploadAll();
+        if (!added) {
+          setBusy('');
+          return;
+        }
         setBusy('고치는 중…');
+        const photos = [...kept, ...added];
+        const gone = photosOf(edit).filter(ph => !kept.includes(ph)).map(ph => ph.play_path).filter(Boolean); // 뺀 동영상의 틀기용 한 벌만 지운다 (드라이브엔 남음)
         const ok = await C.write(() => db.patch('posts', edit.id, {
           content: text.trim(),
           title: ovl.trim(),
+          photos,
           happened_on: day,
           tagged,
           open_on: cap ? openOn : null,
@@ -2443,35 +2485,19 @@ function Composer({
           ask_text: askTo ? askText.trim() : '',
           updated_at: new Date().toISOString()
         }), '고쳤어요');
-        if (ok) onClose();else setBusy('');
+        if (ok) {
+          if (gone.length) vfn('del', {
+            paths: gone
+          }).catch(() => {});
+          onClose();
+        } else setBusy('');
         return;
       }
-      const photos = [];
-      const vids = files.filter(x => x.video);
-      if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) {
+      const photos = await uploadAll();
+      if (!photos) {
         setBusy('');
         return;
       }
-      for (let i = 0; i < files.length; i++) {
-        const x = files[i],
-          at = `${i + 1}/${files.length}`;
-        if (x.video) {
-          setBusy(`동영상 줄이는 중 ${at} · 0%`);
-          const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
-          const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
-          setBusy(`동영상 올리는 중 ${at} · 0%${mb}`);
-          const v = await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`));
-          setBusy(`바로 틀 수 있게 한 벌 더 저장하는 중 ${at}…`);
-          const pc = await uploadPlayCopy(small);
-          photos.push(pc ? {
-            ...v,
-            ...pc
-          } : v);
-        } else {
-          setBusy(`사진 올리는 중 ${at} · 원본도 저장`);
-          photos.push(await uploadPhoto(x.f, undefined, true));
-        }
-      } // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
       setBusy('소식 올리는 중…');
       const row = daily ? {
         author_id: C.me,
@@ -2536,11 +2562,35 @@ function Composer({
     className: "grow"
   }, /*#__PURE__*/React.createElement("b", null, "\uAC00\uC871 \uD22C\uD45C \uB9CC\uB4E4\uAE30"), /*#__PURE__*/React.createElement("span", null, "\uD568\uAED8 \uC815\uD560 \uC77C\uC744 \uBB3C\uC5B4\uBCF4\uACE0 \uB2E4 \uAC19\uC774 \uACE8\uB77C\uC694")), /*#__PURE__*/React.createElement(LIcon, {
     name: "chevron-right"
-  })), !edit && /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     className: "field"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, edit && /*#__PURE__*/React.createElement("label", null, "\uC0AC\uC9C4\xB7\uB3D9\uC601\uC0C1 ", /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontWeight: 400
+    }
+  }, "(\u2715\uB85C \uBE7C\uACE0, \uFF0B\uB85C \uC0C8\uB85C \uB354\uD574\uC694)")), /*#__PURE__*/React.createElement("div", {
     className: "thumbs"
-  }, files.map((x, i) => /*#__PURE__*/React.createElement("div", {
+  }, kept.map((ph, i) => /*#__PURE__*/React.createElement("div", {
+    className: "t",
+    key: 'k' + i
+  }, /*#__PURE__*/React.createElement("img", {
+    src: ph.thumb || ph.url,
+    alt: ""
+  }), isVideo(ph) && /*#__PURE__*/React.createElement("span", {
+    className: "vt"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "play",
+    size: 14,
+    fill: "#fff"
+  }), fmtDur(ph.dur) || '동영상'), /*#__PURE__*/React.createElement("button", {
+    className: "x",
+    onClick: () => setKept(ks => ks.filter(k => k !== ph)),
+    "aria-label": "\uBE7C\uAE30"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "x",
+    size: 14
+  })))), files.map((x, i) => /*#__PURE__*/React.createElement("div", {
     className: "t",
     key: i
   }, x.video ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("video", {
@@ -2564,23 +2614,28 @@ function Composer({
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "x",
     size: 14
-  })))), files.length < (daily ? 1 : 10) && /*#__PURE__*/React.createElement("button", {
+  })))), kept.length + files.length < maxN && /*#__PURE__*/React.createElement("button", {
     className: "add",
     onClick: () => pick.current.click()
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "image-plus",
     size: 28
-  }), daily ? '사진 고르기' : '사진·동영상')), /*#__PURE__*/React.createElement("input", {
+  }), maxN === 1 ? '사진 고르기' : '사진·동영상')), /*#__PURE__*/React.createElement("input", {
     ref: pick,
     type: "file",
-    accept: daily ? 'image/*' : 'image/*,video/*',
-    multiple: !daily,
+    accept: maxN === 1 ? 'image/*' : 'image/*,video/*',
+    multiple: maxN > 1,
     hidden: true,
     onChange: e => {
       addFiles(e.target.files);
       e.target.value = '';
     }
-  })), /*#__PURE__*/React.createElement("div", {
+  }), edit && photosOf(edit).length > kept.length && /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, "\uBE80 \uC0AC\uC9C4\xB7\uB3D9\uC601\uC0C1\uB3C4 \uAD6C\uAE00 \uB4DC\uB77C\uC774\uBE0C\uC5D0\uB294 \uADF8\uB300\uB85C \uB0A8\uC544\uC694.")), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, daily ? '한 줄 (선택)' : '무슨 일이 있었나요?'), /*#__PURE__*/React.createElement("textarea", {
     className: "input",
