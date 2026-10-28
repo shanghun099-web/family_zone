@@ -144,6 +144,33 @@ function videoPoster(file) {
     v.src = u;
   });
 }
+/* 동영상 줄이기: 올리기 전에 폰에서 긴 변 1280px·보통 화질 mp4 로 다시 만든다 (Mediabunny = 브라우저 WebCodecs).
+   폰 화면 녹화 222MB(44초) 같은 걸 수십 MB 로 줄여 올리기·드라이브 재생 준비가 빨라진다.
+   못 줄이거나(오래된 폰·특이한 파일) 별로 안 줄면 원래 파일을 그대로 올린다. 원본은 폰 갤러리에 그대로 있다 */
+const MB_URL = 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.1/+esm';
+const VSHRINK_MIN = 25e6;   // 이보다 작은 동영상은 줄이지 않는다
+const VLONG = 1280;
+async function shrinkVideo(file, onPct) {
+  if (file.size < (window.__VSHRINK_MIN || VSHRINK_MIN) || typeof VideoEncoder === 'undefined') return file;
+  try {
+    const M = await import(MB_URL);
+    const input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS });
+    const vt = await input.getPrimaryVideoTrack(); if (!vt) return file;
+    const w = await vt.getDisplayWidth(), h = await vt.getDisplayHeight();
+    const k = Math.min(1, VLONG / Math.max(w, h));
+    const W = Math.round(w * k / 2) * 2, H = Math.round(h * k / 2) * 2;   // H.264 는 짝수 크기여야 한다
+    const avc = await M.canEncodeVideo('avc', { width: W, height: H }).catch(() => false);
+    const output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
+    const conv = await M.Conversion.init({ input, output, showWarnings: false,
+      video: { width: W, height: H, fit: 'fill', quality: new M.Quality('medium'), forceTranscode: true, ...(avc ? { codec: 'avc' } : {}) } });
+    if (!conv.isValid || conv.discardedTracks.some(d => d.track === vt)) return file;
+    conv.onProgress = p => onPct && onPct(Math.min(99, Math.round(p * 100)));
+    await conv.execute();
+    const buf = output.target.buffer;
+    if (!buf || buf.byteLength > file.size * 0.8) return file;
+    return new File([buf], (file.name || '동영상').replace(/\.\w+$/, '') + '.mp4', { type: 'video/mp4' });
+  } catch (e) { console.warn('동영상을 줄이지 못해 원래대로 올려요', e); return file; }
+}
 async function uploadVideo(file, onPct) {
   const mime = /^video\//.test(file.type || '') ? file.type : 'video/mp4';
   const pv = await videoPoster(file).catch(() => null);
@@ -981,7 +1008,12 @@ function Composer({ cfg, onClose }) {
       if (vids.length && navigator.connection && navigator.connection.type === 'cellular' && !window.confirm(`동영상은 데이터를 많이 써요 (${Math.round(vids.reduce((n, x) => n + x.f.size, 0) / 1e6)}MB). 와이파이가 아닌데 계속 올릴까요?`)) { setBusy(''); return; }
       for (let i = 0; i < files.length; i++) {
         const x = files[i], at = `${i + 1}/${files.length}`;
-        if (x.video) { setBusy(`동영상 올리는 중 ${at} · 0%`); photos.push(await uploadVideo(x.f, p => setBusy(`동영상 올리는 중 ${at} · ${p}%`))); }
+        if (x.video) {
+          setBusy(`동영상 줄이는 중 ${at} · 0%`);
+          const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
+          const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
+          setBusy(`동영상 올리는 중 ${at} · 0%${mb}`); photos.push(await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`)));
+        }
         else { setBusy(`사진 올리는 중 ${at} · 원본도 저장`); photos.push(await uploadPhoto(x.f, undefined, true)); }
       }   // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
       setBusy('소식 올리는 중…');
