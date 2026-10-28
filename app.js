@@ -2324,7 +2324,16 @@ function Composer({
     style: {
       marginTop: 0
     }
-  }, "\uD558\uB8E8\uC5D0 \uD55C \uC7A5\uC529 \uC313\uC5EC\uC11C, 1\uB144 \uB4A4\uC5D4 \uC6B0\uB9AC \uAC00\uC871 365\uC77C \uB2EC\uB825\uC774 \uB3FC\uC694. \uC0AC\uB77C\uC9C0\uC9C0 \uC54A\uC544\uC694."), !edit && /*#__PURE__*/React.createElement("div", {
+  }, "\uD558\uB8E8\uC5D0 \uD55C \uC7A5\uC529 \uC313\uC5EC\uC11C, 1\uB144 \uB4A4\uC5D4 \uC6B0\uB9AC \uAC00\uC871 365\uC77C \uB2EC\uB825\uC774 \uB3FC\uC694. \uC0AC\uB77C\uC9C0\uC9C0 \uC54A\uC544\uC694."), !edit && !daily && !busy && /*#__PURE__*/React.createElement("button", {
+    className: "banner poll-go",
+    onClick: C.newPoll
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bic"
+  }, "\uD83D\uDDF3"), /*#__PURE__*/React.createElement("div", {
+    className: "grow"
+  }, /*#__PURE__*/React.createElement("b", null, "\uAC00\uC871 \uD22C\uD45C \uB9CC\uB4E4\uAE30"), /*#__PURE__*/React.createElement("span", null, "\uD568\uAED8 \uC815\uD560 \uC77C\uC744 \uBB3C\uC5B4\uBCF4\uACE0 \uB2E4 \uAC19\uC774 \uACE8\uB77C\uC694")), /*#__PURE__*/React.createElement(LIcon, {
+    name: "chevron-right"
+  })), !edit && /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("div", {
     className: "thumbs"
@@ -2765,6 +2774,470 @@ function NoteMeta({
   }, "\uD83D\uDCAC ", k || ''));
 }
 
+/* ═══════════ 🗳 가족 투표 ═══════════
+   한 사람이 묻고 온 가족이 골라서 정한다. 누가 무엇을 골랐는지 이름이 보인다.
+   고르기 전에는 결과를 가려 두고(남 따라 고르지 않게), 내가 고르거나 투표가 끝나면 막대·이름이 보인다 */
+const POLL_MAX = 8;
+const pollClosed = p => !!p.closed_at || !!(p.closes_on && p.closes_on < ymd());
+function pollTally(p, votes) {
+  const opts = [...(p.options || []), ...(p.allow_other ? [{
+    id: 'other',
+    text: '기타'
+  }] : [])];
+  const who = {};
+  opts.forEach(o => who[o.id] = []);
+  votes.forEach(v => who[v.opt] && who[v.opt].push(v));
+  const voters = [...new Set(votes.map(v => v.member_id))];
+  const best = Math.max(0, ...opts.map(o => who[o.id].length));
+  return {
+    opts,
+    who,
+    voters,
+    best,
+    win: best ? opts.filter(o => who[o.id].length === best) : []
+  };
+}
+function PollCard({
+  p,
+  focus,
+  feed
+}) {
+  const C = useC();
+  const a = C.getM(p.author_id);
+  const ref = useRef(null);
+  const [menu, setMenu] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherT, setOtherT] = useState('');
+  const dict = useDictation(t => setOtherT(s => joinText(s, t)));
+  useEffect(() => {
+    if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center'
+    }), 200);
+  }, [focus]);
+  useViewed(ref, p.id, 'poll', p.author_id);
+  const votes = C.votesOf(p.id);
+  const T = pollTally(p, votes);
+  const mineV = votes.filter(v => v.member_id === C.me);
+  const mine = new Set(mineV.map(v => v.opt));
+  const closed = pollClosed(p);
+  const show = closed || mine.size > 0 || peek;
+  const n = T.voters.length;
+  const total = C.members.length;
+  const notYet = C.members.filter(m => !T.voters.includes(m.id));
+  const left = p.closes_on && !closed ? dayDiff(ymd(), p.closes_on) : null;
+  const pick = async o => {
+    if (closed || busy) return;
+    if (o.id === 'other') {
+      setOtherT((mineV.find(v => v.opt === 'other') || {}).other_text || '');
+      setOtherOpen(true);
+      return;
+    }
+    setBusy(true);
+    await C.vote(p, o.id);
+    setBusy(false);
+  };
+  const sendOther = async t => {
+    setBusy(true);
+    if (await C.vote(p, 'other', t)) setOtherOpen(false);
+    setBusy(false);
+  };
+  return /*#__PURE__*/React.createElement("article", {
+    ref: ref,
+    className: 'pray poll' + (focus ? ' focus' : '')
+  }, feed && /*#__PURE__*/React.createElement("div", {
+    className: "feed-band pl"
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDDF3 \uAC00\uC871 \uD22C\uD45C"), /*#__PURE__*/React.createElement("span", {
+    className: "go"
+  }, closed ? '끝난 투표' : `${n}/${total}명 투표`)), /*#__PURE__*/React.createElement("div", {
+    className: "pray-hd"
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: a,
+    size: 38,
+    onClick: () => C.openProfile(a.id)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "grow"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, a.name), "\uC758 \uD22C\uD45C"), /*#__PURE__*/React.createElement("div", {
+    className: "pray-tags"
+  }, /*#__PURE__*/React.createElement("span", null, relTime(p.created_at)), p.multi && /*#__PURE__*/React.createElement("span", {
+    className: "tag pl"
+  }, "\uC5EC\uB7EC \uAC1C \uACE0\uB974\uAE30"), closed ? /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\uD22C\uD45C \uB05D") : p.closes_on && /*#__PURE__*/React.createElement("span", {
+    className: 'tag pl' + (left === 0 ? ' today' : '')
+  }, "\u23F0 ", left === 0 ? '오늘 마감' : `${fmtDate(p.closes_on)}까지 · D-${left}`))), (p.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
+    className: "iconbtn",
+    onClick: () => setMenu(true),
+    "aria-label": "\uB354 \uBCF4\uAE30"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "ellipsis"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "poll-q"
+  }, p.question), p.note && /*#__PURE__*/React.createElement("div", {
+    className: "poll-note"
+  }, p.note), closed && T.win.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "poll-win"
+  }, "\uD83C\uDFC6 ", T.win.length > 1 ? '동점이에요' : '결정됐어요', ": ", /*#__PURE__*/React.createElement("b", null, T.win.map(o => o.id === 'other' ? `기타 (${T.who.other.map(v => `“${v.other_text}”`).join(', ')})` : o.text).join(', ')), " (", T.best, "\uD45C)"), /*#__PURE__*/React.createElement("div", {
+    className: "poll-opts"
+  }, T.opts.map(o => {
+    const vs = T.who[o.id] || [];
+    const pct = n ? Math.round(vs.length / n * 100) : 0;
+    const on = mine.has(o.id);
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id
+    }, /*#__PURE__*/React.createElement("button", {
+      className: 'popt' + (on ? ' on' : '') + (closed && T.win.includes(o) ? ' win' : '') + (o.photo ? ' ph' : ''),
+      disabled: closed || busy,
+      onClick: () => pick(o),
+      "aria-pressed": on
+    }, o.photo && /*#__PURE__*/React.createElement("img", {
+      src: o.photo.thumb || o.photo.url,
+      alt: "",
+      loading: "lazy"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "pbody"
+    }, show && /*#__PURE__*/React.createElement("span", {
+      className: "pfill",
+      style: {
+        width: pct + '%'
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "ptxt"
+    }, on && /*#__PURE__*/React.createElement(LIcon, {
+      name: "circle-check",
+      size: 19
+    }), o.id === 'other' ? '✏️ 기타 (직접 적기)' : o.text), show && /*#__PURE__*/React.createElement("span", {
+      className: "ppct"
+    }, pct, "%"))), show && vs.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "pwho"
+    }, vs.map(v => /*#__PURE__*/React.createElement("span", {
+      key: v.member_id
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      m: C.getM(v.member_id),
+      size: 20
+    }), C.getM(v.member_id).name, v.other_text && /*#__PURE__*/React.createElement("i", null, "\u201C", v.other_text, "\u201D")))));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "pray-ft"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "qh-faces"
+  }, T.voters.slice(0, 6).map(id => /*#__PURE__*/React.createElement("span", {
+    key: id
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: C.getM(id),
+    size: 24
+  })))), /*#__PURE__*/React.createElement("span", {
+    className: "grow small muted"
+  }, closed ? `${n}명이 투표했어요` : !show ? n ? `${n}명 투표했어요 · 고르면 결과가 보여요` : '아직 아무도 고르지 않았어요' : n >= total ? '온 가족이 투표했어요 🎉' : `${n}/${total}명 투표 · 아직: ${notYet.map(m => m.name).join(', ')}`), !show && n > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "pray-btn on",
+    onClick: () => setPeek(true)
+  }, "\uACB0\uACFC \uBCF4\uAE30"), "      "), /*#__PURE__*/React.createElement(Sheet, {
+    open: otherOpen,
+    onClose: () => setOtherOpen(false),
+    title: "\u270F\uFE0F \uAE30\uD0C0 (\uC9C1\uC811 \uC801\uAE30)"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      marginTop: 0
+    }
+  }, "\u201C", p.question, "\u201D"), /*#__PURE__*/React.createElement("textarea", {
+    className: "input",
+    rows: 2,
+    placeholder: "\uB0B4 \uC0DD\uAC01\uC744 \uC801\uC5B4 \uC8FC\uC138\uC694",
+    value: otherT,
+    onChange: e => setOtherT(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      margin: '8px 0 14px'
+    }
+  }, /*#__PURE__*/React.createElement(MicButton, {
+    dict: dict
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, mine.has('other') && /*#__PURE__*/React.createElement("button", {
+    className: "btn soft grow",
+    disabled: busy,
+    onClick: () => sendOther('')
+  }, "\uB0B4 \uC758\uACAC \uBE7C\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary grow",
+    disabled: busy || !otherT.trim(),
+    onClick: () => sendOther(otherT.trim())
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '이걸로 투표'))), /*#__PURE__*/React.createElement(Sheet, {
+    open: menu,
+    onClose: () => setMenu(false),
+    title: "\uAC00\uC871 \uD22C\uD45C"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gap: 8
+    }
+  }, p.author_id === C.me && !closed && /*#__PURE__*/React.createElement("button", {
+    className: "btn soft block",
+    onClick: () => {
+      setMenu(false);
+      if (window.confirm('투표를 마칠까요? 지금 결과로 정해져요.')) C.write(() => db.patch('polls', p.id, {
+        closed_at: new Date().toISOString()
+      }), '투표를 마쳤어요 🏆');
+    }
+  }, "\uD83C\uDFC1 \uD22C\uD45C \uB9C8\uCE58\uAE30 (\uACB0\uACFC \uC815\uD558\uAE30)"), p.author_id === C.me && closed && /*#__PURE__*/React.createElement("button", {
+    className: "btn soft block",
+    onClick: () => {
+      setMenu(false);
+      C.write(() => db.patch('polls', p.id, {
+        closed_at: null,
+        closes_on: p.closes_on && p.closes_on < ymd() ? null : p.closes_on
+      }), '투표를 다시 열었어요');
+    }
+  }, "\uD83D\uDD13 \uD22C\uD45C \uB2E4\uC2DC \uC5F4\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn soft block danger",
+    onClick: () => {
+      setMenu(false);
+      if (window.confirm('이 투표를 지울까요? 고른 것도 함께 지워져요.')) C.write(() => db.del('polls', `id=eq.${p.id}`), '투표를 지웠어요');
+    }
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "trash-2",
+    size: 18
+  }), "\uC9C0\uC6B0\uAE30"))));
+}
+
+/* 🗳 투표 만들기: 질문 + 보기(보기마다 사진 한 장 넣을 수 있음) + 기타·여러 개·마감 */
+function PollCompose({
+  open,
+  onClose
+}) {
+  const C = useC();
+  const newOpt = () => ({
+    id: 'o' + Math.random().toString(36).slice(2, 8),
+    text: '',
+    file: null,
+    url: ''
+  });
+  const [q, setQ] = useState('');
+  const [note, setNote] = useState('');
+  const [opts, setOpts] = useState([]);
+  const [other, setOther] = useState(true);
+  const [multi, setMulti] = useState(false);
+  const [due, setDue] = useState('');
+  const [busy, setBusy] = useState('');
+  const pick = useRef(null);
+  const picking = useRef(null);
+  const dict = useDictation(t => setQ(s => joinText(s, t)));
+  useEffect(() => {
+    if (open) {
+      setQ('');
+      setNote('');
+      setOpts([newOpt(), newOpt()]);
+      setOther(true);
+      setMulti(false);
+      setDue('');
+      setBusy('');
+    }
+  }, [open]);
+  const setOpt = (id, patch) => setOpts(os => os.map(o => o.id === id ? {
+    ...o,
+    ...patch
+  } : o));
+  const filled = opts.filter(o => o.text.trim() || o.file);
+  const can = !busy && q.trim() && filled.length >= 2;
+  const today = ymd();
+  const dues = [['', '마감 없음'], [dayAdd(today, 1), '내일까지'], [dayAdd(today, 3), '3일 뒤'], [dayAdd(today, 7), '일주일']];
+  const submit = async () => {
+    if (filled.some(o => !o.text.trim())) {
+      C.toast('사진만 넣은 보기에도 이름을 적어 주세요');
+      return;
+    }
+    try {
+      const options = [];
+      for (let i = 0; i < filled.length; i++) {
+        const o = filled[i];
+        if (o.file) setBusy(`사진 올리는 중 ${i + 1}/${filled.length}`);
+        options.push({
+          id: o.id,
+          text: o.text.trim(),
+          photo: o.file ? await uploadPhoto(o.file, 900) : null
+        });
+      }
+      setBusy('투표 올리는 중…');
+      const ok = await C.write(() => db.add('polls', {
+        author_id: C.me,
+        question: q.trim(),
+        note: note.trim(),
+        options,
+        allow_other: other,
+        multi,
+        closes_on: due || null
+      }), '투표를 올렸어요 🗳');
+      if (ok) onClose();else setBusy('');
+    } catch (e) {
+      setBusy('');
+      C.toast('올리지 못했어요: ' + e.message);
+    }
+  };
+  return /*#__PURE__*/React.createElement(Sheet, {
+    open: open,
+    onClose: () => {
+      if (!busy) onClose();
+    },
+    full: true,
+    title: "\uD83D\uDDF3 \uAC00\uC871 \uD22C\uD45C \uB9CC\uB4E4\uAE30",
+    right: /*#__PURE__*/React.createElement("button", {
+      className: "hdbtn",
+      disabled: !can,
+      onClick: submit
+    }, busy ? /*#__PURE__*/React.createElement("span", {
+      className: "spin dark"
+    }) : '올리기')
+  }, busy && /*#__PURE__*/React.createElement("div", {
+    className: "recbox",
+    style: {
+      marginBottom: 14,
+      background: '#EAF3FF'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  }), busy)), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      marginTop: 0
+    }
+  }, "\uAC00\uC871\uC774 \uD568\uAED8 \uC815\uD560 \uC77C\uC744 \uBB3C\uC5B4\uBCF4\uC138\uC694. \uB204\uAC00 \uBB34\uC5C7\uC744 \uACE8\uB790\uB294\uC9C0 \uC774\uB984\uC774 \uBCF4\uC5EC\uC694."), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\uBB34\uC5C7\uC744 \uC815\uD560\uAE4C\uC694?"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    placeholder: "\uC608: \uC774\uBC88 \uD1A0\uC694\uC77C \uC800\uB141 \uBB50 \uBA39\uC744\uAE4C?",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement(MicButton, {
+    dict: dict
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\uBCF4\uAE30 ", /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontWeight: 400
+    }
+  }, "(\uC67C\uCABD \uB124\uBAA8\uB97C \uB204\uB974\uBA74 \uC0AC\uC9C4\uC744 \uB123\uC5B4\uC694)")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gap: 8
+    }
+  }, opts.map((o, i) => /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    key: o.id
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "popt-ph",
+    onClick: () => {
+      picking.current = o.id;
+      pick.current.click();
+    },
+    "aria-label": `${i + 1}번 보기 사진`
+  }, o.url ? /*#__PURE__*/React.createElement("img", {
+    src: o.url,
+    alt: ""
+  }) : /*#__PURE__*/React.createElement(LIcon, {
+    name: "image-plus",
+    size: 24
+  })), /*#__PURE__*/React.createElement("input", {
+    className: "input grow",
+    maxLength: 40,
+    placeholder: `${i + 1}번 보기`,
+    value: o.text,
+    onChange: e => setOpt(o.id, {
+      text: e.target.value
+    })
+  }), opts.length > 2 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "iconbtn",
+    onClick: () => setOpts(os => os.filter(x => x.id !== o.id)),
+    "aria-label": "\uBCF4\uAE30 \uBE7C\uAE30"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "x",
+    size: 20
+  })))), opts.length < POLL_MAX && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft block",
+    onClick: () => setOpts(os => [...os, newOpt()])
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "plus",
+    size: 18
+  }), "\uBCF4\uAE30 \uB354\uD558\uAE30")), /*#__PURE__*/React.createElement("input", {
+    ref: pick,
+    type: "file",
+    accept: "image/*",
+    hidden: true,
+    onChange: e => {
+      const f = e.target.files && e.target.files[0];
+      if (f && picking.current) setOpt(picking.current, {
+        file: f,
+        url: URL.createObjectURL(f)
+      });
+      e.target.value = '';
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field",
+    style: {
+      display: 'grid',
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement(Toggle, {
+    on: other,
+    onChange: setOther,
+    label: "\u270F\uFE0F \uAE30\uD0C0 (\uC9C1\uC811 \uC801\uAE30) \uB123\uAE30",
+    sub: "\uBCF4\uAE30\uC5D0 \uC5C6\uB294 \uC0DD\uAC01\uC744 \uC801\uC5B4\uC11C \uD22C\uD45C\uD560 \uC218 \uC788\uC5B4\uC694"
+  }), /*#__PURE__*/React.createElement(Toggle, {
+    on: multi,
+    onChange: setMulti,
+    label: "\uC5EC\uB7EC \uAC1C \uACE0\uB97C \uC218 \uC788\uAC8C",
+    sub: "\uB044\uBA74 \uD55C \uC0AC\uB78C\uC774 \uD558\uB098\uB9CC \uACE8\uB77C\uC694"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\uC5B8\uC81C\uAE4C\uC9C0 \uD22C\uD45C\uD560\uAE4C\uC694?"), /*#__PURE__*/React.createElement("div", {
+    className: "chips"
+  }, dues.map(([d, l]) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    key: l,
+    className: 'chip' + (due === d ? ' on' : ''),
+    onClick: () => setDue(d)
+  }, l))), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    className: "input",
+    style: {
+      marginTop: 8
+    },
+    min: today,
+    value: due,
+    onChange: e => setDue(e.target.value)
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '6px 2px 0'
+    }
+  }, due ? `${fmtDate(due, true)} 밤까지 고를 수 있어요. 그날 아침에 아직 안 한 식구에게 알림이 가요.` : '마감 없이 두고, 올린 사람이 "투표 마치기"를 눌러 정할 수 있어요.')), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\uD55C\uB9C8\uB514 ", /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontWeight: 400
+    }
+  }, "(\uC120\uD0DD)")), /*#__PURE__*/React.createElement("textarea", {
+    className: "input",
+    rows: 2,
+    placeholder: "\uC608: \uB2E4\uC218\uACB0\uB85C \uC815\uD574\uC694! \uB3D9\uC810\uC774\uBA74 \uD560\uBA38\uB2C8 \uB9C8\uC74C\uB300\uB85C \u263A",
+    value: note,
+    onChange: e => setNote(e.target.value)
+  })));
+}
+
 /* ═══════════ 홈 ═══════════ */
 function HomeTab() {
   const C = useC();
@@ -2786,6 +3259,11 @@ function HomeTab() {
       t: 'note',
       p: n,
       s: ymd(new Date(n.created_at)) + '|' + n.created_at
+    })), ...C.polls.map(p => ({
+      k: 'v' + p.id,
+      t: 'poll',
+      p,
+      s: ymd(new Date(p.created_at)) + '|' + p.created_at
     }))].sort((a, b) => b.s.localeCompare(a.s));
     const out = [];
     items.forEach(x => {
@@ -2797,7 +3275,7 @@ function HomeTab() {
       } : x);
     });
     return out;
-  }, [C.posts, C.prayers, C.notes]);
+  }, [C.posts, C.prayers, C.notes, C.polls]);
   const [shown, setShown] = useState(15);
   const endRef = useRef(null);
   useEffect(() => {
@@ -2958,6 +3436,10 @@ function HomeTab() {
     key: x.k,
     p: x.p
   }) : x.t === 'pray' ? /*#__PURE__*/React.createElement(PrayCard, {
+    key: x.k,
+    p: x.p,
+    feed: true
+  }) : x.t === 'poll' ? /*#__PURE__*/React.createElement(PollCard, {
     key: x.k,
     p: x.p,
     feed: true
@@ -5074,6 +5556,8 @@ const TABLE_KO = {
   question_bank: '질문 상자',
   prayers: '기도',
   prayer_marks: '기도했어요',
+  polls: '투표',
+  poll_votes: '투표에서 고른 것',
   memories: '추억',
   wishes: '바라는 것',
   event_tasks: '할 일',
@@ -7119,7 +7603,9 @@ function App() {
     prayers: [],
     pmarks: [],
     nreacts: [],
-    nreplies: []
+    nreplies: [],
+    polls: [],
+    pvotes: []
   });
   const [noteView, setNoteView] = useState(null);
   /* 알림 지우기: 이 폰에서만 숨긴다 (지운 알림 열쇠들 + "이때까지 모두 지움") */
@@ -7167,8 +7653,10 @@ function App() {
   const [postView, setPostView] = useState(null);
   const [notiOpen, setNotiOpen] = useState(false);
   const [prayFocus, setPrayFocus] = useState(null);
+  const [pollView, setPollView] = useState(null);
+  const [pollNew, setPollNew] = useState(false);
   /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
-  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
+  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray|note|poll)=/.test(location.search) ? location.search : '');
   const [settings, setSettings] = useState(false);
   const [admin, setAdmin] = useState(false);
   const [lettersOpen, setLettersOpen] = useState(false);
@@ -7190,7 +7678,7 @@ function App() {
   }, [fontSize]);
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []), db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []), db.list('note_replies', 'select=*&order=created_at,id').catch(() => [])]);
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny, pl, pv] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []), db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []), db.list('note_replies', 'select=*&order=created_at,id').catch(() => []), db.list('polls', 'select=*&order=created_at.desc,id').catch(() => []), db.list('poll_votes', 'select=*&order=created_at,poll_id,member_id,opt').catch(() => [])]);
       if (!ms.length && !(await db.rpc('is_family'))) {
         leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.');
         return;
@@ -7213,7 +7701,9 @@ function App() {
         prayers: pr,
         pmarks: pk,
         nreacts: nr,
-        nreplies: ny
+        nreplies: ny,
+        polls: pl,
+        pvotes: pv
       });
       setLoaded(true);
       setLoadErr('');
@@ -7254,8 +7744,8 @@ function App() {
         if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요');
         return false;
       }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
       const data = {
         app: 'THE FAMILY ZONE',
         saved_at: new Date().toISOString(),
@@ -7514,6 +8004,39 @@ function App() {
         go: () => {
           setNotiOpen(false);
           setNoteView(n);
+        }
+      });
+    });
+    D.polls.filter(p => p.author_id !== me && p.created_at > since).forEach(p => out.push({
+      key: 'v' + p.id,
+      who: p.author_id,
+      t: p.created_at,
+      text: `${josa(getM(p.author_id).name, '이', '가')} 투표를 올렸어요 🗳 “${p.question.slice(0, 30)}”`,
+      go: () => {
+        setNotiOpen(false);
+        setPollView(p.id);
+      }
+    }));
+    D.polls.filter(p => p.closed_at && p.author_id !== me && p.closed_at > since).forEach(p => out.push({
+      key: 'vc' + p.id,
+      who: p.author_id,
+      t: p.closed_at,
+      text: `🏁 투표가 끝났어요 “${p.question.slice(0, 30)}”`,
+      go: () => {
+        setNotiOpen(false);
+        setPollView(p.id);
+      }
+    }));
+    D.pvotes.filter(v => v.member_id !== me && v.created_at > since).forEach(v => {
+      const p = D.polls.find(x => x.id === v.poll_id);
+      if (p && p.author_id === me) out.push({
+        key: 'vv' + v.poll_id + v.member_id + v.opt,
+        who: v.member_id,
+        t: v.created_at,
+        text: `${josa(getM(v.member_id).name, '이', '가')} 내 투표에 골랐어요 🗳 “${p.question.slice(0, 24)}”`,
+        go: () => {
+          setNotiOpen(false);
+          setPollView(p.id);
         }
       });
     });
@@ -7838,7 +8361,53 @@ function App() {
     },
     openTag: t => setTagView(t),
     openMemberEdit: m => setMemberEdit(m),
-    openAgo: items => setAgo(items)
+    openAgo: items => setAgo(items),
+    polls: D.polls,
+    votesOf: id => D.pvotes.filter(v => v.poll_id === id),
+    openPoll: id => setPollView(id),
+    newPoll: () => {
+      setComposer(null);
+      setPollNew(true);
+    },
+    /* 🗳 고르기: 하나만 고르는 투표는 바꿔 고르고(같은 걸 다시 누르면 취소), 여러 개는 하나씩 켜고 끈다. 기타는 글과 함께 */
+    vote: async (p, opt, text) => {
+      const cur = D.pvotes.filter(v => v.poll_id === p.id && v.member_id === me);
+      let next;
+      if (opt === 'other') next = [...(p.multi ? cur.filter(v => v.opt !== 'other') : []), ...(text ? [{
+        opt,
+        other_text: text
+      }] : [])];else if (cur.some(v => v.opt === opt)) next = cur.filter(v => v.opt !== opt);else next = [...(p.multi ? cur : []), {
+        opt
+      }];
+      const key = v => v.opt + '|' + (v.other_text || '');
+      const ck = new Set(cur.map(key)),
+        nk = new Set(next.map(key));
+      const gone = cur.filter(v => !nk.has(key(v))),
+        add = next.filter(v => !ck.has(key(v))).map(v => ({
+          poll_id: p.id,
+          member_id: me,
+          opt: v.opt,
+          other_text: v.other_text || null
+        }));
+      const now = new Date().toISOString();
+      setD(d => ({
+        ...d,
+        pvotes: [...d.pvotes.filter(v => !(v.poll_id === p.id && v.member_id === me && !nk.has(key(v)))), ...add.map(r => ({
+          ...r,
+          created_at: now
+        }))]
+      }));
+      try {
+        for (const v of gone) await db.del('poll_votes', `poll_id=eq.${p.id}&member_id=eq.${me}&opt=eq.${encodeURIComponent(v.opt)}`);
+        if (add.length) await db.add('poll_votes', add);
+        if (add.length && !cur.length) toast('투표했어요 🗳');
+        return true;
+      } catch (e) {
+        toast('투표를 저장하지 못했어요: ' + e.message);
+        loadAll();
+        return false;
+      }
+    }
   };
 
   /* 알림: 앱을 열면 숫자 지우기 / 이 폰 주인이 바뀌면 알림 주소의 식구도 바꾸기 / 알림 눌러 열기 */
@@ -7892,6 +8461,8 @@ function App() {
       const n = D.notes.find(x => x.id === nid);
       if (n) setNoteView(n);
     }
+    const vid = q.get('poll');
+    if (vid) setPollView(vid);
   }, [loaded, linkReq, me, D]);
 
   /* 폰 뒤로가기: 홈이 아닌 탭(달력·기도·내 프로필)에서는 홈으로, 홈에서는 앱이 닫힌다.
@@ -8082,7 +8653,22 @@ function App() {
     p: posts.find(p => p.id === postView)
   }) : /*#__PURE__*/React.createElement("p", {
     className: "empty"
-  }, "\uC9C0\uC6CC\uC9C4 \uC18C\uC2DD\uC774\uC5D0\uC694."))), /*#__PURE__*/React.createElement(StoryViewer, {
+  }, "\uC9C0\uC6CC\uC9C4 \uC18C\uC2DD\uC774\uC5D0\uC694."))), /*#__PURE__*/React.createElement(Page, {
+    open: !!pollView,
+    onClose: () => setPollView(null),
+    title: "\uAC00\uC871 \uD22C\uD45C"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 8
+    }
+  }), pollView && (D.polls.find(p => p.id === pollView) ? /*#__PURE__*/React.createElement(PollCard, {
+    p: D.polls.find(p => p.id === pollView)
+  }) : /*#__PURE__*/React.createElement("p", {
+    className: "empty"
+  }, "\uC9C0\uC6CC\uC9C4 \uD22C\uD45C\uC608\uC694."))), /*#__PURE__*/React.createElement(PollCompose, {
+    open: pollNew,
+    onClose: () => setPollNew(false)
+  }), /*#__PURE__*/React.createElement(StoryViewer, {
     items: story,
     onClose: () => setStory(null)
   }), /*#__PURE__*/React.createElement(BookView, {

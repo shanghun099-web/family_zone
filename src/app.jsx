@@ -957,6 +957,13 @@ function Composer({ cfg, onClose }) {
       right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : edit ? '저장' : '올리기'}</button>}>
       {busy && <div className="recbox" style={{ marginBottom: 14, background: '#EAF3FF' }}><div className="row gap"><span className="spin dark"/>{busy}</div></div>}
       {daily && <p className="small muted" style={{ marginTop: 0 }}>하루에 한 장씩 쌓여서, 1년 뒤엔 우리 가족 365일 달력이 돼요. 사라지지 않아요.</p>}
+      {!edit && !daily && !busy && (
+        <button className="banner poll-go" onClick={C.newPoll}>
+          <div className="bic">🗳</div>
+          <div className="grow"><b>가족 투표 만들기</b><span>함께 정할 일을 물어보고 다 같이 골라요</span></div>
+          <LIcon name="chevron-right"/>
+        </button>
+      )}
       {!edit && (
         <div className="field">
           <div className="thumbs">
@@ -1108,6 +1115,170 @@ function NoteMeta({ n }) {
   return <div className="nt-meta">{rs.length ? <span>{kinds} {rs.length}</span> : <span className="muted">♡</span>}<span className={k ? '' : 'muted'}>💬 {k || ''}</span></div>;
 }
 
+/* ═══════════ 🗳 가족 투표 ═══════════
+   한 사람이 묻고 온 가족이 골라서 정한다. 누가 무엇을 골랐는지 이름이 보인다.
+   고르기 전에는 결과를 가려 두고(남 따라 고르지 않게), 내가 고르거나 투표가 끝나면 막대·이름이 보인다 */
+const POLL_MAX = 8;
+const pollClosed = p => !!p.closed_at || !!(p.closes_on && p.closes_on < ymd());
+function pollTally(p, votes) {
+  const opts = [...(p.options || []), ...(p.allow_other ? [{ id: 'other', text: '기타' }] : [])];
+  const who = {}; opts.forEach(o => who[o.id] = []);
+  votes.forEach(v => who[v.opt] && who[v.opt].push(v));
+  const voters = [...new Set(votes.map(v => v.member_id))];
+  const best = Math.max(0, ...opts.map(o => who[o.id].length));
+  return { opts, who, voters, best, win: best ? opts.filter(o => who[o.id].length === best) : [] };
+}
+function PollCard({ p, focus, feed }) {
+  const C = useC(); const a = C.getM(p.author_id); const ref = useRef(null);
+  const [menu, setMenu] = useState(false); const [peek, setPeek] = useState(false); const [busy, setBusy] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(false); const [otherT, setOtherT] = useState('');
+  const dict = useDictation(t => setOtherT(s => joinText(s, t)));
+  useEffect(() => { if (focus && ref.current) setTimeout(() => ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); }, [focus]);
+  useViewed(ref, p.id, 'poll', p.author_id);
+  const votes = C.votesOf(p.id); const T = pollTally(p, votes);
+  const mineV = votes.filter(v => v.member_id === C.me); const mine = new Set(mineV.map(v => v.opt));
+  const closed = pollClosed(p); const show = closed || mine.size > 0 || peek;
+  const n = T.voters.length; const total = C.members.length;
+  const notYet = C.members.filter(m => !T.voters.includes(m.id));
+  const left = p.closes_on && !closed ? dayDiff(ymd(), p.closes_on) : null;
+  const pick = async o => {
+    if (closed || busy) return;
+    if (o.id === 'other') { setOtherT((mineV.find(v => v.opt === 'other') || {}).other_text || ''); setOtherOpen(true); return; }
+    setBusy(true); await C.vote(p, o.id); setBusy(false);
+  };
+  const sendOther = async t => { setBusy(true); if (await C.vote(p, 'other', t)) setOtherOpen(false); setBusy(false); };
+  return (
+    <article ref={ref} className={'pray poll' + (focus ? ' focus' : '')}>
+      {feed && <div className="feed-band pl"><span>🗳 가족 투표</span><span className="go">{closed ? '끝난 투표' : `${n}/${total}명 투표`}</span></div>}
+      <div className="pray-hd">
+        <Avatar m={a} size={38} onClick={() => C.openProfile(a.id)}/>
+        <div className="grow">
+          <div><b>{a.name}</b>의 투표</div>
+          <div className="pray-tags">
+            <span>{relTime(p.created_at)}</span>
+            {p.multi && <span className="tag pl">여러 개 고르기</span>}
+            {closed ? <span className="tag">투표 끝</span> : p.closes_on && <span className={'tag pl' + (left === 0 ? ' today' : '')}>⏰ {left === 0 ? '오늘 마감' : `${fmtDate(p.closes_on)}까지 · D-${left}`}</span>}
+          </div>
+        </div>
+        {(p.author_id === C.me || C.isAdmin) && <button className="iconbtn" onClick={() => setMenu(true)} aria-label="더 보기"><LIcon name="ellipsis"/></button>}
+      </div>
+      <div className="poll-q">{p.question}</div>
+      {p.note && <div className="poll-note">{p.note}</div>}
+      {closed && T.win.length > 0 && <div className="poll-win">🏆 {T.win.length > 1 ? '동점이에요' : '결정됐어요'}: <b>{T.win.map(o => o.id === 'other' ? `기타 (${T.who.other.map(v => `“${v.other_text}”`).join(', ')})` : o.text).join(', ')}</b> ({T.best}표)</div>}
+      <div className="poll-opts">
+        {T.opts.map(o => {
+          const vs = T.who[o.id] || []; const pct = n ? Math.round(vs.length / n * 100) : 0; const on = mine.has(o.id);
+          return (
+            <div key={o.id}>
+              <button className={'popt' + (on ? ' on' : '') + (closed && T.win.includes(o) ? ' win' : '') + (o.photo ? ' ph' : '')} disabled={closed || busy} onClick={() => pick(o)} aria-pressed={on}>
+                {o.photo && <img src={o.photo.thumb || o.photo.url} alt="" loading="lazy"/>}
+                <span className="pbody">
+                  {show && <span className="pfill" style={{ width: pct + '%' }}/>}
+                  <span className="ptxt">{on && <LIcon name="circle-check" size={19}/>}{o.id === 'other' ? '✏️ 기타 (직접 적기)' : o.text}</span>
+                  {show && <span className="ppct">{pct}%</span>}
+                </span>
+              </button>
+              {show && vs.length > 0 && <div className="pwho">{vs.map(v => <span key={v.member_id}><Avatar m={C.getM(v.member_id)} size={20}/>{C.getM(v.member_id).name}{v.other_text && <i>“{v.other_text}”</i>}</span>)}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="pray-ft">
+        <span className="qh-faces">{T.voters.slice(0, 6).map(id => <span key={id}><Avatar m={C.getM(id)} size={24}/></span>)}</span>
+        <span className="grow small muted">{closed ? `${n}명이 투표했어요` : !show ? (n ? `${n}명 투표했어요 · 고르면 결과가 보여요` : '아직 아무도 고르지 않았어요') : n >= total ? '온 가족이 투표했어요 🎉' : `${n}/${total}명 투표 · 아직: ${notYet.map(m => m.name).join(', ')}`}</span>
+        {!show && n > 0 && <button className="pray-btn on" onClick={() => setPeek(true)}>결과 보기</button>}      </div>
+      <Sheet open={otherOpen} onClose={() => setOtherOpen(false)} title="✏️ 기타 (직접 적기)">
+        <p className="small muted" style={{ marginTop: 0 }}>“{p.question}”</p>
+        <textarea className="input" rows={2} placeholder="내 생각을 적어 주세요" value={otherT} onChange={e => setOtherT(e.target.value)}/>
+        <div style={{ margin: '8px 0 14px' }}><MicButton dict={dict}/></div>
+        <div className="row gap">
+          {mine.has('other') && <button className="btn soft grow" disabled={busy} onClick={() => sendOther('')}>내 의견 빼기</button>}
+          <button className="btn primary grow" disabled={busy || !otherT.trim()} onClick={() => sendOther(otherT.trim())}>{busy ? <span className="spin"/> : '이걸로 투표'}</button>
+        </div>
+      </Sheet>
+      <Sheet open={menu} onClose={() => setMenu(false)} title="가족 투표">
+        <div style={{ display: 'grid', gap: 8 }}>
+          {p.author_id === C.me && !closed && <button className="btn soft block" onClick={() => { setMenu(false); if (window.confirm('투표를 마칠까요? 지금 결과로 정해져요.')) C.write(() => db.patch('polls', p.id, { closed_at: new Date().toISOString() }), '투표를 마쳤어요 🏆'); }}>🏁 투표 마치기 (결과 정하기)</button>}
+          {p.author_id === C.me && closed && <button className="btn soft block" onClick={() => { setMenu(false); C.write(() => db.patch('polls', p.id, { closed_at: null, closes_on: p.closes_on && p.closes_on < ymd() ? null : p.closes_on }), '투표를 다시 열었어요'); }}>🔓 투표 다시 열기</button>}
+          <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 투표를 지울까요? 고른 것도 함께 지워져요.')) C.write(() => db.del('polls', `id=eq.${p.id}`), '투표를 지웠어요'); }}><LIcon name="trash-2" size={18}/>지우기</button>
+        </div>
+      </Sheet>
+    </article>
+  );
+}
+
+/* 🗳 투표 만들기: 질문 + 보기(보기마다 사진 한 장 넣을 수 있음) + 기타·여러 개·마감 */
+function PollCompose({ open, onClose }) {
+  const C = useC();
+  const newOpt = () => ({ id: 'o' + Math.random().toString(36).slice(2, 8), text: '', file: null, url: '' });
+  const [q, setQ] = useState(''); const [note, setNote] = useState(''); const [opts, setOpts] = useState([]);
+  const [other, setOther] = useState(true); const [multi, setMulti] = useState(false); const [due, setDue] = useState(''); const [busy, setBusy] = useState('');
+  const pick = useRef(null); const picking = useRef(null);
+  const dict = useDictation(t => setQ(s => joinText(s, t)));
+  useEffect(() => { if (open) { setQ(''); setNote(''); setOpts([newOpt(), newOpt()]); setOther(true); setMulti(false); setDue(''); setBusy(''); } }, [open]);
+  const setOpt = (id, patch) => setOpts(os => os.map(o => o.id === id ? { ...o, ...patch } : o));
+  const filled = opts.filter(o => o.text.trim() || o.file);
+  const can = !busy && q.trim() && filled.length >= 2;
+  const today = ymd();
+  const dues = [['', '마감 없음'], [dayAdd(today, 1), '내일까지'], [dayAdd(today, 3), '3일 뒤'], [dayAdd(today, 7), '일주일']];
+  const submit = async () => {
+    if (filled.some(o => !o.text.trim())) { C.toast('사진만 넣은 보기에도 이름을 적어 주세요'); return; }
+    try {
+      const options = [];
+      for (let i = 0; i < filled.length; i++) {
+        const o = filled[i];
+        if (o.file) setBusy(`사진 올리는 중 ${i + 1}/${filled.length}`);
+        options.push({ id: o.id, text: o.text.trim(), photo: o.file ? await uploadPhoto(o.file, 900) : null });
+      }
+      setBusy('투표 올리는 중…');
+      const ok = await C.write(() => db.add('polls', { author_id: C.me, question: q.trim(), note: note.trim(), options, allow_other: other, multi, closes_on: due || null }), '투표를 올렸어요 🗳');
+      if (ok) onClose(); else setBusy('');
+    } catch (e) { setBusy(''); C.toast('올리지 못했어요: ' + e.message); }
+  };
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title="🗳 가족 투표 만들기"
+      right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : '올리기'}</button>}>
+      {busy && <div className="recbox" style={{ marginBottom: 14, background: '#EAF3FF' }}><div className="row gap"><span className="spin dark"/>{busy}</div></div>}
+      <p className="small muted" style={{ marginTop: 0 }}>가족이 함께 정할 일을 물어보세요. 누가 무엇을 골랐는지 이름이 보여요.</p>
+      <div className="field">
+        <label>무엇을 정할까요?</label>
+        <input className="input" placeholder="예: 이번 토요일 저녁 뭐 먹을까?" value={q} onChange={e => setQ(e.target.value)}/>
+        <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
+      </div>
+      <div className="field">
+        <label>보기 <span className="muted" style={{ fontWeight: 400 }}>(왼쪽 네모를 누르면 사진을 넣어요)</span></label>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {opts.map((o, i) => (
+            <div className="row gap" key={o.id}>
+              <button type="button" className="popt-ph" onClick={() => { picking.current = o.id; pick.current.click(); }} aria-label={`${i + 1}번 보기 사진`}>
+                {o.url ? <img src={o.url} alt=""/> : <LIcon name="image-plus" size={24}/>}
+              </button>
+              <input className="input grow" maxLength={40} placeholder={`${i + 1}번 보기`} value={o.text} onChange={e => setOpt(o.id, { text: e.target.value })}/>
+              {opts.length > 2 && <button type="button" className="iconbtn" onClick={() => setOpts(os => os.filter(x => x.id !== o.id))} aria-label="보기 빼기"><LIcon name="x" size={20}/></button>}
+            </div>
+          ))}
+          {opts.length < POLL_MAX && <button type="button" className="btn soft block" onClick={() => setOpts(os => [...os, newOpt()])}><LIcon name="plus" size={18}/>보기 더하기</button>}
+        </div>
+        <input ref={pick} type="file" accept="image/*" hidden onChange={e => { const f = e.target.files && e.target.files[0]; if (f && picking.current) setOpt(picking.current, { file: f, url: URL.createObjectURL(f) }); e.target.value = ''; }}/>
+      </div>
+      <div className="field" style={{ display: 'grid', gap: 4 }}>
+        <Toggle on={other} onChange={setOther} label="✏️ 기타 (직접 적기) 넣기" sub="보기에 없는 생각을 적어서 투표할 수 있어요"/>
+        <Toggle on={multi} onChange={setMulti} label="여러 개 고를 수 있게" sub="끄면 한 사람이 하나만 골라요"/>
+      </div>
+      <div className="field">
+        <label>언제까지 투표할까요?</label>
+        <div className="chips">{dues.map(([d, l]) => <button type="button" key={l} className={'chip' + (due === d ? ' on' : '')} onClick={() => setDue(d)}>{l}</button>)}</div>
+        <input type="date" className="input" style={{ marginTop: 8 }} min={today} value={due} onChange={e => setDue(e.target.value)}/>
+        <p className="small muted" style={{ margin: '6px 2px 0' }}>{due ? `${fmtDate(due, true)} 밤까지 고를 수 있어요. 그날 아침에 아직 안 한 식구에게 알림이 가요.` : '마감 없이 두고, 올린 사람이 "투표 마치기"를 눌러 정할 수 있어요.'}</p>
+      </div>
+      <div className="field">
+        <label>한마디 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+        <textarea className="input" rows={2} placeholder="예: 다수결로 정해요! 동점이면 할머니 마음대로 ☺" value={note} onChange={e => setNote(e.target.value)}/>
+      </div>
+    </Sheet>
+  );
+}
+
 /* ═══════════ 홈 ═══════════ */
 function HomeTab() {
   const C = useC(); const today = ymd();
@@ -1117,11 +1288,12 @@ function HomeTab() {
       ...C.posts.map(p => ({ k: 'p' + p.id, t: 'post', p, s: p.happened_on + '|' + p.created_at })),
       ...C.prayers.map(p => ({ k: 'r' + p.id, t: 'pray', p, s: ymd(new Date(p.created_at)) + '|' + p.created_at })),
       ...C.notes.map(n => ({ k: 'n' + n.id, t: 'note', p: n, s: ymd(new Date(n.created_at)) + '|' + n.created_at })),
+      ...C.polls.map(p => ({ k: 'v' + p.id, t: 'poll', p, s: ymd(new Date(p.created_at)) + '|' + p.created_at })),
     ].sort((a, b) => b.s.localeCompare(a.s));
     const out = [];
     items.forEach(x => { const last = out[out.length - 1]; if (x.t === 'note' && last && last.t === 'notes') last.list.push(x.p); else out.push(x.t === 'note' ? { k: x.k, t: 'notes', list: [x.p] } : x); });
     return out;
-  }, [C.posts, C.prayers, C.notes]);
+  }, [C.posts, C.prayers, C.notes, C.polls]);
   const [shown, setShown] = useState(15); const endRef = useRef(null);
   useEffect(() => {
     const el = endRef.current; if (!el || !window.IntersectionObserver) return;
@@ -1187,7 +1359,7 @@ function HomeTab() {
       )}
       <div style={{ height: 4 }}/>
       {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 추가</b>를 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
-      {feed.slice(0, shown).map(x => x.t === 'post' ? <PostCard key={x.k} p={x.p}/> : x.t === 'pray' ? <PrayCard key={x.k} p={x.p} feed/> : <FridgeCard key={x.k} notes={x.list}/>)}
+      {feed.slice(0, shown).map(x => x.t === 'post' ? <PostCard key={x.k} p={x.p}/> : x.t === 'pray' ? <PrayCard key={x.k} p={x.p} feed/> : x.t === 'poll' ? <PollCard key={x.k} p={x.p} feed/> : <FridgeCard key={x.k} notes={x.list}/>)}
       {shown < feed.length
         ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
         : feed.length > 0 && <p className="empty small" style={{ padding: '24px 20px' }}>여기까지가 우리 가족 소식 전부예요 🌿</p>}
@@ -1937,7 +2109,7 @@ function useViewed(ref, id, kind, author) {
 }
 
 const TABLE_KO = { members: '식구', posts: '소식', comments: '댓글', reactions: '마음', notes: '냉장고 메모', events: '일정', letters: '편지', questions: '이번 주 질문', answers: '답', question_bank: '질문 상자',
-  prayers: '기도', prayer_marks: '기도했어요', memories: '추억', wishes: '바라는 것', event_tasks: '할 일', visits: '방문 기록', views: '조회 기록', app_settings: '설정' };
+  prayers: '기도', prayer_marks: '기도했어요', polls: '투표', poll_votes: '투표에서 고른 것', memories: '추억', wishes: '바라는 것', event_tasks: '할 일', visits: '방문 기록', views: '조회 기록', app_settings: '설정' };
 /* 점수 규칙 (서버 family_points 와 같은 기본값) */
 const POINT_DEF = { visit: 2, post: 10, daily: 5, answer: 10, comment: 3, letter: 5, prayer: 5, pmark: 2, react: 1, view: 1,
   post_cap: 3, daily_cap: 1, comment_cap: 10, letter_cap: 3, prayer_cap: 3, view_cap: 30 };
@@ -2627,7 +2799,7 @@ function App() {
   const [loaded, setLoaded] = useState(false); const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState('home');
   const [toastMsg, setToastMsg] = useState('');
-  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [], nreacts: [], nreplies: [] });
+  const [D, setD] = useState({ members: [], posts: [], reactions: [], comments: [], notes: [], events: [], letters: [], questions: [], answers: [], bank: [], prayers: [], pmarks: [], nreacts: [], nreplies: [], polls: [], pvotes: [] });
   const [noteView, setNoteView] = useState(null);
   /* 알림 지우기: 이 폰에서만 숨긴다 (지운 알림 열쇠들 + "이때까지 모두 지움") */
   const [notiHide, setNotiHide] = useState(() => { try { const j = JSON.parse(store.get('fz_noti_hide') || '{}'); return { keys: j.keys || [], before: j.before || '' }; } catch (e) { return { keys: [], before: '' }; } });
@@ -2640,9 +2812,9 @@ function App() {
   const [composer, setComposer] = useState(null); const [cmtPost, setCmtPost] = useState(null); const [cmtMode, setCmtMode] = useState('');
   const [profile, setProfile] = useState(null); const [story, setStory] = useState(null); const [letterCfg, setLetterCfg] = useState(null);
   const [letterView, setLetterView] = useState(null); const [question, setQuestion] = useState(null); const [book, setBook] = useState(null);
-  const [postView, setPostView] = useState(null); const [notiOpen, setNotiOpen] = useState(false); const [prayFocus, setPrayFocus] = useState(null);
+  const [postView, setPostView] = useState(null); const [notiOpen, setNotiOpen] = useState(false); const [prayFocus, setPrayFocus] = useState(null); const [pollView, setPollView] = useState(null); const [pollNew, setPollNew] = useState(false);
   /* 알림을 누르고 들어온 주소(?post=… 등): 자료가 다 오면 그 소식을 연다 */
-  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray)=/.test(location.search) ? location.search : '');
+  const [linkReq, setLinkReq] = useState(() => /[?&](post|letter|q|story|pray|note|poll)=/.test(location.search) ? location.search : '');
   const [settings, setSettings] = useState(false); const [admin, setAdmin] = useState(false); const [lettersOpen, setLettersOpen] = useState(false); const [tagView, setTagView] = useState(null); const [memberEdit, setMemberEdit] = useState(null); const [ago, setAgo] = useState(null);
   const toastTimer = useRef(null);
   const toast = msg => { setToastMsg(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 3200); };
@@ -2651,7 +2823,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny] = await Promise.all([
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny, pl, pv] = await Promise.all([
         db.list('members', 'select=*&order=sort,created_at,id'),
         db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'),
         db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'),
@@ -2665,10 +2837,12 @@ function App() {
         db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []),
         db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []),
         db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []),
-        db.list('note_replies', 'select=*&order=created_at,id').catch(() => [])
+        db.list('note_replies', 'select=*&order=created_at,id').catch(() => []),
+        db.list('polls', 'select=*&order=created_at.desc,id').catch(() => []),
+        db.list('poll_votes', 'select=*&order=created_at,poll_id,member_id,opt').catch(() => [])
       ]);
       if (!ms.length && !(await db.rpc('is_family'))) { leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.'); return; }
-      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk, nreacts: nr, nreplies: ny });
+      setD({ members: ms, posts: ps.map(p => ({ ...p, tagged: p.tagged || [], photos: photosOf(p) })), reactions: rs, comments: cs, notes: ns, events: es, letters: ls, questions: qs, answers: as, bank: bk, prayers: pr, pmarks: pk, nreacts: nr, nreplies: ny, polls: pl, pvotes: pv });
       setLoaded(true); setLoadErr('');
       return { ms, qs };
     } catch (e) { setLoadErr(navigator.onLine === false ? '인터넷이 끊겨 있어요' : e.message); toast(navigator.onLine === false ? '인터넷 연결을 확인해 주세요' : '가족 공간을 읽지 못했어요: ' + e.message); }
@@ -2688,8 +2862,8 @@ function App() {
   const runBackup = async manual => {
     try {
       if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
       const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
       tables.forEach((t, i) => data[t] = all[i]);
       await gw('backup', { day: ymd(), data: JSON.stringify(data) });
@@ -2762,6 +2936,9 @@ function App() {
     D.answers.filter(a => a.member_id !== me && a.created_at > since).forEach(a => out.push({ key: 'a' + a.id, who: a.member_id, t: a.created_at, text: `${josa(getM(a.member_id).name, '이', '가')} 이번 주 질문에 답했어요`, go: () => setQuestion(D.questions.find(q => q.id === a.question_id) || weekQ) }));
     D.nreplies.filter(y => y.author_id !== me && y.created_at > since).forEach(y => { const n = D.notes.find(x => x.id === y.note_id); if (n && (n.author_id === me || D.nreplies.some(z => z.note_id === n.id && z.author_id === me))) out.push({ key: 'ny' + y.id, who: y.author_id, t: y.created_at, text: `${josa(getM(y.author_id).name, '이', '가')} 냉장고 메모에 답했어요 📌 “${y.content.slice(0, 30)}”`, go: () => { setNotiOpen(false); setNoteView(n); } }); });
     D.nreacts.filter(r => r.member_id !== me && r.created_at > since).forEach(r => { const n = D.notes.find(x => x.id === r.note_id); if (n && n.author_id === me) out.push({ key: 'nr' + r.note_id + r.member_id, who: r.member_id, t: r.created_at, text: `${josa(getM(r.member_id).name, '이', '가')} 내 메모에 ${r.emoji} ${reactWord(r.emoji)}`, go: () => { setNotiOpen(false); setNoteView(n); } }); });
+    D.polls.filter(p => p.author_id !== me && p.created_at > since).forEach(p => out.push({ key: 'v' + p.id, who: p.author_id, t: p.created_at, text: `${josa(getM(p.author_id).name, '이', '가')} 투표를 올렸어요 🗳 “${p.question.slice(0, 30)}”`, go: () => { setNotiOpen(false); setPollView(p.id); } }));
+    D.polls.filter(p => p.closed_at && p.author_id !== me && p.closed_at > since).forEach(p => out.push({ key: 'vc' + p.id, who: p.author_id, t: p.closed_at, text: `🏁 투표가 끝났어요 “${p.question.slice(0, 30)}”`, go: () => { setNotiOpen(false); setPollView(p.id); } }));
+    D.pvotes.filter(v => v.member_id !== me && v.created_at > since).forEach(v => { const p = D.polls.find(x => x.id === v.poll_id); if (p && p.author_id === me) out.push({ key: 'vv' + v.poll_id + v.member_id + v.opt, who: v.member_id, t: v.created_at, text: `${josa(getM(v.member_id).name, '이', '가')} 내 투표에 골랐어요 🗳 “${p.question.slice(0, 24)}”`, go: () => { setNotiOpen(false); setPollView(p.id); } }); });
     const hid = new Set(notiHide.keys);
     return out.filter(x => !hid.has(x.key) && !(notiHide.before && x.t <= notiHide.before)).map(x => ({ ...x, isNew: x.unread || x.t > prevSeen })).sort((a, b) => b.t.localeCompare(a.t));
   }, [posts, D, me, prevSeen, notiHide]);
@@ -2857,7 +3034,27 @@ function App() {
       if (!had) toast('함께 기도했어요 🙏');
       try { if (had) await db.del('prayer_marks', `prayer_id=eq.${p.id}&member_id=eq.${me}&day=eq.${day}`); else await db.add('prayer_marks', { prayer_id: p.id, member_id: me, day }); }
       catch (e) { toast('저장하지 못했어요'); loadAll(); }
-    }, openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items)
+    }, openTag: t => setTagView(t), openMemberEdit: m => setMemberEdit(m), openAgo: items => setAgo(items),
+    polls: D.polls, votesOf: id => D.pvotes.filter(v => v.poll_id === id), openPoll: id => setPollView(id), newPoll: () => { setComposer(null); setPollNew(true); },
+    /* 🗳 고르기: 하나만 고르는 투표는 바꿔 고르고(같은 걸 다시 누르면 취소), 여러 개는 하나씩 켜고 끈다. 기타는 글과 함께 */
+    vote: async (p, opt, text) => {
+      const cur = D.pvotes.filter(v => v.poll_id === p.id && v.member_id === me);
+      let next;
+      if (opt === 'other') next = [...(p.multi ? cur.filter(v => v.opt !== 'other') : []), ...(text ? [{ opt, other_text: text }] : [])];
+      else if (cur.some(v => v.opt === opt)) next = cur.filter(v => v.opt !== opt);
+      else next = [...(p.multi ? cur : []), { opt }];
+      const key = v => v.opt + '|' + (v.other_text || '');
+      const ck = new Set(cur.map(key)), nk = new Set(next.map(key));
+      const gone = cur.filter(v => !nk.has(key(v))), add = next.filter(v => !ck.has(key(v))).map(v => ({ poll_id: p.id, member_id: me, opt: v.opt, other_text: v.other_text || null }));
+      const now = new Date().toISOString();
+      setD(d => ({ ...d, pvotes: [...d.pvotes.filter(v => !(v.poll_id === p.id && v.member_id === me && !nk.has(key(v)))), ...add.map(r => ({ ...r, created_at: now }))] }));
+      try {
+        for (const v of gone) await db.del('poll_votes', `poll_id=eq.${p.id}&member_id=eq.${me}&opt=eq.${encodeURIComponent(v.opt)}`);
+        if (add.length) await db.add('poll_votes', add);
+        if (add.length && !cur.length) toast('투표했어요 🗳');
+        return true;
+      } catch (e) { toast('투표를 저장하지 못했어요: ' + e.message); loadAll(); return false; }
+    }
   };
 
   /* 알림: 앱을 열면 숫자 지우기 / 이 폰 주인이 바뀌면 알림 주소의 식구도 바꾸기 / 알림 눌러 열기 */
@@ -2883,6 +3080,7 @@ function App() {
     const sid = q.get('story'); if (sid) { const it = dailyToday(sid); if (it.length) setStory(it); }
     const pid = q.get('pray'); if (pid) { setTab('pray'); setPrayFocus(pid); }
     const nid = q.get('note'); if (nid) { const n = D.notes.find(x => x.id === nid); if (n) setNoteView(n); }
+    const vid = q.get('poll'); if (vid) setPollView(vid);
   }, [loaded, linkReq, me, D]);
 
   /* 폰 뒤로가기: 홈이 아닌 탭(달력·기도·내 프로필)에서는 홈으로, 홈에서는 앱이 닫힌다.
@@ -2935,6 +3133,8 @@ function App() {
       <NotiPage open={notiOpen} onClose={closeNoti}/>
       <NoteSheet note={noteView} onClose={() => setNoteView(null)}/>
       <Page open={!!postView} onClose={() => setPostView(null)} title="소식">{postView && (posts.find(p => p.id === postView) ? <PostCard p={posts.find(p => p.id === postView)}/> : <p className="empty">지워진 소식이에요.</p>)}</Page>
+      <Page open={!!pollView} onClose={() => setPollView(null)} title="가족 투표"><div style={{ height: 8 }}/>{pollView && (D.polls.find(p => p.id === pollView) ? <PollCard p={D.polls.find(p => p.id === pollView)}/> : <p className="empty">지워진 투표예요.</p>)}</Page>
+      <PollCompose open={pollNew} onClose={() => setPollNew(false)}/>
       <StoryViewer items={story} onClose={() => setStory(null)}/>
       <BookView year={book} onClose={() => setBook(null)}/>
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
