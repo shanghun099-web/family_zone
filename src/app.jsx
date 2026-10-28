@@ -750,6 +750,50 @@ function CommentRow({ c, onDelete }) {
   );
 }
 
+/* 동영상: 드라이브는 받은 뒤 재생용으로 다시 만드느라 큰 영상은 몇 분~30분쯤 못 튼다.
+   그동안은 드라이브의 미리보기 그림도 안 나오므로, 그 그림이 뜨는지로 "준비됐는지"를 본다 (1분마다 다시 봄).
+   올린 지 6시간이 지났으면 묻지 않고 그냥 튼다 (그림만 안 되는 경우에 막히지 않게) */
+const vReady = {};
+const VREADY_H = 6;
+function probeVideo(vid) {
+  if (vReady[vid]) return Promise.resolve(true);
+  return new Promise(ok => {
+    const img = new Image(); let done = false; const end = r => { if (done) return; done = true; if (r) vReady[vid] = true; ok(r); };
+    img.referrerPolicy = 'no-referrer'; img.onload = () => end(true); img.onerror = () => end(false);
+    setTimeout(() => end(false), 15000);
+    img.src = `https://lh3.googleusercontent.com/d/${vid}=w64?t=${Date.now()}`;
+  });
+}
+function VideoSlide({ ph, at, playing, onPlay }) {
+  const C = useC();
+  const young = !!(ph.vid && at && Date.now() - new Date(at).getTime() < VREADY_H * 3600e3);
+  const [ready, setReady] = useState(() => !young || !!vReady[ph.vid]);
+  useEffect(() => {
+    if (ready) return;
+    let alive = true, t = 0;
+    const check = () => probeVideo(ph.vid).then(r => { if (!alive) return; if (r) setReady(true); else t = setTimeout(check, 60000); });
+    check();
+    return () => { alive = false; clearTimeout(t); };
+  }, [ph.vid, ready]);
+  const mins = at ? Math.max(1, Math.round((Date.now() - new Date(at).getTime()) / 60000)) : 0;
+  const tap = async () => {
+    if (ready) { onPlay(); return; }
+    if (await probeVideo(ph.vid)) { setReady(true); onPlay(); return; }
+    C.toast('드라이브가 아직 동영상을 준비하고 있어요. 조금 뒤에 다시 눌러 주세요 ⏳');
+  };
+  return (
+    <div className="vslide" onClick={e => e.stopPropagation()}>
+      {playing && ready
+        ? <iframe src={`https://drive.google.com/file/d/${ph.vid}/preview`} allow="autoplay; fullscreen" allowFullScreen title="동영상"/>
+        : <button className="vplay" onClick={tap} aria-label="동영상 보기"><img src={ph.url} alt="" loading="lazy"/>
+            {ready
+              ? <span className="pb"><LIcon name="play" size={34} fill="#fff" stroke="#fff"/></span>
+              : <span className="vwait"><span className="spin"/><b>동영상 준비 중이에요</b><span>구글 드라이브가 재생할 수 있게 만드는 중이에요.<br/>올린 지 {mins}분 · 큰 영상은 30분쯤 걸려요</span></span>}
+            {ph.dur > 0 && <span className="vd">{fmtDur(ph.dur)}</span>}</button>}
+    </div>
+  );
+}
+
 function PostCard({ p }) {
   const C = useC(); const a = C.getM(p.author_id);
   const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
@@ -798,11 +842,7 @@ function PostCard({ p }) {
         <div className="car-wrap" onClick={tapImg} style={{ aspectRatio: String(r0) }}>
           <div className="car" style={{ height: '100%' }} onScroll={e => { const el = e.currentTarget; setIdx(Math.round(el.scrollLeft / el.clientWidth)); }}>
             {photos.map((ph, i) => isVideo(ph)
-              ? <div key={i} className="vslide" onClick={e => e.stopPropagation()}>
-                  {playing === i
-                    ? <iframe src={`https://drive.google.com/file/d/${ph.vid}/preview`} allow="autoplay; fullscreen" allowFullScreen title="동영상"/>
-                    : <button className="vplay" onClick={() => setPlaying(i)} aria-label="동영상 보기"><img src={ph.url} alt="" loading="lazy"/><span className="pb"><LIcon name="play" size={34} fill="#fff" stroke="#fff"/></span>{ph.dur > 0 && <span className="vd">{fmtDur(ph.dur)}</span>}</button>}
-                </div>
+              ? <VideoSlide key={i} ph={ph} at={p.created_at} playing={playing === i} onPlay={() => setPlaying(i)}/>
               : <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
           </div>
           {photos.length > 1 && <><span className="pcount">{idx + 1}/{photos.length}</span><div className="dots">{photos.map((_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div></>}
