@@ -175,6 +175,7 @@
   .thumbs .t img,.thumbs .t video{width:100%;height:100%;object-fit:cover;display:block}
   .thumbs .t .vt{position:absolute;left:4px;bottom:4px;display:flex;align-items:center;gap:2px;background:rgba(0,0,0,.6);color:#fff;font-size:.7rem;border-radius:8px;padding:1px 6px}
   .vslide{width:100%;height:100%;flex-shrink:0;scroll-snap-align:start;position:relative;background:#111}
+  .vslide video{width:100%;height:100%;object-fit:contain;background:#000;display:block}
   .vslide iframe{width:100%;height:100%;border:0;display:block}
   .vplay{width:100%;height:100%;padding:0;border:0;background:none;position:relative;display:block}
   .vplay img{width:100%;height:100%;object-fit:cover;display:block}
@@ -446,6 +447,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=ae646bde"></script>
+<script src="app.js?v=488f6c43"></script>
 </body>
 </html>

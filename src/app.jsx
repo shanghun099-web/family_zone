@@ -203,6 +203,26 @@ async function uploadVideo(file, onPct) {
   await gw('vdone', { id });
   return { type: 'video', vid: id, id: poster ? poster.id : null, url: poster ? poster.url : VIDEO_PH, thumb: poster ? poster.thumb : VIDEO_PH, w: pv ? pv.w : 900, h: pv ? pv.h : 1200, dur: pv ? pv.dur : 0, mime, size: file.size };
 }
+/* 틀기용 한 벌: 줄인 동영상을 가족 서버(Supabase Storage "videos")에도 올려, 구글 재생기 대신 폰 재생기로 튼다.
+   창구(Edge Function "video")가 가족 암호를 확인하고 한 번 쓰는 올리기 주소를 준다. 창고가 차면 오래된 것부터 빠진다.
+   50MB 넘거나 실패하면 없이 간다 (그 동영상은 드라이브 재생 창으로) */
+const VFN = `${SB_URL}/functions/v1/video`;
+const PLAY_MAX = 50 * 1024 * 1024;
+async function vfn(action, body = {}) {
+  const res = await fetch(VFN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, 'x-family-key': familyKey }, body: JSON.stringify({ action, ...body }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.ok) throw new Error(j.error || `동영상 창고 오류 (${res.status})`);
+  return j;
+}
+async function uploadPlayCopy(file) {
+  if (!file || file.size > PLAY_MAX) return null;
+  try {
+    const s = await vfn('sign', { size: file.size });
+    const res = await fetch(s.signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'video/mp4', 'x-upsert': 'false' }, body: file });
+    if (!res.ok) return null;
+    return { play: s.publicUrl, play_path: s.path };
+  } catch (e) { console.warn('틀기용 한 벌을 못 올렸어요', e); return null; }
+}
 /* 목소리: 드라이브에 비공개로 두고 "drive:파일ID#초" 로 적어 둔다 */
 async function uploadVoice(blob, sec) {
   const mime = (blob.type || 'audio/webm').split(';')[0];
@@ -793,7 +813,10 @@ function probeVideo(vid) {
 }
 function VideoSlide({ ph, at, playing, onPlay }) {
   const C = useC();
-  const young = !!(ph.vid && at && Date.now() - new Date(at).getTime() < VREADY_H * 3600e3);
+  /* 틀기용 한 벌이 있으면 폰 재생기로 (가운데를 가리는 큰 버튼 없음). 창고가 차서 빠졌으면 드라이브 재생 창으로 */
+  const [bad, setBad] = useState(false);
+  const own = !!ph.play && !bad;
+  const young = !own && !!(ph.vid && at && Date.now() - new Date(at).getTime() < VREADY_H * 3600e3);
   const [ready, setReady] = useState(() => !young || !!vReady[ph.vid]);
   useEffect(() => {
     if (ready) return;
@@ -808,6 +831,11 @@ function VideoSlide({ ph, at, playing, onPlay }) {
     if (await probeVideo(ph.vid)) { setReady(true); onPlay(); return; }
     C.toast('드라이브가 아직 동영상을 준비하고 있어요. 조금 뒤에 다시 눌러 주세요 ⏳');
   };
+  if (own) return (
+    <div className="vslide" onClick={e => e.stopPropagation()}>
+      <video src={ph.play} poster={ph.url} controls playsInline preload="none" controlsList="nodownload" onError={() => { setBad(true); onPlay(); }}/>
+    </div>
+  );
   return (
     <div className="vslide" onClick={e => e.stopPropagation()}>
       {playing && ready
@@ -1012,7 +1040,9 @@ function Composer({ cfg, onClose }) {
           setBusy(`동영상 줄이는 중 ${at} · 0%`);
           const small = await shrinkVideo(x.f, p => setBusy(`동영상 줄이는 중 ${at} · ${p}% (화면을 끄지 말아 주세요)`));
           const mb = small !== x.f ? ` · ${Math.round(x.f.size / 1e6)}MB → ${Math.round(small.size / 1e6)}MB` : '';
-          setBusy(`동영상 올리는 중 ${at} · 0%${mb}`); photos.push(await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`)));
+          setBusy(`동영상 올리는 중 ${at} · 0%${mb}`); const v = await uploadVideo(small, p => setBusy(`동영상 올리는 중 ${at} · ${p}%${mb}`));
+          setBusy(`바로 틀 수 있게 한 벌 더 저장하는 중 ${at}…`); const pc = await uploadPlayCopy(small);
+          photos.push(pc ? { ...v, ...pc } : v);
         }
         else { setBusy(`사진 올리는 중 ${at} · 원본도 저장`); photos.push(await uploadPhoto(x.f, undefined, true)); }
       }   // 사진·동영상은 앱에서 지우지 않는다 (올리다 실패해도 드라이브에 남김)
@@ -3061,7 +3091,8 @@ function App() {
     deletePost: async p => {
       if (!window.confirm('이 소식을 지울까요? 댓글도 함께 지워져요. (사진은 구글 드라이브에 그대로 남아요)')) return;
       const files = (cmtMap[p.id] || []).map(c => driveId(c.audio_url)).filter(Boolean);   // 사진(줄인 것·원본)은 드라이브에 남긴다 (사용자 요청) · 목소리 댓글만 정리
-      if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) files.forEach(id => gw('delete', { id }).catch(() => {}));
+      const plays = photosOf(p).map(ph => ph.play_path).filter(Boolean);   // 동영상 틀기용 한 벌은 가족 서버에서 지운다 (드라이브엔 남음)
+      if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) { files.forEach(id => gw('delete', { id }).catch(() => {})); if (plays.length) vfn('del', { paths: plays }).catch(() => {}); }
     },
     addNote: content => write(() => db.add('notes', { author_id: me, content, color: '#FFF6B8', angle: +(Math.random() * 4 - 2).toFixed(1) })),
     deleteNote: n => write(() => db.del('notes', `id=eq.${n.id}`)),
