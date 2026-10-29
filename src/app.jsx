@@ -1471,7 +1471,7 @@ function HomeTab() {
         </button>
       )}
       <div style={{ height: 4 }}/>
-      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 추가</b>를 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
+      {!feed.length && <div className="empty">아직 소식이 없어요.<br/>아래 가운데 <b>＋ 새 소식</b>을 눌러 첫 소식을 올려 보세요.<div style={{ marginTop: 14 }}><button className="btn primary" onClick={() => C.openComposer({})}><LIcon name="square-plus" size={20}/>첫 소식 올리기</button></div></div>}
       {feed.slice(0, shown).map(x => x.t === 'post' ? <PostCard key={x.k} p={x.p}/> : x.t === 'pray' ? <PrayCard key={x.k} p={x.p} feed/> : x.t === 'poll' ? <PollCard key={x.k} p={x.p} feed/> : <FridgeCard key={x.k} notes={x.list}/>)}
       {shown < feed.length
         ? <div ref={endRef} className="empty small"><button className="btn soft" onClick={() => setShown(n => n + 15)}>소식 더 보기 ({feed.length - shown}개 남음)</button></div>
@@ -3227,7 +3227,7 @@ function App() {
         <nav className="tabbar">
           <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab('home'); }}><LIcon name="house" size={26} fill={tab === 'home' ? '#1a1a1a' : undefined}/>홈</button>
           <button className={tab === 'cal' ? 'on' : ''} onClick={() => goTab('cal')}><LIcon name="calendar-days" size={26} sw={tab === 'cal' ? 2.4 : undefined}/>달력</button>
-          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>추가</button>
+          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>새 소식</button>
           <button className={tab === 'pray' ? 'on' : ''} onClick={() => goTab('pray')}><LIcon name="hand-heart" size={26} sw={tab === 'pray' ? 2.4 : undefined}/>기도</button>
           <button className={tab === 'me' ? 'on' : ''} onClick={() => goTab('me')}>{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={26} sw={tab === 'me' ? 2.4 : undefined}/>}내 프로필</button>
         </nav>

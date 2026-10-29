@@ -3680,7 +3680,7 @@ function HomeTab() {
     }
   }), !feed.length && /*#__PURE__*/React.createElement("div", {
     className: "empty"
-  }, "\uC544\uC9C1 \uC18C\uC2DD\uC774 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), "\uC544\uB798 \uAC00\uC6B4\uB370 ", /*#__PURE__*/React.createElement("b", null, "\uFF0B \uCD94\uAC00"), "\uB97C \uB20C\uB7EC \uCCAB \uC18C\uC2DD\uC744 \uC62C\uB824 \uBCF4\uC138\uC694.", /*#__PURE__*/React.createElement("div", {
+  }, "\uC544\uC9C1 \uC18C\uC2DD\uC774 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), "\uC544\uB798 \uAC00\uC6B4\uB370 ", /*#__PURE__*/React.createElement("b", null, "\uFF0B \uC0C8 \uC18C\uC2DD"), "\uC744 \uB20C\uB7EC \uCCAB \uC18C\uC2DD\uC744 \uC62C\uB824 \uBCF4\uC138\uC694.", /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 14
     }
@@ -8847,7 +8847,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "square-plus",
     size: 27
-  }), "\uCD94\uAC00"), /*#__PURE__*/React.createElement("button", {
+  }), "\uC0C8 \uC18C\uC2DD"), /*#__PURE__*/React.createElement("button", {
     className: tab === 'pray' ? 'on' : '',
     onClick: () => goTab('pray')
   }, /*#__PURE__*/React.createElement(LIcon, {
