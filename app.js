@@ -1353,6 +1353,20 @@ const reactWord = e => (REACTS.find(x => x[0] === e) || [e, '마음을 남겼어
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
 
+/* 기도 손 그림 (사용자가 준 그림에서 손 모양만 딴 것) — 기도 화면의 🙏 이모지 대신. 글자로만 나가는 알림·토스트는 🙏 그대로 */
+const PrayHands = ({
+  size = 18,
+  style
+}) => /*#__PURE__*/React.createElement("img", {
+  className: "pray-hands",
+  src: "pray-hands-96.png",
+  srcSet: "pray-hands-96.png 1x, pray-hands-192.png 2x",
+  width: size,
+  height: size,
+  alt: "",
+  style: style
+});
+
 /* ═══════════ 작은 부품들 ═══════════ */
 function Avatar({
   m,
@@ -6208,7 +6222,11 @@ function PrayCard({
   }, feed && /*#__PURE__*/React.createElement("button", {
     className: "feed-band pr",
     onClick: () => C.openPray(p.id)
-  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDE4F \uD568\uAED8 \uAE30\uB3C4\uD574\uC694"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ph-row"
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 20
+  }), "\uD568\uAED8 \uAE30\uB3C4\uD574\uC694"), /*#__PURE__*/React.createElement("span", {
     className: "go"
   }, "\uAE30\uB3C4 \uD0ED ", /*#__PURE__*/React.createElement(LIcon, {
     name: "chevron-right",
@@ -6224,8 +6242,10 @@ function PrayCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, a.name), voice ? '의 목소리 기도 🎙' : '의 기도 제목'), /*#__PURE__*/React.createElement("div", {
     className: "pray-tags"
   }, /*#__PURE__*/React.createElement("span", null, relTime(p.created_at)), /*#__PURE__*/React.createElement("span", {
-    className: "tag"
-  }, "\uD83D\uDE4F ", fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'), p.due_on && !p.answered_at && /*#__PURE__*/React.createElement("span", {
+    className: "tag ph-row"
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 15
+  }), fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'), p.due_on && !p.answered_at && /*#__PURE__*/React.createElement("span", {
     className: 'tag' + (due === 0 ? ' today' : '')
   }, "\uD83D\uDCC5 ", due === 0 ? '오늘!' : due > 0 ? `${fmtDate(p.due_on)} · D-${due}` : fmtDate(p.due_on)))), mine && /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
@@ -6257,7 +6277,11 @@ function PrayCard({
   }, marks.length ? `${marks.length}번 함께 기도했어요${todayWho.length ? ` · 오늘 ${todayWho.map(id => C.getM(id).name).join(', ')}` : ''}` : '아직 아무도 기도하지 않았어요'), !p.answered_at && /*#__PURE__*/React.createElement("button", {
     className: 'pray-btn' + (iDid ? ' on' : ''),
     onClick: () => C.togglePray(p)
-  }, iDid ? '오늘 기도했어요 ✓' : voice ? '🙏 아멘' : '🙏 기도했어요')), /*#__PURE__*/React.createElement(Sheet, {
+  }, iDid ? '오늘 기도했어요 ✓' : /*#__PURE__*/React.createElement("span", {
+    className: "ph-row"
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 20
+  }), voice ? '아멘' : '기도했어요'))), /*#__PURE__*/React.createElement(Sheet, {
     open: menu,
     onClose: () => setMenu(false),
     title: voice ? '목소리 기도' : '기도 제목'
@@ -6455,7 +6479,11 @@ function PrayCompose({
   }, /*#__PURE__*/React.createElement("button", {
     className: kind === 'request' ? 'on' : '',
     onClick: () => setKind('request')
-  }, "\uD83D\uDE4F \uAE30\uB3C4 \uC81C\uBAA9 \uB098\uB204\uAE30"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ph-row"
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 20
+  }), "\uAE30\uB3C4 \uC81C\uBAA9 \uB098\uB204\uAE30")), /*#__PURE__*/React.createElement("button", {
     className: kind === 'prayer' ? 'on' : '',
     onClick: () => setKind('prayer')
   }, "\uD83C\uDF99 \uBAA9\uC18C\uB9AC \uAE30\uB3C4 \uB0A8\uAE30\uAE30")), kind === 'request' ? /*#__PURE__*/React.createElement("div", {
@@ -6612,8 +6640,10 @@ function PrayTab() {
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "topbar"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "h1"
-  }, "\uD568\uAED8 \uAE30\uB3C4\uD574\uC694 \uD83D\uDE4F"), /*#__PURE__*/React.createElement("button", {
+    className: "h1 ph-row"
+  }, "\uD568\uAED8 \uAE30\uB3C4\uD574\uC694 ", /*#__PURE__*/React.createElement(PrayHands, {
+    size: 34
+  })), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: () => setCompose(true),
     "aria-label": "\uAE30\uB3C4 \uB098\uB204\uAE30"
@@ -6638,7 +6668,11 @@ function PrayTab() {
   }, /*#__PURE__*/React.createElement("button", {
     className: view === 'now' ? 'on' : '',
     onClick: () => setView('now')
-  }, "\uD83D\uDE4F \uAE30\uB3C4 \uC911 ", now.length), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ph-row"
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 22
+  }), "\uAE30\uB3C4 \uC911 ", now.length)), /*#__PURE__*/React.createElement("button", {
     className: view === 'done' ? 'on' : '',
     onClick: () => setView('done')
   }, "\u2728 \uC751\uB2F5 \uB178\uD2B8 ", done.length))), !list.length && /*#__PURE__*/React.createElement("div", {

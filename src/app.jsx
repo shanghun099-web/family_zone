@@ -605,6 +605,9 @@ const reactWord = e => (REACTS.find(x => x[0] === e) || [e, '마음을 남겼어
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
 
+/* 기도 손 그림 (사용자가 준 그림에서 손 모양만 딴 것) — 기도 화면의 🙏 이모지 대신. 글자로만 나가는 알림·토스트는 🙏 그대로 */
+const PrayHands = ({ size = 18, style }) => <img className="pray-hands" src="pray-hands-96.png" srcSet="pray-hands-96.png 1x, pray-hands-192.png 2x" width={size} height={size} alt="" style={style}/>;
+
 /* ═══════════ 작은 부품들 ═══════════ */
 function Avatar({ m, size = 32, ring, onClick }) {
   const inner = (
@@ -2348,14 +2351,14 @@ function PrayCard({ p, focus, feed }) {
   const mine = p.author_id === C.me; const voice = p.kind === 'prayer';
   return (
     <article ref={ref} className={'pray' + (focus ? ' focus' : '') + (p.answered_at ? ' done' : '')}>
-      {feed && <button className="feed-band pr" onClick={() => C.openPray(p.id)}><span>🙏 함께 기도해요</span><span className="go">기도 탭 <LIcon name="chevron-right" size={16}/></span></button>}
+      {feed && <button className="feed-band pr" onClick={() => C.openPray(p.id)}><span className="ph-row"><PrayHands size={20}/>함께 기도해요</span><span className="go">기도 탭 <LIcon name="chevron-right" size={16}/></span></button>}
       <div className="pray-hd">
         <Avatar m={a} size={38} onClick={() => C.openProfile(a.id)}/>
         <div className="grow">
           <div><b>{a.name}</b>{voice ? '의 목소리 기도 🎙' : '의 기도 제목'}</div>
           <div className="pray-tags">
             <span>{relTime(p.created_at)}</span>
-            <span className="tag">🙏 {fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'}</span>
+            <span className="tag ph-row"><PrayHands size={15}/>{fw ? `${josa(fw, '을', '를')} 위해` : '온 가족을 위해'}</span>
             {p.due_on && !p.answered_at && <span className={'tag' + (due === 0 ? ' today' : '')}>📅 {due === 0 ? '오늘!' : due > 0 ? `${fmtDate(p.due_on)} · D-${due}` : fmtDate(p.due_on)}</span>}
           </div>
         </div>
@@ -2367,7 +2370,7 @@ function PrayCard({ p, focus, feed }) {
       <div className="pray-ft">
         <span className="qh-faces">{who.slice(0, 6).map(id => <span key={id}><Avatar m={C.getM(id)} size={24}/></span>)}</span>
         <span className="grow small muted">{marks.length ? `${marks.length}번 함께 기도했어요${todayWho.length ? ` · 오늘 ${todayWho.map(id => C.getM(id).name).join(', ')}` : ''}` : '아직 아무도 기도하지 않았어요'}</span>
-        {!p.answered_at && <button className={'pray-btn' + (iDid ? ' on' : '')} onClick={() => C.togglePray(p)}>{iDid ? '오늘 기도했어요 ✓' : voice ? '🙏 아멘' : '🙏 기도했어요'}</button>}
+        {!p.answered_at && <button className={'pray-btn' + (iDid ? ' on' : '')} onClick={() => C.togglePray(p)}>{iDid ? '오늘 기도했어요 ✓' : <span className="ph-row"><PrayHands size={20}/>{voice ? '아멘' : '기도했어요'}</span>}</button>}
       </div>
       <Sheet open={menu} onClose={() => setMenu(false)} title={voice ? '목소리 기도' : '기도 제목'}>
         <div style={{ display: 'grid', gap: 8 }}>
@@ -2432,7 +2435,7 @@ function PrayCompose({ open, onClose, edit }) {
   return (
     <Sheet open={open} onClose={() => { if (!busy) onClose(); }} full title={edit ? '기도 고치기' : '기도 나누기'} right={<button className="hdbtn" disabled={!can} onClick={submit}>{busy ? <span className="spin dark"/> : edit ? '저장' : '올리기'}</button>}>
       {!edit && <div className="seg" style={{ marginBottom: 16 }}>
-        <button className={kind === 'request' ? 'on' : ''} onClick={() => setKind('request')}>🙏 기도 제목 나누기</button>
+        <button className={kind === 'request' ? 'on' : ''} onClick={() => setKind('request')}><span className="ph-row"><PrayHands size={20}/>기도 제목 나누기</span></button>
         <button className={kind === 'prayer' ? 'on' : ''} onClick={() => setKind('prayer')}>🎙 목소리 기도 남기기</button>
       </div>}
       {kind === 'request' ? (
@@ -2488,7 +2491,7 @@ function PrayTab() {
   return (
     <>
       <div className="topbar">
-        <span className="h1">함께 기도해요 🙏</span>
+        <span className="h1 ph-row">함께 기도해요 <PrayHands size={34}/></span>
         <button className="iconbtn" onClick={() => setCompose(true)} aria-label="기도 나누기"><LIcon name="square-pen" size={26}/></button>
       </div>
       <div className="pray-hero">
@@ -2498,7 +2501,7 @@ function PrayTab() {
       </div>
       <div className="pad" style={{ margin: '2px 0 10px' }}>
         <div className="seg">
-          <button className={view === 'now' ? 'on' : ''} onClick={() => setView('now')}>🙏 기도 중 {now.length}</button>
+          <button className={view === 'now' ? 'on' : ''} onClick={() => setView('now')}><span className="ph-row"><PrayHands size={22}/>기도 중 {now.length}</span></button>
           <button className={view === 'done' ? 'on' : ''} onClick={() => setView('done')}>✨ 응답 노트 {done.length}</button>
         </div>
       </div>
