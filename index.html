@@ -436,6 +436,11 @@
   .mt b,.mt span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .mt span{font-size:.85rem;color:var(--sub)}
   .mchip a{font-size:.75rem;color:var(--sub);white-space:nowrap}
+  .sub-lab{font-size:.9rem;font-weight:700;color:#555;margin:14px 2px 8px}
+  .rtabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .rtabs::-webkit-scrollbar{display:none}
+  .rtabs button{flex:0 0 auto;border:1px solid #ddd;border-radius:20px;padding:0 13px;min-height:38px;font-size:.92rem;background:#fff;white-space:nowrap}
+  .rtabs button.on{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:700}
   .mlist{display:grid;gap:6px;margin-top:10px;max-height:330px;overflow-y:auto}
   .mrow{display:flex;align-items:center;gap:10px;padding:4px;border-radius:12px;background:#faf9f7}
   .seg3{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #ddd;border-radius:14px;overflow:hidden}
@@ -481,6 +486,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=1a5eae32"></script>
+<script src="app.js?v=aee61663"></script>
 </body>
 </html>

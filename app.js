@@ -1467,6 +1467,45 @@ async function searchMusic(q) {
     link: r.trackViewUrl
   }));
 }
+/* 추천 노래: [애플 곡 번호, 한글 제목, 가수] — 애플은 제목을 영어로 줄 때가 많아서 이름은 우리가 적어 둔다.
+   번호는 2026-10-29 미국 스토어에서 미리 듣기가 있는 것만 골랐다. 고를 때 한 번에 lookup 해서 미리 듣기·앨범 그림을 받는다 */
+const MUSIC_RECO = {
+  winter: [[1567943669, '눈의 꽃', '박효신'], [1569425907, '첫눈처럼 너에게 가겠다', '에일리'], [1320693447, '눈', '자이언티'], [1602185217, '겨울잠', '아이유'], [1543850904, '거리에서', '성시경']],
+  spring: [[1570572282, '벚꽃 엔딩', '버스커 버스커'], [1596529381, '봄날', '방탄소년단'], [639483987, '봄봄봄', '로이킴'], [858263219, '봄 사랑 벚꽃 말고', '하이포·아이유'], [1747833892, '봄이 좋냐??', '10CM'], [1570572505, '꽃송이가', '버스커 버스커']],
+  may: [[1855745027, '엄마가 딸에게', '양희은'], [1641834082, '아버지', '인순이'], [1514571911, '가족사진', '김진호'], [1262264096, '사랑으로', '해바라기'], [1619308992, '걱정말아요 그대', '이적']],
+  summer: [[311455760, '여행을 떠나요', '조용필'], [1692686518, 'Super Shy', '뉴진스'], [1256504651, '빨간 맛', '레드벨벳'], [1085987673, '해변의 여인', '쿨'], [1825017994, '여름 안에서', '듀스']],
+  autumn: [[1640417971, '가을 우체국 앞에서', '윤도현'], [1262248268, '잊혀진 계절', '이용'], [1286574372, '가을 아침', '아이유'], [879281078, '너의 의미', '아이유'], [1455180438, '가을이 오면', '이문세'], [1804634460, '가을 타나 봐', '바이브']],
+  xmas: [[585972803, 'All I Want for Christmas Is You', '머라이어 캐리'], [1527028399, '크리스마스니까', '성시경 외'], [954190697, '울면 안 돼', '캐롤'], [200299291, '루돌프 사슴코', 'Gene Autry'], [282658482, 'Last Christmas', 'Wham!']],
+  family: [[1514571911, '가족사진', '김진호'], [1855745027, '엄마가 딸에게', '양희은'], [1641834082, '아버지', '인순이'], [1619308992, '걱정말아요 그대', '이적'], [1262264096, '사랑으로', '해바라기'], [1618396192, '행복의 나라로', '한대수'], [879281078, '너의 의미', '아이유']],
+  bday: [[1440821356, 'Happy Birthday', '스티비 원더'], [1677098419, '생일 축하합니다 (자장가)', '뽀로로'], [1653589759, '생일 축하 노래', '동요'], [1842817718, '너에게 난, 나에게 넌', '자전거 탄 풍경']],
+  praise: [[1635521450, '주 하나님 지으신 모든 세계', '어노인팅'], [1609910802, '은혜', '손경민'], [1786068310, '나의 영혼이 잠잠히', '김예린'], [1699518213, '당신은 사랑받기 위해 태어난 사람', '찬양'], [1344734599, '아무것도 두려워 말라', '김윤진'], [1653103191, '주님의 마음을 가진 자', '김도현']],
+  trot: [[1589204991, '사랑은 늘 도망가', '임영웅'], [1552566188, '테스형!', '나훈아'], [1653754052, '어머나', '장윤정'], [1562005525, '사랑의 배터리', '홍진영'], [1497092257, '막걸리 한잔', '영탁'], [1708199577, '가인이어라', '송가인']],
+  calm: [[1219218446, '밤편지', '아이유'], [1823608078, '옛 사랑', '이문세'], [1358198517, '사랑이 지나가면', '이문세'], [1448341239, '바람이 분다', '이소라'], [1501124618, '서른 즈음에', '김광석'], [1543850531, '두 사람', '성시경']],
+  fun: [[1823627863, 'Dynamite', '방탄소년단'], [1635469851, 'Hype Boy', '뉴진스'], [1445144527, '강남스타일', '싸이'], [1333468525, '붉은 노을', '빅뱅'], [1616804152, 'LOVE DIVE', '아이브']],
+  kids: [[1418771363, '아기 상어', '핑크퐁'], [958811333, '곰 세 마리', '동요'], [1661757521, '반짝반짝 작은 별', '동요'], [1553105698, '나비야', '동요'], [1623571795, '둥근 해가 떴습니다', '동요']]
+};
+/* 이달의 추천: 달마다 계절 노래 (5월은 가정의 달, 12월은 크리스마스) */
+const monthReco = (mo = new Date().getMonth() + 1) => mo === 12 ? ['xmas', '🎄 12월 · 크리스마스'] : mo <= 2 ? ['winter', `❄️ ${mo}월 · 겨울 노래`] : mo <= 4 ? ['spring', `🌸 ${mo}월 · 봄 노래`] : mo === 5 ? ['may', '💐 5월 · 가정의 달'] : mo <= 8 ? ['summer', `🌊 ${mo}월 · 여름 노래`] : ['autumn', `🍂 ${mo}월 · 가을 노래`];
+const RECO_TABS = [['family', '💕 가족·사랑'], ['bday', '🎂 생일·축하'], ['praise', '🙏 찬양'], ['trot', '🎤 트로트'], ['calm', '🌙 잔잔한'], ['fun', '🎉 신나는'], ['kids', '🧒 동요']];
+const recoCache = {};
+async function loadReco(key) {
+  if (recoCache[key]) return recoCache[key];
+  const list = MUSIC_RECO[key] || [];
+  const j = await (await fetch(`https://itunes.apple.com/lookup?id=${list.map(x => x[0]).join(',')}&country=US&entity=song`)).json();
+  const by = {};
+  (j.results || []).forEach(r => {
+    if (r.previewUrl) by[r.trackId] = r;
+  });
+  return recoCache[key] = list.filter(([id]) => by[id]).map(([id, title, artist]) => ({
+    src: 'apple',
+    id,
+    title,
+    artist,
+    art: (by[id].artworkUrl100 || '').replace('100x100', '300x300'),
+    preview: by[id].previewUrl,
+    link: by[id].trackViewUrl
+  }));
+}
 async function musicUrl(m) {
   try {
     const j = await (await fetch(`https://itunes.apple.com/lookup?id=${m.id}&country=US`)).json();
@@ -1572,11 +1611,39 @@ function MusicPicker({
   value,
   onChange
 }) {
+  const C = useC();
   const [q, setQ] = useState('');
   const [list, setList] = useState(null);
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(null);
   const au = useRef(null);
+  /* 추천 코너: 이달의 추천 · 우리 가족이 쓴 노래 · 분위기별 */
+  const [mk, mLabel] = monthReco();
+  const ours = useMemo(() => {
+    const seen = new Set();
+    return C.posts.filter(p => p.music && p.music.id).map(p => p.music).filter(m => !seen.has(m.id) && seen.add(m.id)).slice(0, 12);
+  }, [C.posts]);
+  const tabs = [[mk, mLabel], ...(ours.length ? [['ours', '👪 우리 가족이 쓴 노래']] : []), ...RECO_TABS];
+  const [tab, setTab] = useState(mk);
+  const [reco, setReco] = useState(null);
+  const [recoErr, setRecoErr] = useState('');
+  useEffect(() => {
+    if (list || value) return;
+    if (tab === 'ours') {
+      setReco(ours.map(m => ({
+        ...m,
+        start: 0
+      })));
+      return;
+    }
+    let alive = true;
+    setReco(null);
+    setRecoErr('');
+    loadReco(tab).then(r => alive && setReco(r)).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
+    return () => {
+      alive = false;
+    };
+  }, [tab, !!list, !!value]);
   const stop = () => {
     if (au.current) au.current.pause();
     au.current = null;
@@ -1607,6 +1674,39 @@ function MusicPicker({
     au.current = a;
     a.play().then(() => setPlaying(m.id)).catch(stop);
   };
+  const rows = items => /*#__PURE__*/React.createElement("div", {
+    className: "mlist"
+  }, items.map(m => /*#__PURE__*/React.createElement("div", {
+    className: "mrow",
+    key: m.id
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "mprev",
+    onClick: () => preview(m),
+    "aria-label": playing === m.id ? '멈추기' : '미리 듣기'
+  }, /*#__PURE__*/React.createElement("img", {
+    src: m.art,
+    alt: ""
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "mp"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: playing === m.id ? 'pause' : 'play',
+    size: 14,
+    fill: "#fff",
+    stroke: "#fff"
+  }))), /*#__PURE__*/React.createElement("span", {
+    className: "mt grow"
+  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft sm",
+    onClick: () => {
+      stop();
+      onChange({
+        ...m,
+        start: 0
+      });
+    }
+  }, "\uACE0\uB974\uAE30"))));
   if (value) return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
     m: value
   }), /*#__PURE__*/React.createElement("label", {
@@ -1656,44 +1756,49 @@ function MusicPicker({
     onClick: go
   }, busy ? /*#__PURE__*/React.createElement("span", {
     className: "spin"
-  }) : '찾기')), list && !list.length && /*#__PURE__*/React.createElement("p", {
+  }) : '찾기')), list && /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      justifyContent: 'space-between',
+      margin: '10px 2px 0'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, "\uCC3E\uC740 \uB178\uB798 ", list.length, "\uACE1"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "linkbtn",
+    onClick: () => {
+      stop();
+      setList(null);
+      setQ('');
+    }
+  }, "\u2190 \uCD94\uCC9C \uB178\uB798 \uBCF4\uAE30")), list && !list.length && /*#__PURE__*/React.createElement("p", {
     className: "small muted",
     style: {
       margin: '8px 2px 0'
     }
-  }, "\uBABB \uCC3E\uC558\uC5B4\uC694. \uAC00\uC218 \uC774\uB984\uC744 \uAC19\uC774 \uB123\uAC70\uB098 \uC601\uC5B4 \uC81C\uBAA9\uC73C\uB85C \uCC3E\uC544\uBCF4\uC138\uC694."), list && list.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "mlist"
-  }, list.map(m => /*#__PURE__*/React.createElement("div", {
-    className: "mrow",
-    key: m.id
-  }, /*#__PURE__*/React.createElement("button", {
+  }, "\uBABB \uCC3E\uC558\uC5B4\uC694. \uAC00\uC218 \uC774\uB984\uC744 \uAC19\uC774 \uB123\uAC70\uB098 \uC601\uC5B4 \uC81C\uBAA9\uC73C\uB85C \uCC3E\uC544\uBCF4\uC138\uC694."), list && list.length > 0 && rows(list), !list && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "sub-lab"
+  }, "\uD83C\uDFA7 \uC0DD\uAC01\uB098\uB294 \uB178\uB798\uAC00 \uC5C6\uC73C\uBA74 \uACE8\uB77C \uBCF4\uC138\uC694"), /*#__PURE__*/React.createElement("div", {
+    className: "rtabs"
+  }, tabs.map(([k, l]) => /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "mprev",
-    onClick: () => preview(m),
-    "aria-label": playing === m.id ? '멈추기' : '미리 듣기'
-  }, /*#__PURE__*/React.createElement("img", {
-    src: m.art,
-    alt: ""
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "mp"
-  }, /*#__PURE__*/React.createElement(LIcon, {
-    name: playing === m.id ? 'pause' : 'play',
-    size: 14,
-    fill: "#fff",
-    stroke: "#fff"
-  }))), /*#__PURE__*/React.createElement("span", {
-    className: "mt grow"
-  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn soft sm",
+    key: k,
+    className: tab === k ? 'on' : '',
     onClick: () => {
       stop();
-      onChange({
-        ...m,
-        start: 0
-      });
+      setTab(k);
     }
-  }, "\uACE0\uB974\uAE30")))), /*#__PURE__*/React.createElement("p", {
+  }, l))), recoErr ? /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, recoErr) : reco ? rows(reco) : /*#__PURE__*/React.createElement("div", {
+    className: "empty small"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spin dark"
+  }))), /*#__PURE__*/React.createElement("p", {
     className: "tiny muted",
     style: {
       margin: '8px 2px 0'
