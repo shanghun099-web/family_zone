@@ -739,14 +739,59 @@ function MusicPicker({ value, onChange }) {
   const [open, setOpen] = useState(!value);
   return (
     <>
-      {value ? <div>
-        <MusicChip m={value}/>
-        <label className="small" style={{ display: 'block', margin: '10px 2px 4px' }}>어디부터 틀까요? <b>{value.start ? `${value.start}초부터` : '처음부터'}</b></label>
-        <input type="range" min="0" max="20" step="5" value={value.start || 0} onChange={e => onChange({ ...value, start: +e.target.value })} style={{ width: '100%' }} aria-label="시작 위치"/>
-        <div className="row gap" style={{ marginTop: 8 }}><button type="button" className="btn soft sm" onClick={() => setOpen(true)}>다른 노래 고르기</button></div>
-      </div> : <button type="button" className="btn primary block" onClick={() => setOpen(true)}><LIcon name="music" size={20}/>노래 고르기</button>}
+      {value ? <MusicTrim m={value} onStart={s => onChange({ ...value, start: s })} onChange={() => setOpen(true)}/>
+        : <button type="button" className="btn primary block" onClick={() => setOpen(true)}><LIcon name="music" size={20}/>노래 고르기</button>}
       <MusicSheet open={open} onClose={() => setOpen(false)} onPick={m => { onChange(m); setOpen(false); }}/>
     </>
+  );
+}
+/* 고른 노래 카드 + 시작 지점 고르기 (인스타 음악 자르기처럼)
+   30초 미리 듣기를 파형 줄로 보여 주고, 줄을 누르거나 끌면 시작 지점이 바뀐다. 재생하면 진행선이 따라 움직인다.
+   마지막 5초는 남겨 두려고 시작은 0~25초 */
+const TRIM_MAX = 25;
+function MusicTrim({ m, onStart, onChange }) {
+  const start = m.start || 0;
+  const [on, setOn] = useState(false); const [pos, setPos] = useState(start); const au = useRef(null); const raf = useRef(0); const bar = useRef(null); const drag = useRef(false);
+  const bars = useMemo(() => { let s = (m.id || 7) % 2147483647; return Array.from({ length: 46 }, (_, i) => { s = (s * 16807) % 2147483647; const wave = 0.55 + 0.35 * Math.sin(i / 3.1) * Math.sin(i / 7.3); return Math.max(0.18, Math.min(1, wave * (0.55 + (s / 2147483647) * 0.6))); }); }, [m.id]);
+  const stop = () => { cancelAnimationFrame(raf.current); if (au.current) au.current.pause(); setOn(false); };
+  useEffect(() => () => { cancelAnimationFrame(raf.current); if (au.current) au.current.pause(); }, []);
+  useEffect(() => { if (!on) setPos(start); }, [start]);
+  const tick = () => { const a = au.current; if (!a) return; setPos(a.currentTime); if (a.currentTime >= MUSIC_SEC - 0.2) { stop(); setPos(start); return; } raf.current = requestAnimationFrame(tick); };
+  const play = async (from = start) => {
+    if (!au.current) au.current = playMusic({ ...m, start: 0 }, { onEnd: () => { stop(); setPos(start); }, onFail: () => { stop(); alert('음악을 불러오지 못했어요'); } });
+    const a = au.current;
+    const seek = () => { try { a.currentTime = from; } catch (e) {} };
+    if (a.readyState >= 1) seek(); else a.addEventListener('loadedmetadata', seek, { once: true });
+    try { await a.play(); setOn(true); cancelAnimationFrame(raf.current); raf.current = requestAnimationFrame(tick); } catch (e) { setOn(false); }
+  };
+  const at = e => { const r = bar.current.getBoundingClientRect(); const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); return Math.min(TRIM_MAX, Math.round(x * MUSIC_SEC)); };
+  const down = e => { drag.current = true; bar.current.setPointerCapture && bar.current.setPointerCapture(e.pointerId); const s = at(e); onStart(s); setPos(s); };
+  const move = e => { if (!drag.current) return; const s = at(e); if (s !== start) onStart(s); setPos(s); };
+  const up = e => { if (!drag.current) return; drag.current = false; const s = at(e); onStart(s); play(s); };   // 손을 떼면 거기서부터 들려준다
+  const pct = v => `${(v / MUSIC_SEC) * 100}%`;
+  return (
+    <div className="mtrim">
+      {m.art && <img className="mtrim-bg" src={m.art} alt=""/>}
+      <div className="mtrim-in">
+        <div className="mtrim-top">
+          <img className="mtrim-art" src={m.art} alt=""/>
+          <div className="mtrim-t"><b>{m.title}</b><span>{m.artist}</span></div>
+          <button type="button" className="mtrim-play" onClick={() => on ? stop() : play(start)} aria-label={on ? '멈추기' : '시작 지점부터 듣기'}><LIcon name={on ? 'pause' : 'play'} size={22} fill="#111" stroke="#111"/></button>
+        </div>
+        <div className="mtrim-lab"><span>시작 지점</span><b>{fmtSec(start)}</b><span className="mtrim-len">{MUSIC_SEC - start}초 동안 들려요</span></div>
+        <div className="mtrim-bar" ref={bar} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => (drag.current = false)} role="slider" aria-label="시작 지점" aria-valuemin={0} aria-valuemax={TRIM_MAX} aria-valuenow={start}
+          tabIndex={0} onKeyDown={e => { if (e.key === 'ArrowRight') onStart(Math.min(TRIM_MAX, start + 1)); if (e.key === 'ArrowLeft') onStart(Math.max(0, start - 1)); }}>
+          <div className="mtrim-waves">{bars.map((h, i) => { const t = (i + 0.5) / bars.length * MUSIC_SEC; return <i key={i} className={t < start ? 'off' : t <= pos && on ? 'done' : ''} style={{ height: `${h * 100}%` }}/>; })}</div>
+          <div className="mtrim-win" style={{ left: pct(start) }}/>
+          {on && <div className="mtrim-head" style={{ left: pct(pos) }}/>}
+        </div>
+        <div className="mtrim-ticks"><span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span></div>
+        <div className="mtrim-ft">
+          <span className="mdim tiny">줄을 누르거나 끌어서 시작 지점을 정해요</span>
+          <button type="button" onClick={() => { stop(); onChange(); }}>다른 노래</button>
+        </div>
+      </div>
+    </div>
   );
 }
 /* 큰 음악 창: 아래에서 올라와 화면 대부분을 덮고, 창 전체가 위아래로 넘어간다 (인스타 '스토리에 추가' 음악 창처럼) */

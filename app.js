@@ -1639,38 +1639,14 @@ function MusicPicker({
   onChange
 }) {
   const [open, setOpen] = useState(!value);
-  return /*#__PURE__*/React.createElement(React.Fragment, null, value ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
-    m: value
-  }), /*#__PURE__*/React.createElement("label", {
-    className: "small",
-    style: {
-      display: 'block',
-      margin: '10px 2px 4px'
-    }
-  }, "\uC5B4\uB514\uBD80\uD130 \uD2C0\uAE4C\uC694? ", /*#__PURE__*/React.createElement("b", null, value.start ? `${value.start}초부터` : '처음부터')), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "0",
-    max: "20",
-    step: "5",
-    value: value.start || 0,
-    onChange: e => onChange({
+  return /*#__PURE__*/React.createElement(React.Fragment, null, value ? /*#__PURE__*/React.createElement(MusicTrim, {
+    m: value,
+    onStart: s => onChange({
       ...value,
-      start: +e.target.value
+      start: s
     }),
-    style: {
-      width: '100%'
-    },
-    "aria-label": "\uC2DC\uC791 \uC704\uCE58"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "row gap",
-    style: {
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn soft sm",
-    onClick: () => setOpen(true)
-  }, "\uB2E4\uB978 \uB178\uB798 \uACE0\uB974\uAE30"))) : /*#__PURE__*/React.createElement("button", {
+    onChange: () => setOpen(true)
+  }) : /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn primary block",
     onClick: () => setOpen(true)
@@ -1685,6 +1661,195 @@ function MusicPicker({
       setOpen(false);
     }
   }));
+}
+/* 고른 노래 카드 + 시작 지점 고르기 (인스타 음악 자르기처럼)
+   30초 미리 듣기를 파형 줄로 보여 주고, 줄을 누르거나 끌면 시작 지점이 바뀐다. 재생하면 진행선이 따라 움직인다.
+   마지막 5초는 남겨 두려고 시작은 0~25초 */
+const TRIM_MAX = 25;
+function MusicTrim({
+  m,
+  onStart,
+  onChange
+}) {
+  const start = m.start || 0;
+  const [on, setOn] = useState(false);
+  const [pos, setPos] = useState(start);
+  const au = useRef(null);
+  const raf = useRef(0);
+  const bar = useRef(null);
+  const drag = useRef(false);
+  const bars = useMemo(() => {
+    let s = (m.id || 7) % 2147483647;
+    return Array.from({
+      length: 46
+    }, (_, i) => {
+      s = s * 16807 % 2147483647;
+      const wave = 0.55 + 0.35 * Math.sin(i / 3.1) * Math.sin(i / 7.3);
+      return Math.max(0.18, Math.min(1, wave * (0.55 + s / 2147483647 * 0.6)));
+    });
+  }, [m.id]);
+  const stop = () => {
+    cancelAnimationFrame(raf.current);
+    if (au.current) au.current.pause();
+    setOn(false);
+  };
+  useEffect(() => () => {
+    cancelAnimationFrame(raf.current);
+    if (au.current) au.current.pause();
+  }, []);
+  useEffect(() => {
+    if (!on) setPos(start);
+  }, [start]);
+  const tick = () => {
+    const a = au.current;
+    if (!a) return;
+    setPos(a.currentTime);
+    if (a.currentTime >= MUSIC_SEC - 0.2) {
+      stop();
+      setPos(start);
+      return;
+    }
+    raf.current = requestAnimationFrame(tick);
+  };
+  const play = async (from = start) => {
+    if (!au.current) au.current = playMusic({
+      ...m,
+      start: 0
+    }, {
+      onEnd: () => {
+        stop();
+        setPos(start);
+      },
+      onFail: () => {
+        stop();
+        alert('음악을 불러오지 못했어요');
+      }
+    });
+    const a = au.current;
+    const seek = () => {
+      try {
+        a.currentTime = from;
+      } catch (e) {}
+    };
+    if (a.readyState >= 1) seek();else a.addEventListener('loadedmetadata', seek, {
+      once: true
+    });
+    try {
+      await a.play();
+      setOn(true);
+      cancelAnimationFrame(raf.current);
+      raf.current = requestAnimationFrame(tick);
+    } catch (e) {
+      setOn(false);
+    }
+  };
+  const at = e => {
+    const r = bar.current.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    return Math.min(TRIM_MAX, Math.round(x * MUSIC_SEC));
+  };
+  const down = e => {
+    drag.current = true;
+    bar.current.setPointerCapture && bar.current.setPointerCapture(e.pointerId);
+    const s = at(e);
+    onStart(s);
+    setPos(s);
+  };
+  const move = e => {
+    if (!drag.current) return;
+    const s = at(e);
+    if (s !== start) onStart(s);
+    setPos(s);
+  };
+  const up = e => {
+    if (!drag.current) return;
+    drag.current = false;
+    const s = at(e);
+    onStart(s);
+    play(s);
+  }; // 손을 떼면 거기서부터 들려준다
+  const pct = v => `${v / MUSIC_SEC * 100}%`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mtrim"
+  }, m.art && /*#__PURE__*/React.createElement("img", {
+    className: "mtrim-bg",
+    src: m.art,
+    alt: ""
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-in"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-top"
+  }, /*#__PURE__*/React.createElement("img", {
+    className: "mtrim-art",
+    src: m.art,
+    alt: ""
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-t"
+  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "mtrim-play",
+    onClick: () => on ? stop() : play(start),
+    "aria-label": on ? '멈추기' : '시작 지점부터 듣기'
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: on ? 'pause' : 'play',
+    size: 22,
+    fill: "#111",
+    stroke: "#111"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-lab"
+  }, /*#__PURE__*/React.createElement("span", null, "\uC2DC\uC791 \uC9C0\uC810"), /*#__PURE__*/React.createElement("b", null, fmtSec(start)), /*#__PURE__*/React.createElement("span", {
+    className: "mtrim-len"
+  }, MUSIC_SEC - start, "\uCD08 \uB3D9\uC548 \uB4E4\uB824\uC694")), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-bar",
+    ref: bar,
+    onPointerDown: down,
+    onPointerMove: move,
+    onPointerUp: up,
+    onPointerCancel: () => drag.current = false,
+    role: "slider",
+    "aria-label": "\uC2DC\uC791 \uC9C0\uC810",
+    "aria-valuemin": 0,
+    "aria-valuemax": TRIM_MAX,
+    "aria-valuenow": start,
+    tabIndex: 0,
+    onKeyDown: e => {
+      if (e.key === 'ArrowRight') onStart(Math.min(TRIM_MAX, start + 1));
+      if (e.key === 'ArrowLeft') onStart(Math.max(0, start - 1));
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-waves"
+  }, bars.map((h, i) => {
+    const t = (i + 0.5) / bars.length * MUSIC_SEC;
+    return /*#__PURE__*/React.createElement("i", {
+      key: i,
+      className: t < start ? 'off' : t <= pos && on ? 'done' : '',
+      style: {
+        height: `${h * 100}%`
+      }
+    });
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-win",
+    style: {
+      left: pct(start)
+    }
+  }), on && /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-head",
+    style: {
+      left: pct(pos)
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-ticks"
+  }, /*#__PURE__*/React.createElement("span", null, "0:00"), /*#__PURE__*/React.createElement("span", null, "0:10"), /*#__PURE__*/React.createElement("span", null, "0:20"), /*#__PURE__*/React.createElement("span", null, "0:30")), /*#__PURE__*/React.createElement("div", {
+    className: "mtrim-ft"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mdim tiny"
+  }, "\uC904\uC744 \uB204\uB974\uAC70\uB098 \uB04C\uC5B4\uC11C \uC2DC\uC791 \uC9C0\uC810\uC744 \uC815\uD574\uC694"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      stop();
+      onChange();
+    }
+  }, "\uB2E4\uB978 \uB178\uB798"))));
 }
 /* 큰 음악 창: 아래에서 올라와 화면 대부분을 덮고, 창 전체가 위아래로 넘어간다 (인스타 '스토리에 추가' 음악 창처럼) */
 function MusicSheet({
