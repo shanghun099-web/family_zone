@@ -645,6 +645,80 @@ function VoicePlayer({ src }) {
   );
 }
 
+/* ── 🎵 스토리에 까는 음악: 애플 뮤직 공식 30초 미리 듣기 ──
+   파일은 복사하지 않고 주소·곡 정보만 적는다. 한국 스토어 검색은 비어 있어서 미국 스토어로 찾는다(한국 노래도 나옴).
+   주소가 바뀌어 안 나오면 곡 번호로 다시 찾는다 */
+const MUSIC_SEC = 30;
+async function searchMusic(q) {
+  const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=US&media=music&entity=song&limit=25`);
+  const j = await res.json();
+  return (j.results || []).filter(r => r.previewUrl).map(r => ({ src: 'apple', id: r.trackId, title: r.trackName, artist: r.artistName, art: (r.artworkUrl100 || '').replace('100x100', '300x300'), preview: r.previewUrl, link: r.trackViewUrl }));
+}
+async function musicUrl(m) {
+  try { const j = await (await fetch(`https://itunes.apple.com/lookup?id=${m.id}&country=US`)).json(); const r = (j.results || [])[0]; return (r && r.previewUrl) || null; } catch (e) { return null; }
+}
+/* 음악 한 곡 재생기: 시작 위치부터 끝까지, 주소가 죽었으면 한 번 새로 찾아 다시 */
+function playMusic(m, { onEnd, onFail } = {}) {
+  const a = new Audio(m.preview); let retried = false;
+  a.onloadedmetadata = () => { if (m.start) a.currentTime = Math.min(m.start, Math.max(0, (a.duration || MUSIC_SEC) - 5)); };
+  a.onended = () => onEnd && onEnd();
+  a.onerror = async () => { if (retried) { onFail && onFail(); return; } retried = true; const u = await musicUrl(m); if (!u) { onFail && onFail(); return; } a.src = u; a.play().catch(() => onFail && onFail()); };
+  return a;
+}
+/* 스토리 위에 뜨는 곡 이름 (재생은 스토리가 한다) */
+function MusicTag({ m }) {
+  return <span className="s-mtag">{m.art && <img src={m.art} alt=""/>}<span>🎵 <b>{m.title}</b> · {m.artist}</span>{m.link && <a href={m.link} target="_blank" rel="noopener">Apple Music</a>}</span>;
+}
+function MusicChip({ m, dark }) {
+  const [on, setOn] = useState(false); const au = useRef(null);
+  useEffect(() => () => { if (au.current) au.current.pause(); }, []);
+  const toggle = e => {
+    e.stopPropagation();
+    if (on) { au.current.pause(); setOn(false); return; }
+    if (!au.current) au.current = playMusic(m, { onEnd: () => setOn(false), onFail: () => { setOn(false); alert('음악을 불러오지 못했어요'); } });
+    au.current.play().then(() => setOn(true)).catch(() => setOn(false));
+  };
+  return (
+    <div className={'mchip' + (dark ? ' dark' : '')}>
+      <button onClick={toggle} aria-label={on ? '음악 멈추기' : '음악 듣기'}>{m.art ? <img src={m.art} alt=""/> : null}<span className="mp"><LIcon name={on ? 'pause' : 'play'} size={14} fill="#fff" stroke="#fff"/></span></button>
+      <span className="mt"><b>🎵 {m.title}</b><span>{m.artist}</span></span>
+      {m.link && <a href={m.link} target="_blank" rel="noopener" onClick={e => e.stopPropagation()}>Apple Music</a>}
+    </div>
+  );
+}
+/* 음악 고르기: 검색 → 미리 듣기 → 고르기 → 시작 위치 */
+function MusicPicker({ value, onChange }) {
+  const [q, setQ] = useState(''); const [list, setList] = useState(null); const [busy, setBusy] = useState(false); const [playing, setPlaying] = useState(null); const au = useRef(null);
+  const stop = () => { if (au.current) au.current.pause(); au.current = null; setPlaying(null); };
+  useEffect(() => stop, []);
+  const go = async () => { if (!q.trim()) return; stop(); setBusy(true); try { setList(await searchMusic(q.trim())); } catch (e) { setList([]); } setBusy(false); };
+  const preview = m => { if (playing === m.id) { stop(); return; } stop(); const a = playMusic(m, { onEnd: stop, onFail: stop }); au.current = a; a.play().then(() => setPlaying(m.id)).catch(stop); };
+  if (value) return (
+    <div>
+      <MusicChip m={value}/>
+      <label className="small" style={{ display: 'block', margin: '10px 2px 4px' }}>어디부터 틀까요? <b>{value.start ? `${value.start}초부터` : '처음부터'}</b></label>
+      <input type="range" min="0" max="20" step="5" value={value.start || 0} onChange={e => onChange({ ...value, start: +e.target.value })} style={{ width: '100%' }} aria-label="시작 위치"/>
+      <div className="row gap" style={{ marginTop: 8 }}><button type="button" className="btn soft sm" onClick={() => onChange(null)}>다른 노래 고르기</button></div>
+    </div>
+  );
+  return (
+    <div>
+      <div className="row gap">
+        <input className="input grow" placeholder="노래 제목이나 가수 (예: 밤편지, 임영웅)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }}/>
+        <button type="button" className="btn primary sm" disabled={busy || !q.trim()} onClick={go}>{busy ? <span className="spin"/> : '찾기'}</button>
+      </div>
+      {list && !list.length && <p className="small muted" style={{ margin: '8px 2px 0' }}>못 찾았어요. 가수 이름을 같이 넣거나 영어 제목으로 찾아보세요.</p>}
+      {list && list.length > 0 && <div className="mlist">{list.map(m => (
+        <div className="mrow" key={m.id}>
+          <button type="button" className="mprev" onClick={() => preview(m)} aria-label={playing === m.id ? '멈추기' : '미리 듣기'}><img src={m.art} alt=""/><span className="mp"><LIcon name={playing === m.id ? 'pause' : 'play'} size={14} fill="#fff" stroke="#fff"/></span></button>
+          <span className="mt grow"><b>{m.title}</b><span>{m.artist}</span></span>
+          <button type="button" className="btn soft sm" onClick={() => { stop(); onChange({ ...m, start: 0 }); }}>고르기</button>
+        </div>))}</div>}
+      <p className="tiny muted" style={{ margin: '8px 2px 0' }}>애플 뮤직의 30초 미리 듣기로 틀어요. ▶를 누르면 먼저 들어 볼 수 있어요.</p>
+    </div>
+  );
+}
+
 /* 녹음 단추 → 다 하면 onDone({blob, sec, text}) */
 function RecordButton({ onDone, label = '목소리로 남기기', block }) {
   const R = useRecorder(); const [busy, setBusy] = useState(false);
@@ -928,6 +1002,8 @@ function PostCard({ p }) {
           {pop > 0 && <span key={pop} className="bigheart"><LIcon name="heart" size={96} fill="#fff" stroke="#fff"/></span>}
         </div>
       )}
+      {p.music && <div style={{ padding: '10px 14px 0' }}><MusicChip m={p.music}/></div>}
+      {!p.music && p.audio_url && <div style={{ padding: '10px 14px 0' }}><VoicePlayer src={p.audio_url}/></div>}
       <div className="acts">
         {bar && (
           <div className="rbar" role="menu" aria-label="마음 고르기">
@@ -1034,6 +1110,8 @@ function Composer({ cfg, onClose }) {
   const [tagged, setTagged] = useState([]); const [cap, setCap] = useState(false); const [openOn, setOpenOn] = useState('');
   const [askTo, setAskTo] = useState(''); const [askText, setAskText] = useState(''); const [busy, setBusy] = useState(''); const pick = useRef(null);
   const [ovl, setOvl] = useState(''); const [kept, setKept] = useState([]);   // 고치기: 이미 올라가 있는 사진·동영상 (빼거나 새로 더할 수 있다)
+  const [sound, setSound] = useState(''); const [music, setMusic] = useState(null); const [voice, setVoice] = useState(null);   // 오늘의 한 장: 음악 또는 목소리 깔기 ({blob,sec,url} 새 녹음 / {keep} 예전 것)
+  const isDaily = daily || (edit && edit.kind === 'daily');
   const dict = useDictation(t => setText(s => joinText(s, t)));
   const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
   const maxN = daily || (edit && edit.kind === 'daily') ? 1 : 10;
@@ -1041,6 +1119,7 @@ function Composer({ cfg, onClose }) {
     if (!cfg) return;
     const e = cfg.edit;
     setFiles([]); setKept(e ? photosOf(e) : []); setText(e ? e.content || '' : ''); setDay(e ? e.happened_on : ymd());
+    setMusic(e && e.music || null); setVoice(e && e.audio_url ? { keep: e.audio_url } : null); setSound(e && e.music ? 'music' : e && e.audio_url ? 'voice' : '');
     setTagged(e ? e.tagged || [] : []); setCap(!!(e && e.open_on)); setOpenOn(e && e.open_on || '');
     setAskTo(e && e.ask_to || ''); setAskText(e && e.ask_text || ''); setOvl(e && e.title || ''); setBusy('');
   }, [cfg]);
@@ -1077,21 +1156,32 @@ function Composer({ cfg, onClose }) {
   const submit = async () => {
     if (cap && !openOn) { C.toast('타임캡슐 여는 날을 골라 주세요'); return; }
     if (askTo && !askText.trim()) { C.toast('질문 내용을 적어 주세요'); return; }
+    if (isDaily && sound === 'music' && !music) { C.toast('깔 노래를 골라 주세요 (또는 소리 없음)'); return; }
+    if (isDaily && sound === 'voice' && !voice) { C.toast('목소리를 녹음해 주세요 (또는 소리 없음)'); return; }
+    /* 소리 깔기: 음악은 곡 정보만, 목소리는 드라이브에 올린 주소 */
+    const soundRow = async () => {
+      if (!isDaily) return {};
+      if (sound === 'music') return { music, audio_url: null };
+      if (sound === 'voice') { if (voice.keep) return { music: null, audio_url: voice.keep }; setBusy('목소리 올리는 중…'); return { music: null, audio_url: await uploadVoice(voice.blob, voice.sec) }; }
+      return { music: null, audio_url: null };
+    };
     try {
       if (edit) {
         if (!kept.length && !files.length && !text.trim()) { C.toast('사진이나 글이 하나는 있어야 해요'); return; }
         const added = await uploadAll(); if (!added) { setBusy(''); return; }
+        const snd = await soundRow();
         setBusy('고치는 중…');
         const photos = [...kept, ...added];
         const gone = photosOf(edit).filter(ph => !kept.includes(ph)).map(ph => ph.play_path).filter(Boolean);   // 뺀 동영상의 틀기용 한 벌만 지운다 (드라이브엔 남음)
-        const ok = await C.write(() => db.patch('posts', edit.id, { content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
+        const ok = await C.write(() => db.patch('posts', edit.id, { ...snd, content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '', updated_at: new Date().toISOString() }), '고쳤어요');
         if (ok) { if (gone.length) vfn('del', { paths: gone }).catch(() => {}); onClose(); } else setBusy('');
         return;
       }
       const photos = await uploadAll(); if (!photos) { setBusy(''); return; }
+      const snd = await soundRow();
       setBusy('소식 올리는 중…');
       const row = daily
-        ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd() }
+        ? { author_id: C.me, kind: 'daily', content: text.trim(), photos, happened_on: ymd(), ...snd }
         : { author_id: C.me, kind: 'post', content: text.trim(), title: ovl.trim(), photos, happened_on: day, tagged, open_on: cap ? openOn : null, ask_to: askTo || null, ask_text: askTo ? askText.trim() : '' };
       const ok = await C.write(() => db.add('posts', row), daily ? '오늘의 한 장을 올렸어요' : cap ? `타임캡슐을 잠갔어요 · ${fmtDate(openOn, true)}에 열려요` : '소식을 올렸어요');
       if (ok) onClose(); else setBusy('');
@@ -1125,6 +1215,20 @@ function Composer({ cfg, onClose }) {
         <div style={{ marginTop: 8 }}><MicButton dict={dict}/></div>
         {!daily && <p className="small muted" style={{ margin: '8px 2px 0' }}>글에 <span className="htag">#바다</span> <span className="htag">#할머니댁</span>처럼 적으면, 나중에 눌러서 같은 소식끼리 모아 볼 수 있어요.</p>}
       </div>
+      {isDaily && (
+        <div className="field">
+          <label>소리 깔기 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
+          <div className="seg3" role="radiogroup" aria-label="소리 깔기">
+            {[['', '소리 없음'], ['music', '🎵 음악'], ['voice', '🎙 목소리']].map(([k, l]) => <button type="button" role="radio" aria-checked={sound === k} key={k} className={sound === k ? 'on' : ''} onClick={() => setSound(k)}>{l}</button>)}
+          </div>
+          {sound === 'music' && <div style={{ marginTop: 10 }}><MusicPicker value={music} onChange={setMusic}/></div>}
+          {sound === 'voice' && <div style={{ marginTop: 10 }}>
+            {voice
+              ? <div className="row gap">{voice.keep ? <div className="grow"><VoicePlayer src={voice.keep}/></div> : <audio className="grow" controls src={voice.url}/>}<button type="button" className="btn soft sm" onClick={() => setVoice(null)}>다시 녹음</button></div>
+              : <><RecordButton block label="눌러서 녹음하기 (30초쯤까지)" onDone={async r => setVoice({ ...r, url: URL.createObjectURL(r.blob) })}/><p className="small muted" style={{ margin: '8px 2px 0' }}>예) "오늘 텃밭 고추가 참 잘 됐다~", 아이 노래, 생일 축하 노래. 식구들이 스토리를 열면 이 목소리가 들려요.</p></>}
+          </div>}
+        </div>
+      )}
       {!daily && (
         <>
           <div className="field">
@@ -1160,11 +1264,29 @@ function StoryViewer({ items, onClose }) {
   useEffect(() => { setI(0); setT(0); }, [items]);
   const cur = open ? items[Math.min(i, items.length - 1)] : null;
   useEffect(() => { if (cur) C.markSeen(cur.id); }, [cur && cur.id]);
+  /* 소리 깔기: 음악(30초 미리 듣기)이나 목소리가 있으면 틀고, 그 길이만큼 머문다 (없으면 6초) */
+  const [muted, setMuted] = useState(() => store.get('fz_story_mute') === '1'); const [needTap, setNeedTap] = useState(false);
+  const au = useRef(null);
+  const sndSec = !cur ? 0 : cur.music ? Math.max(6, MUSIC_SEC - (cur.music.start || 0)) : cur.audio_url ? Math.min(60, Math.max(6, voiceSec(cur.audio_url) + 1)) : 0;
+  const durMs = sndSec ? sndSec * 1000 : 6000;
+  useEffect(() => {
+    setNeedTap(false);
+    if (!cur || (!cur.music && !cur.audio_url)) return;
+    let alive = true;
+    (async () => {
+      const a = cur.music ? playMusic(cur.music) : new Audio(await voiceSrc(cur.audio_url).catch(() => ''));
+      if (!alive) return;
+      au.current = a; a.muted = muted;
+      a.play().catch(() => alive && setNeedTap(true));   // 아이폰 등은 한 번 눌러야 소리가 난다
+    })();
+    return () => { alive = false; if (au.current) { au.current.pause(); au.current = null; } };
+  }, [cur && cur.id]);
+  const toggleMute = () => { const m = !muted; setMuted(m); store.set('fz_story_mute', m ? '1' : ''); if (au.current) { au.current.muted = m; if (!m) au.current.play().then(() => setNeedTap(false)).catch(() => {}); } };
   useEffect(() => {
     if (!open) return;
-    const iv = setInterval(() => setT(x => x + 1), 60);
+    const iv = setInterval(() => setT(x => x + 1), durMs / 100);
     return () => clearInterval(iv);
-  }, [open, i]);
+  }, [open, i, durMs]);
   useEffect(() => { if (t >= 100) { if (i < items.length - 1) { setI(i + 1); setT(0); } else onClose(); } }, [t]);
   if (!open) return null;
   const a = C.getM(cur.author_id); const ph = photosOf(cur)[0];
@@ -1175,8 +1297,12 @@ function StoryViewer({ items, onClose }) {
       <div className="sh">
         <Avatar m={a} size={34}/><b>{a.name}</b><span style={{ opacity: .7, fontSize: '.85rem' }}>{relDay(cur.happened_on, cur.created_at)}</span>
         <span className="grow"/>
+        {(cur.music || cur.audio_url) && <button className="iconbtn" onClick={toggleMute} aria-label={muted ? '소리 켜기' : '소리 끄기'}><LIcon name={muted ? 'volume-x' : 'volume-2'} size={26} stroke="#fff"/></button>}
         <button className="iconbtn" onClick={onClose} aria-label="닫기"><LIcon name="x" size={28} stroke="#fff"/></button>
       </div>
+      {cur.music && <div className="s-music"><MusicTag m={cur.music}/></div>}
+      {!cur.music && cur.audio_url && <div className="s-music"><span className="s-voice">🎙 {a.name}의 목소리</span></div>}
+      {needTap && !muted && <button className="s-tap" onClick={() => { if (au.current) au.current.play().then(() => setNeedTap(false)).catch(() => {}); }}>🔊 눌러서 소리 듣기</button>}
       <div className="simg">
         {ph ? <img src={ph.url} alt="오늘의 한 장"/> : <div style={{ fontSize: '1.3rem', padding: 30 }}>{cur.content}</div>}
         <button className="tapL" aria-label="이전" onClick={() => { if (i > 0) { setI(i - 1); setT(0); } else setT(0); }}/>
@@ -2601,6 +2727,7 @@ function ProfileBody({ mid, top = 56 }) {
     ...C.comments.filter(c => c.author_id === m.id && c.audio_url).map(c => { const p = C.posts.find(x => x.id === c.post_id); return { id: c.id, src: c.audio_url, t: c.created_at, text: c.content, ctx: p ? `${C.getM(p.author_id).name}의 소식에 남긴 목소리` : '목소리 댓글' }; }),
     ...C.answers.filter(a => a.member_id === m.id && a.audio_url).map(a => { const q = C.questions.find(x => x.id === a.question_id); return { id: a.id, src: a.audio_url, t: a.created_at, text: a.content, ctx: q ? `질문 “${q.text}”에 답` : '질문에 답' }; }),
     ...C.prayers.filter(p => p.author_id === m.id && p.audio_url).map(p => ({ id: p.id, src: p.audio_url, t: p.created_at, text: p.content, ctx: p.kind === 'prayer' ? '목소리 기도' : '기도 제목' })),
+    ...C.posts.filter(p => p.author_id === m.id && p.audio_url && !isLocked(p)).map(p => ({ id: p.id, src: p.audio_url, t: p.created_at, text: p.content, ctx: '오늘의 한 장 목소리' })),
     ...C.letters.filter(l => l.sender_id === m.id && l.audio_url && !isLocked(l)).map(l => ({ id: l.id, src: l.audio_url, t: l.created_at, text: l.content, ctx: `${C.getM(l.receiver_id).name}에게 보낸 목소리 편지` }))
   ].sort((a, b) => b.t.localeCompare(a.t)) : [];
   const mine = m && m.id === C.me;

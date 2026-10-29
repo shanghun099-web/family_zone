@@ -1450,6 +1450,257 @@ function VoicePlayer({
   })), /*#__PURE__*/React.createElement("small", null, fmtSec(st === 'idle' ? total : pos)));
 }
 
+/* ── 🎵 스토리에 까는 음악: 애플 뮤직 공식 30초 미리 듣기 ──
+   파일은 복사하지 않고 주소·곡 정보만 적는다. 한국 스토어 검색은 비어 있어서 미국 스토어로 찾는다(한국 노래도 나옴).
+   주소가 바뀌어 안 나오면 곡 번호로 다시 찾는다 */
+const MUSIC_SEC = 30;
+async function searchMusic(q) {
+  const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=US&media=music&entity=song&limit=25`);
+  const j = await res.json();
+  return (j.results || []).filter(r => r.previewUrl).map(r => ({
+    src: 'apple',
+    id: r.trackId,
+    title: r.trackName,
+    artist: r.artistName,
+    art: (r.artworkUrl100 || '').replace('100x100', '300x300'),
+    preview: r.previewUrl,
+    link: r.trackViewUrl
+  }));
+}
+async function musicUrl(m) {
+  try {
+    const j = await (await fetch(`https://itunes.apple.com/lookup?id=${m.id}&country=US`)).json();
+    const r = (j.results || [])[0];
+    return r && r.previewUrl || null;
+  } catch (e) {
+    return null;
+  }
+}
+/* 음악 한 곡 재생기: 시작 위치부터 끝까지, 주소가 죽었으면 한 번 새로 찾아 다시 */
+function playMusic(m, {
+  onEnd,
+  onFail
+} = {}) {
+  const a = new Audio(m.preview);
+  let retried = false;
+  a.onloadedmetadata = () => {
+    if (m.start) a.currentTime = Math.min(m.start, Math.max(0, (a.duration || MUSIC_SEC) - 5));
+  };
+  a.onended = () => onEnd && onEnd();
+  a.onerror = async () => {
+    if (retried) {
+      onFail && onFail();
+      return;
+    }
+    retried = true;
+    const u = await musicUrl(m);
+    if (!u) {
+      onFail && onFail();
+      return;
+    }
+    a.src = u;
+    a.play().catch(() => onFail && onFail());
+  };
+  return a;
+}
+/* 스토리 위에 뜨는 곡 이름 (재생은 스토리가 한다) */
+function MusicTag({
+  m
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: "s-mtag"
+  }, m.art && /*#__PURE__*/React.createElement("img", {
+    src: m.art,
+    alt: ""
+  }), /*#__PURE__*/React.createElement("span", null, "\uD83C\uDFB5 ", /*#__PURE__*/React.createElement("b", null, m.title), " \xB7 ", m.artist), m.link && /*#__PURE__*/React.createElement("a", {
+    href: m.link,
+    target: "_blank",
+    rel: "noopener"
+  }, "Apple Music"));
+}
+function MusicChip({
+  m,
+  dark
+}) {
+  const [on, setOn] = useState(false);
+  const au = useRef(null);
+  useEffect(() => () => {
+    if (au.current) au.current.pause();
+  }, []);
+  const toggle = e => {
+    e.stopPropagation();
+    if (on) {
+      au.current.pause();
+      setOn(false);
+      return;
+    }
+    if (!au.current) au.current = playMusic(m, {
+      onEnd: () => setOn(false),
+      onFail: () => {
+        setOn(false);
+        alert('음악을 불러오지 못했어요');
+      }
+    });
+    au.current.play().then(() => setOn(true)).catch(() => setOn(false));
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: 'mchip' + (dark ? ' dark' : '')
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: toggle,
+    "aria-label": on ? '음악 멈추기' : '음악 듣기'
+  }, m.art ? /*#__PURE__*/React.createElement("img", {
+    src: m.art,
+    alt: ""
+  }) : null, /*#__PURE__*/React.createElement("span", {
+    className: "mp"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: on ? 'pause' : 'play',
+    size: 14,
+    fill: "#fff",
+    stroke: "#fff"
+  }))), /*#__PURE__*/React.createElement("span", {
+    className: "mt"
+  }, /*#__PURE__*/React.createElement("b", null, "\uD83C\uDFB5 ", m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), m.link && /*#__PURE__*/React.createElement("a", {
+    href: m.link,
+    target: "_blank",
+    rel: "noopener",
+    onClick: e => e.stopPropagation()
+  }, "Apple Music"));
+}
+/* 음악 고르기: 검색 → 미리 듣기 → 고르기 → 시작 위치 */
+function MusicPicker({
+  value,
+  onChange
+}) {
+  const [q, setQ] = useState('');
+  const [list, setList] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState(null);
+  const au = useRef(null);
+  const stop = () => {
+    if (au.current) au.current.pause();
+    au.current = null;
+    setPlaying(null);
+  };
+  useEffect(() => stop, []);
+  const go = async () => {
+    if (!q.trim()) return;
+    stop();
+    setBusy(true);
+    try {
+      setList(await searchMusic(q.trim()));
+    } catch (e) {
+      setList([]);
+    }
+    setBusy(false);
+  };
+  const preview = m => {
+    if (playing === m.id) {
+      stop();
+      return;
+    }
+    stop();
+    const a = playMusic(m, {
+      onEnd: stop,
+      onFail: stop
+    });
+    au.current = a;
+    a.play().then(() => setPlaying(m.id)).catch(stop);
+  };
+  if (value) return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
+    m: value
+  }), /*#__PURE__*/React.createElement("label", {
+    className: "small",
+    style: {
+      display: 'block',
+      margin: '10px 2px 4px'
+    }
+  }, "\uC5B4\uB514\uBD80\uD130 \uD2C0\uAE4C\uC694? ", /*#__PURE__*/React.createElement("b", null, value.start ? `${value.start}초부터` : '처음부터')), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: "0",
+    max: "20",
+    step: "5",
+    value: value.start || 0,
+    onChange: e => onChange({
+      ...value,
+      start: +e.target.value
+    }),
+    style: {
+      width: '100%'
+    },
+    "aria-label": "\uC2DC\uC791 \uC704\uCE58"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft sm",
+    onClick: () => onChange(null)
+  }, "\uB2E4\uB978 \uB178\uB798 \uACE0\uB974\uAE30")));
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input grow",
+    placeholder: "\uB178\uB798 \uC81C\uBAA9\uC774\uB098 \uAC00\uC218 (\uC608: \uBC24\uD3B8\uC9C0, \uC784\uC601\uC6C5)",
+    value: q,
+    onChange: e => setQ(e.target.value),
+    onKeyDown: e => {
+      if (e.key === 'Enter') go();
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn primary sm",
+    disabled: busy || !q.trim(),
+    onClick: go
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : '찾기')), list && !list.length && /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, "\uBABB \uCC3E\uC558\uC5B4\uC694. \uAC00\uC218 \uC774\uB984\uC744 \uAC19\uC774 \uB123\uAC70\uB098 \uC601\uC5B4 \uC81C\uBAA9\uC73C\uB85C \uCC3E\uC544\uBCF4\uC138\uC694."), list && list.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mlist"
+  }, list.map(m => /*#__PURE__*/React.createElement("div", {
+    className: "mrow",
+    key: m.id
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "mprev",
+    onClick: () => preview(m),
+    "aria-label": playing === m.id ? '멈추기' : '미리 듣기'
+  }, /*#__PURE__*/React.createElement("img", {
+    src: m.art,
+    alt: ""
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "mp"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: playing === m.id ? 'pause' : 'play',
+    size: 14,
+    fill: "#fff",
+    stroke: "#fff"
+  }))), /*#__PURE__*/React.createElement("span", {
+    className: "mt grow"
+  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft sm",
+    onClick: () => {
+      stop();
+      onChange({
+        ...m,
+        start: 0
+      });
+    }
+  }, "\uACE0\uB974\uAE30")))), /*#__PURE__*/React.createElement("p", {
+    className: "tiny muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, "\uC560\uD50C \uBBA4\uC9C1\uC758 30\uCD08 \uBBF8\uB9AC \uB4E3\uAE30\uB85C \uD2C0\uC5B4\uC694. \u25B6\uB97C \uB204\uB974\uBA74 \uBA3C\uC800 \uB4E4\uC5B4 \uBCFC \uC218 \uC788\uC5B4\uC694."));
+}
+
 /* 녹음 단추 → 다 하면 onDone({blob, sec, text}) */
 function RecordButton({
   onDone,
@@ -2137,7 +2388,19 @@ function PostCard({
     size: 96,
     fill: "#fff",
     stroke: "#fff"
-  }))), /*#__PURE__*/React.createElement("div", {
+  }))), p.music && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '10px 14px 0'
+    }
+  }, /*#__PURE__*/React.createElement(MusicChip, {
+    m: p.music
+  })), !p.music && p.audio_url && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '10px 14px 0'
+    }
+  }, /*#__PURE__*/React.createElement(VoicePlayer, {
+    src: p.audio_url
+  })), /*#__PURE__*/React.createElement("div", {
     className: "acts"
   }, bar && /*#__PURE__*/React.createElement("div", {
     className: "rbar",
@@ -2476,6 +2739,10 @@ function Composer({
   const pick = useRef(null);
   const [ovl, setOvl] = useState('');
   const [kept, setKept] = useState([]); // 고치기: 이미 올라가 있는 사진·동영상 (빼거나 새로 더할 수 있다)
+  const [sound, setSound] = useState('');
+  const [music, setMusic] = useState(null);
+  const [voice, setVoice] = useState(null); // 오늘의 한 장: 음악 또는 목소리 깔기 ({blob,sec,url} 새 녹음 / {keep} 예전 것)
+  const isDaily = daily || edit && edit.kind === 'daily';
   const dict = useDictation(t => setText(s => joinText(s, t)));
   const dictQ = useDictation(t => setAskText(s => joinText(s, t)));
   const maxN = daily || edit && edit.kind === 'daily' ? 1 : 10;
@@ -2486,6 +2753,11 @@ function Composer({
     setKept(e ? photosOf(e) : []);
     setText(e ? e.content || '' : '');
     setDay(e ? e.happened_on : ymd());
+    setMusic(e && e.music || null);
+    setVoice(e && e.audio_url ? {
+      keep: e.audio_url
+    } : null);
+    setSound(e && e.music ? 'music' : e && e.audio_url ? 'voice' : '');
     setTagged(e ? e.tagged || [] : []);
     setCap(!!(e && e.open_on));
     setOpenOn(e && e.open_on || '');
@@ -2550,6 +2822,37 @@ function Composer({
       C.toast('질문 내용을 적어 주세요');
       return;
     }
+    if (isDaily && sound === 'music' && !music) {
+      C.toast('깔 노래를 골라 주세요 (또는 소리 없음)');
+      return;
+    }
+    if (isDaily && sound === 'voice' && !voice) {
+      C.toast('목소리를 녹음해 주세요 (또는 소리 없음)');
+      return;
+    }
+    /* 소리 깔기: 음악은 곡 정보만, 목소리는 드라이브에 올린 주소 */
+    const soundRow = async () => {
+      if (!isDaily) return {};
+      if (sound === 'music') return {
+        music,
+        audio_url: null
+      };
+      if (sound === 'voice') {
+        if (voice.keep) return {
+          music: null,
+          audio_url: voice.keep
+        };
+        setBusy('목소리 올리는 중…');
+        return {
+          music: null,
+          audio_url: await uploadVoice(voice.blob, voice.sec)
+        };
+      }
+      return {
+        music: null,
+        audio_url: null
+      };
+    };
     try {
       if (edit) {
         if (!kept.length && !files.length && !text.trim()) {
@@ -2561,10 +2864,12 @@ function Composer({
           setBusy('');
           return;
         }
+        const snd = await soundRow();
         setBusy('고치는 중…');
         const photos = [...kept, ...added];
         const gone = photosOf(edit).filter(ph => !kept.includes(ph)).map(ph => ph.play_path).filter(Boolean); // 뺀 동영상의 틀기용 한 벌만 지운다 (드라이브엔 남음)
         const ok = await C.write(() => db.patch('posts', edit.id, {
+          ...snd,
           content: text.trim(),
           title: ovl.trim(),
           photos,
@@ -2588,13 +2893,15 @@ function Composer({
         setBusy('');
         return;
       }
+      const snd = await soundRow();
       setBusy('소식 올리는 중…');
       const row = daily ? {
         author_id: C.me,
         kind: 'daily',
         content: text.trim(),
         photos,
-        happened_on: ymd()
+        happened_on: ymd(),
+        ...snd
       } : {
         author_id: C.me,
         kind: 'post',
@@ -2748,7 +3055,62 @@ function Composer({
     className: "htag"
   }, "#\uBC14\uB2E4"), " ", /*#__PURE__*/React.createElement("span", {
     className: "htag"
-  }, "#\uD560\uBA38\uB2C8\uB301"), "\uCC98\uB7FC \uC801\uC73C\uBA74, \uB098\uC911\uC5D0 \uB20C\uB7EC\uC11C \uAC19\uC740 \uC18C\uC2DD\uB07C\uB9AC \uBAA8\uC544 \uBCFC \uC218 \uC788\uC5B4\uC694.")), !daily && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "#\uD560\uBA38\uB2C8\uB301"), "\uCC98\uB7FC \uC801\uC73C\uBA74, \uB098\uC911\uC5D0 \uB20C\uB7EC\uC11C \uAC19\uC740 \uC18C\uC2DD\uB07C\uB9AC \uBAA8\uC544 \uBCFC \uC218 \uC788\uC5B4\uC694.")), isDaily && /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\uC18C\uB9AC \uAE54\uAE30 ", /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontWeight: 400
+    }
+  }, "(\uC120\uD0DD)")), /*#__PURE__*/React.createElement("div", {
+    className: "seg3",
+    role: "radiogroup",
+    "aria-label": "\uC18C\uB9AC \uAE54\uAE30"
+  }, [['', '소리 없음'], ['music', '🎵 음악'], ['voice', '🎙 목소리']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "radio",
+    "aria-checked": sound === k,
+    key: k,
+    className: sound === k ? 'on' : '',
+    onClick: () => setSound(k)
+  }, l))), sound === 'music' && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(MusicPicker, {
+    value: music,
+    onChange: setMusic
+  })), sound === 'voice' && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, voice ? /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, voice.keep ? /*#__PURE__*/React.createElement("div", {
+    className: "grow"
+  }, /*#__PURE__*/React.createElement(VoicePlayer, {
+    src: voice.keep
+  })) : /*#__PURE__*/React.createElement("audio", {
+    className: "grow",
+    controls: true,
+    src: voice.url
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft sm",
+    onClick: () => setVoice(null)
+  }, "\uB2E4\uC2DC \uB179\uC74C")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RecordButton, {
+    block: true,
+    label: "\uB20C\uB7EC\uC11C \uB179\uC74C\uD558\uAE30 (30\uCD08\uCBE4\uAE4C\uC9C0)",
+    onDone: async r => setVoice({
+      ...r,
+      url: URL.createObjectURL(r.blob)
+    })
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 2px 0'
+    }
+  }, "\uC608) \"\uC624\uB298 \uD143\uBC2D \uACE0\uCD94\uAC00 \uCC38 \uC798 \uB410\uB2E4~\", \uC544\uC774 \uB178\uB798, \uC0DD\uC77C \uCD95\uD558 \uB178\uB798. \uC2DD\uAD6C\uB4E4\uC774 \uC2A4\uD1A0\uB9AC\uB97C \uC5F4\uBA74 \uC774 \uBAA9\uC18C\uB9AC\uAC00 \uB4E4\uB824\uC694.")))), !daily && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\uC0AC\uC9C4 \uC704 \uC190\uAE00\uC528 \uD55C \uC904 ", /*#__PURE__*/React.createElement("span", {
     className: "muted",
@@ -2856,11 +3218,45 @@ function StoryViewer({
   useEffect(() => {
     if (cur) C.markSeen(cur.id);
   }, [cur && cur.id]);
+  /* 소리 깔기: 음악(30초 미리 듣기)이나 목소리가 있으면 틀고, 그 길이만큼 머문다 (없으면 6초) */
+  const [muted, setMuted] = useState(() => store.get('fz_story_mute') === '1');
+  const [needTap, setNeedTap] = useState(false);
+  const au = useRef(null);
+  const sndSec = !cur ? 0 : cur.music ? Math.max(6, MUSIC_SEC - (cur.music.start || 0)) : cur.audio_url ? Math.min(60, Math.max(6, voiceSec(cur.audio_url) + 1)) : 0;
+  const durMs = sndSec ? sndSec * 1000 : 6000;
+  useEffect(() => {
+    setNeedTap(false);
+    if (!cur || !cur.music && !cur.audio_url) return;
+    let alive = true;
+    (async () => {
+      const a = cur.music ? playMusic(cur.music) : new Audio(await voiceSrc(cur.audio_url).catch(() => ''));
+      if (!alive) return;
+      au.current = a;
+      a.muted = muted;
+      a.play().catch(() => alive && setNeedTap(true)); // 아이폰 등은 한 번 눌러야 소리가 난다
+    })();
+    return () => {
+      alive = false;
+      if (au.current) {
+        au.current.pause();
+        au.current = null;
+      }
+    };
+  }, [cur && cur.id]);
+  const toggleMute = () => {
+    const m = !muted;
+    setMuted(m);
+    store.set('fz_story_mute', m ? '1' : '');
+    if (au.current) {
+      au.current.muted = m;
+      if (!m) au.current.play().then(() => setNeedTap(false)).catch(() => {});
+    }
+  };
   useEffect(() => {
     if (!open) return;
-    const iv = setInterval(() => setT(x => x + 1), 60);
+    const iv = setInterval(() => setT(x => x + 1), durMs / 100);
     return () => clearInterval(iv);
-  }, [open, i]);
+  }, [open, i, durMs]);
   useEffect(() => {
     if (t >= 100) {
       if (i < items.length - 1) {
@@ -2896,7 +3292,15 @@ function StoryViewer({
     }
   }, relDay(cur.happened_on, cur.created_at)), /*#__PURE__*/React.createElement("span", {
     className: "grow"
-  }), /*#__PURE__*/React.createElement("button", {
+  }), (cur.music || cur.audio_url) && /*#__PURE__*/React.createElement("button", {
+    className: "iconbtn",
+    onClick: toggleMute,
+    "aria-label": muted ? '소리 켜기' : '소리 끄기'
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: muted ? 'volume-x' : 'volume-2',
+    size: 26,
+    stroke: "#fff"
+  })), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: onClose,
     "aria-label": "\uB2EB\uAE30"
@@ -2904,7 +3308,20 @@ function StoryViewer({
     name: "x",
     size: 28,
     stroke: "#fff"
-  }))), /*#__PURE__*/React.createElement("div", {
+  }))), cur.music && /*#__PURE__*/React.createElement("div", {
+    className: "s-music"
+  }, /*#__PURE__*/React.createElement(MusicTag, {
+    m: cur.music
+  })), !cur.music && cur.audio_url && /*#__PURE__*/React.createElement("div", {
+    className: "s-music"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "s-voice"
+  }, "\uD83C\uDF99 ", a.name, "\uC758 \uBAA9\uC18C\uB9AC")), needTap && !muted && /*#__PURE__*/React.createElement("button", {
+    className: "s-tap",
+    onClick: () => {
+      if (au.current) au.current.play().then(() => setNeedTap(false)).catch(() => {});
+    }
+  }, "\uD83D\uDD0A \uB20C\uB7EC\uC11C \uC18C\uB9AC \uB4E3\uAE30"), /*#__PURE__*/React.createElement("div", {
     className: "simg"
   }, ph ? /*#__PURE__*/React.createElement("img", {
     src: ph.url,
@@ -6908,6 +7325,12 @@ function ProfileBody({
     t: p.created_at,
     text: p.content,
     ctx: p.kind === 'prayer' ? '목소리 기도' : '기도 제목'
+  })), ...C.posts.filter(p => p.author_id === m.id && p.audio_url && !isLocked(p)).map(p => ({
+    id: p.id,
+    src: p.audio_url,
+    t: p.created_at,
+    text: p.content,
+    ctx: '오늘의 한 장 목소리'
   })), ...C.letters.filter(l => l.sender_id === m.id && l.audio_url && !isLocked(l)).map(l => ({
     id: l.id,
     src: l.audio_url,
