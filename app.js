@@ -5350,7 +5350,7 @@ function LettersTab({
       background: noteColors[i % 4],
       transform: `rotate(${n.angle || 0}deg)`
     }
-  }, /*#__PURE__*/React.createElement("button", {
+  }, (n.author_id === C.me || C.isAdmin) && /*#__PURE__*/React.createElement("button", {
     className: "x",
     onClick: e => {
       e.stopPropagation();
@@ -8350,7 +8350,7 @@ function MemberEdit({
       border: f.color === c ? '3px solid #1a1a1a' : '3px solid #fff',
       boxShadow: '0 0 0 1px #ddd'
     }
-  })))), !isNew && /*#__PURE__*/React.createElement("button", {
+  })))), !isNew && C.isAdmin && m.id !== C.me && /*#__PURE__*/React.createElement("button", {
     className: "btn soft block danger",
     style: {
       marginTop: 10
@@ -8359,7 +8359,7 @@ function MemberEdit({
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "trash-2",
     size: 18
-  }), "\uBA85\uB2E8\uC5D0\uC11C \uBE7C\uAE30")));
+  }), "\uBA85\uB2E8\uC5D0\uC11C \uBE7C\uAE30 (\uAD00\uB9AC\uC790)")));
 }
 function SettingsSheet({
   open,
@@ -9667,7 +9667,21 @@ function App() {
       color: '#FFF6B8',
       angle: +(Math.random() * 4 - 2).toFixed(1)
     })),
-    deleteNote: n => write(() => db.del('notes', `id=eq.${n.id}`)),
+    /* 냉장고 메모 떼기: 쓴 사람이나 관리자만 (서버도 막는다), 한 번 묻고 */
+    deleteNote: async n => {
+      if (n.author_id !== me && !(memberMap[me] && memberMap[me].is_admin)) {
+        toast('메모는 쓴 사람만 뗄 수 있어요');
+        return;
+      }
+      if (!window.confirm(`이 메모를 뗄까요?\n“${(n.content || '').slice(0, 40)}”`)) return;
+      return write(async () => {
+        const r = await sb(`notes?id=eq.${n.id}`, {
+          method: 'DELETE',
+          prefer: 'return=representation'
+        });
+        if (!r || !r.length) throw new Error('쓴 사람만 뗄 수 있어요');
+      }, '메모를 뗐어요');
+    },
     deleteEvent: ev => {
       if (window.confirm(`"${ev.title}" 일정을 지울까요?`)) write(() => db.del('events', `id=eq.${ev.id}`), '일정을 지웠어요');
     },
@@ -9684,13 +9698,29 @@ function App() {
         }).catch(() => {});
       }
     },
+    /* 식구 빼기는 관리자만 (서버도 막는다). 빼면 그 식구의 마음·투표·기도했어요·메모 답글·PIN 이 같이 지워진다 */
     deleteMember: async m => {
+      if (!(memberMap[me] && memberMap[me].is_admin)) {
+        toast('식구를 명단에서 빼는 건 관리자만 할 수 있어요');
+        return;
+      }
       if (D.members.length <= 1) {
         toast('마지막 한 명은 뺄 수 없어요');
         return;
       }
-      if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n쓴 소식과 편지는 남아요.`)) return;
-      if (await write(() => db.del('members', `id=eq.${m.id}`), `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) {
+      if (m.id === me) {
+        toast('나 자신은 뺄 수 없어요');
+        return;
+      }
+      if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n\n쓴 소식·편지·댓글은 남지만, ${m.name}의 마음(이모지)·투표·기도했어요 기록·메모 답글·PIN 은 같이 지워지고 되돌릴 수 없어요.`)) return;
+      if (!window.confirm(`정말 ${josa(m.name, '을', '를')} 빼시겠어요?`)) return;
+      if (await write(async () => {
+        const r = await sb(`members?id=eq.${m.id}`, {
+          method: 'DELETE',
+          prefer: 'return=representation'
+        });
+        if (!r || !r.length) throw new Error('서버가 막았어요 (관리자만 뺄 수 있어요)');
+      }, `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) {
         setMemberEdit(null);
         setProfile(null);
       }

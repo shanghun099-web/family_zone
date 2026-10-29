@@ -2042,7 +2042,7 @@ function LettersTab({ onBack }) {
       })}
       <div className="sec-t">📌 냉장고 메모</div>
       <div className="notes">
-        {C.notes.map((n, i) => <div key={n.id} className="note" onClick={() => C.openNote(n)} style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}><button className="x" onClick={e => { e.stopPropagation(); C.deleteNote(n); }} aria-label="메모 떼기"><LIcon name="x" size={16}/></button><div className="tiny muted">{C.getM(n.author_id).name}</div>{n.content}</div>)}
+        {C.notes.map((n, i) => <div key={n.id} className="note" onClick={() => C.openNote(n)} style={{ background: noteColors[i % 4], transform: `rotate(${n.angle || 0}deg)` }}>{(n.author_id === C.me || C.isAdmin) && <button className="x" onClick={e => { e.stopPropagation(); C.deleteNote(n); }} aria-label="메모 떼기"><LIcon name="x" size={16}/></button>}<div className="tiny muted">{C.getM(n.author_id).name}</div>{n.content}</div>)}
         {!C.notes.length && <p className="small muted">"우유 사 오기" 같은 짧은 쪽지를 붙여 두세요.</p>}
       </div>
       <div className="row gap pad">
@@ -3084,7 +3084,7 @@ function MemberEdit({ m, onClose }) {
         {f.birth_date && <div className="field"><Toggle on={f.bday_lunar} onChange={v => set('bday_lunar', v)} label="생일을 음력으로 쇠요" sub={l ? `켜면 매년 음력 ${l.m}월 ${l.d}일에 맞춰 달력에 들어가요` : ''}/></div>}
         <div className="field"><label>좋아하는 것</label><input className="input" value={f.likes} onChange={e => set('likes', e.target.value)} placeholder="예: 김밥, 공룡, 할머니 텃밭"/></div>
         <div className="field"><label>내 색깔 (달력 표시)</label><div className="chips">{colors.map(c => <button key={c} type="button" aria-label={c} onClick={() => set('color', c)} style={{ width: 40, height: 40, borderRadius: '50%', background: c, border: f.color === c ? '3px solid #1a1a1a' : '3px solid #fff', boxShadow: '0 0 0 1px #ddd' }}/>)}</div></div>
-        {!isNew && <button className="btn soft block danger" style={{ marginTop: 10 }} onClick={() => C.deleteMember(m)}><LIcon name="trash-2" size={18}/>명단에서 빼기</button>}
+        {!isNew && C.isAdmin && m.id !== C.me && <button className="btn soft block danger" style={{ marginTop: 10 }} onClick={() => C.deleteMember(m)}><LIcon name="trash-2" size={18}/>명단에서 빼기 (관리자)</button>}
       </>}
     </Sheet>
   );
@@ -3511,14 +3511,23 @@ function App() {
       if (await write(() => db.del('posts', `id=eq.${p.id}`), '소식을 지웠어요')) { files.forEach(id => gw('delete', { id }).catch(() => {})); if (plays.length) vfn('del', { paths: plays }).catch(() => {}); }
     },
     addNote: content => write(() => db.add('notes', { author_id: me, content, color: '#FFF6B8', angle: +(Math.random() * 4 - 2).toFixed(1) })),
-    deleteNote: n => write(() => db.del('notes', `id=eq.${n.id}`)),
+    /* 냉장고 메모 떼기: 쓴 사람이나 관리자만 (서버도 막는다), 한 번 묻고 */
+    deleteNote: async n => {
+      if (n.author_id !== me && !(memberMap[me] && memberMap[me].is_admin)) { toast('메모는 쓴 사람만 뗄 수 있어요'); return; }
+      if (!window.confirm(`이 메모를 뗄까요?\n“${(n.content || '').slice(0, 40)}”`)) return;
+      return write(async () => { const r = await sb(`notes?id=eq.${n.id}`, { method: 'DELETE', prefer: 'return=representation' }); if (!r || !r.length) throw new Error('쓴 사람만 뗄 수 있어요'); }, '메모를 뗐어요');
+    },
     deleteEvent: ev => { if (window.confirm(`"${ev.title}" 일정을 지울까요?`)) write(() => db.del('events', `id=eq.${ev.id}`), '일정을 지웠어요'); },
     markRead: l => db.patch('letters', l.id, { read_at: new Date().toISOString() }).then(loadAll).catch(() => {}),
     deleteLetter: async l => { if (!window.confirm('이 편지를 지울까요?')) return; setLetterView(null); if (await write(() => db.del('letters', `id=eq.${l.id}`), '편지를 지웠어요')) { const id = driveId(l.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
+    /* 식구 빼기는 관리자만 (서버도 막는다). 빼면 그 식구의 마음·투표·기도했어요·메모 답글·PIN 이 같이 지워진다 */
     deleteMember: async m => {
+      if (!(memberMap[me] && memberMap[me].is_admin)) { toast('식구를 명단에서 빼는 건 관리자만 할 수 있어요'); return; }
       if (D.members.length <= 1) { toast('마지막 한 명은 뺄 수 없어요'); return; }
-      if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n쓴 소식과 편지는 남아요.`)) return;
-      if (await write(() => db.del('members', `id=eq.${m.id}`), `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) { setMemberEdit(null); setProfile(null); }
+      if (m.id === me) { toast('나 자신은 뺄 수 없어요'); return; }
+      if (!window.confirm(`${josa(m.name, '을', '를')} 명단에서 뺄까요?\n\n쓴 소식·편지·댓글은 남지만, ${m.name}의 마음(이모지)·투표·기도했어요 기록·메모 답글·PIN 은 같이 지워지고 되돌릴 수 없어요.`)) return;
+      if (!window.confirm(`정말 ${josa(m.name, '을', '를')} 빼시겠어요?`)) return;
+      if (await write(async () => { const r = await sb(`members?id=eq.${m.id}`, { method: 'DELETE', prefer: 'return=representation' }); if (!r || !r.length) throw new Error('서버가 막았어요 (관리자만 뺄 수 있어요)'); }, `${josa(m.name, '을', '를')} 명단에서 뺐어요`)) { setMemberEdit(null); setProfile(null); }
     },
     changeKey: async (ko, kn) => {
       const k = kn.trim(); if (k.length < 6) { toast('새 암호는 6자 이상이에요'); return false; }
