@@ -1347,7 +1347,8 @@ const Ctx = createContext(null);
 const useC = () => useContext(Ctx);
 const SAVE = '🔖';
 /* 소식에 남기는 마음: 한 사람당 하나. 하트는 한 번 누르기, 나머지는 하트를 누르면 뜨는 줄에서 고른다 */
-const REACTS = [['❤️', '좋아요'], ['🥰', '사랑스러워요'], ['😂', '웃겨요'], ['👍', '최고예요'], ['😮', '놀라워요'], ['😢', '슬퍼요'], ['🙏', '기도해요'], ['🎉', '축하해요']];
+/* 마음 16가지 (8개씩 두 줄). 앞 8개는 예전부터 쓰던 것 — 순서를 바꾸지 않는다 */
+const REACTS = [['❤️', '좋아요'], ['🥰', '사랑스러워요'], ['😂', '웃겨요'], ['👍', '최고예요'], ['😮', '놀라워요'], ['😢', '슬퍼요'], ['🙏', '기도해요'], ['🎉', '축하해요'], ['🤣', '빵 터졌어요'], ['👏', '박수 쳐요'], ['🤗', '안아 줄게요'], ['💪', '힘내요'], ['🥺', '뭉클해요'], ['😭', '눈물 나요'], ['🤔', '궁금해요'], ['😋', '맛있겠다']];
 const reactWord = e => (REACTS.find(x => x[0] === e) || [e, '마음을 남겼어요'])[1];
 const isLocked = x => !!(x.open_on && x.open_on > ymd());
 const photosOf = p => Array.isArray(p.photos) ? p.photos : [];
@@ -1766,7 +1767,11 @@ function CommentRow({
   const C = useC();
   const a = C.getM(c.author_id);
   const [editing, setEditing] = useState(false);
+  const [pick, setPick] = useState(false);
   const mine = c.author_id === C.me;
+  const rs = C.commentReactsOf(c.id);
+  const myR = (rs.find(r => r.member_id === C.me) || {}).emoji;
+  const kinds = REACTS.map(x => x[0]).filter(e => rs.some(r => r.emoji === e)).slice(0, 3).join('');
   return /*#__PURE__*/React.createElement("div", {
     className: 'cmt' + (reply ? ' reply' : '')
   }, /*#__PURE__*/React.createElement(Avatar, {
@@ -1795,13 +1800,32 @@ function CommentRow({
     }
   }), !editing && /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), onReply && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), /*#__PURE__*/React.createElement("button", {
+    className: 'cr' + (myR ? ' on' : ''),
+    onClick: () => setPick(v => !v),
+    "aria-label": "\uB9C8\uC74C \uB0A8\uAE30\uAE30",
+    title: rs.map(r => C.getM(r.member_id).name + r.emoji).join(', ')
+  }, rs.length ? /*#__PURE__*/React.createElement(React.Fragment, null, kinds, " ", rs.length) : '♡ 마음'), onReply && /*#__PURE__*/React.createElement("button", {
     onClick: () => onReply(c)
   }, "\uB2F5\uAE00 \uB2EC\uAE30"), mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => setEditing(true)
   }, "\uC218\uC815"), onDelete && mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(c)
-  }, "\uC9C0\uC6B0\uAE30"))));
+  }, "\uC9C0\uC6B0\uAE30")), pick && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "rbar mini",
+    role: "group",
+    "aria-label": "\uB313\uAE00\uC5D0 \uB9C8\uC74C \uB0A8\uAE30\uAE30"
+  }, REACTS.map(([e, w]) => /*#__PURE__*/React.createElement("button", {
+    key: e,
+    className: myR === e ? 'on' : '',
+    onClick: () => {
+      C.reactComment(c, e);
+      setPick(false);
+    },
+    "aria-label": w
+  }, e))), rs.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "tiny muted"
+  }, rs.map(r => C.getM(r.member_id).name + r.emoji).join(', ')))));
 }
 /* 댓글 하나 + 그 아래 답글들 (답글은 한 단계만, 들여 쓴다) */
 function CommentThread({
@@ -5889,6 +5913,7 @@ const TABLE_KO = {
   prayer_marks: '기도했어요',
   polls: '투표',
   poll_votes: '투표에서 고른 것',
+  comment_reacts: '댓글 마음',
   memories: '추억',
   wishes: '바라는 것',
   event_tasks: '할 일',
@@ -7936,7 +7961,8 @@ function App() {
     nreacts: [],
     nreplies: [],
     polls: [],
-    pvotes: []
+    pvotes: [],
+    creacts: []
   });
   const [noteView, setNoteView] = useState(null);
   /* 알림 지우기: 이 폰에서만 숨긴다 (지운 알림 열쇠들 + "이때까지 모두 지움") */
@@ -8010,7 +8036,7 @@ function App() {
   }, [fontSize]);
   const loadAll = async () => {
     try {
-      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny, pl, pv] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []), db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []), db.list('note_replies', 'select=*&order=created_at,id').catch(() => []), db.list('polls', 'select=*&order=created_at.desc,id').catch(() => []), db.list('poll_votes', 'select=*&order=created_at,poll_id,member_id,opt').catch(() => [])]);
+      const [ms, ps, rs, cs, ns, es, ls, qs, as, bk, pr, pk, nr, ny, pl, pv, cr] = await Promise.all([db.list('members', 'select=*&order=sort,created_at,id'), db.list('posts', 'select=*&order=happened_on.desc,created_at.desc,id'), db.list('reactions', 'select=post_id,member_id,emoji,created_at&order=created_at,post_id,member_id,emoji'), db.list('comments', 'select=*&order=created_at,id'), db.list('notes', 'select=*&order=created_at,id'), db.list('events', 'select=*&order=event_date,id'), db.list('letters', 'select=*&order=created_at.desc,id'), db.list('questions', 'select=*&order=week_start.desc,id'), db.list('answers', 'select=*&order=created_at,id'), db.list('question_bank', 'select=*&order=created_at,id').catch(() => []), db.list('prayers', 'select=*&order=created_at.desc,id').catch(() => []), db.list('prayer_marks', 'select=*&order=created_at,prayer_id,member_id,day').catch(() => []), db.list('note_reacts', 'select=*&order=created_at,note_id,member_id').catch(() => []), db.list('note_replies', 'select=*&order=created_at,id').catch(() => []), db.list('polls', 'select=*&order=created_at.desc,id').catch(() => []), db.list('poll_votes', 'select=*&order=created_at,poll_id,member_id,opt').catch(() => []), db.list('comment_reacts', 'select=*&order=created_at,comment_id,member_id').catch(() => [])]);
       if (!ms.length && !(await db.rpc('is_family'))) {
         leave('가족 암호가 바뀌었어요. 새 암호를 넣어 주세요.');
         return;
@@ -8035,7 +8061,8 @@ function App() {
         nreacts: nr,
         nreplies: ny,
         polls: pl,
-        pvotes: pv
+        pvotes: pv,
+        creacts: cr
       });
       setLoaded(true);
       setLoadErr('');
@@ -8076,8 +8103,8 @@ function App() {
         if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요');
         return false;
       }
-      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
+      const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes', 'comment_reacts'];
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'comment_reacts' ? 'select=*&order=comment_id,member_id' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
       const data = {
         app: 'THE FAMILY ZONE',
         saved_at: new Date().toISOString(),
@@ -8387,6 +8414,20 @@ function App() {
         }
       });
     });
+    D.creacts.filter(r => r.member_id !== me && r.created_at > since).forEach(r => {
+      const c = D.comments.find(x => x.id === r.comment_id);
+      const p = c && posts.find(x => x.id === c.post_id);
+      if (p && c.author_id === me) out.push({
+        key: 'cr' + r.comment_id + r.member_id,
+        who: r.member_id,
+        t: r.created_at,
+        text: `${josa(getM(r.member_id).name, '이', '가')} 내 댓글에 ${r.emoji} ${reactWord(r.emoji)}${c.content ? ` “${c.content.slice(0, 24)}”` : ''}`,
+        go: () => {
+          setCmtReply(null);
+          setCmtPost(p);
+        }
+      });
+    });
     const hid = new Set(notiHide.keys);
     return out.filter(x => !hid.has(x.key) && !(notiHide.before && x.t <= notiHide.before)).map(x => ({
       ...x,
@@ -8618,6 +8659,32 @@ function App() {
       setCmtPost(p);
     },
     repliesOf: id => D.comments.filter(c => c.parent_id === id),
+    commentReactsOf: id => D.creacts.filter(r => r.comment_id === id),
+    reactComment: async (c, emoji) => {
+      // 댓글마다 한 사람 한 마음 (냉장고 메모와 같은 방식)
+      const cur = (D.creacts.find(r => r.comment_id === c.id && r.member_id === me) || {}).emoji;
+      const off = cur === emoji;
+      setD(d => ({
+        ...d,
+        creacts: [...d.creacts.filter(r => !(r.comment_id === c.id && r.member_id === me)), ...(off ? [] : [{
+          comment_id: c.id,
+          member_id: me,
+          emoji,
+          created_at: new Date().toISOString()
+        }])]
+      }));
+      try {
+        if (cur) await db.del('comment_reacts', `comment_id=eq.${c.id}&member_id=eq.${me}`);
+        if (!off) await db.add('comment_reacts', {
+          comment_id: c.id,
+          member_id: me,
+          emoji
+        });
+      } catch (e) {
+        toast('마음을 저장하지 못했어요');
+        loadAll();
+      }
+    },
     openProfile: id => setProfile(id),
     openStory: items => items && items.length && setStory(items),
     openLetterCompose: cfg => setLetterCfg(cfg || {}),

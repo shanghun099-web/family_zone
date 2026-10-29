@@ -112,7 +112,7 @@
   .liked .rk{letter-spacing:-2px;font-size:1.05rem}
   .acts{position:relative}
   .myr{font-size:26px;line-height:28px;display:inline-block;width:28px;text-align:center}
-  .rbar{position:absolute;left:6px;bottom:calc(100% + 4px);z-index:5;display:flex;gap:2px;padding:5px 6px;background:#fff;border-radius:30px;box-shadow:0 6px 22px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);animation:rbar .18s ease-out}
+  .rbar{position:absolute;left:6px;bottom:calc(100% + 4px);z-index:5;display:grid;grid-template-columns:repeat(8,38px);gap:2px;padding:6px 6px;background:#fff;border-radius:22px;box-shadow:0 6px 22px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);animation:rbar .18s ease-out}
   .rbar button{border:0;background:none;font-size:27px;width:38px;height:40px;border-radius:50%;padding:0;cursor:pointer;transition:transform .12s}
   .rbar button:active{transform:scale(1.35)}
   .rbar button.on{background:#FFE9EC}
@@ -375,7 +375,11 @@
   .nt-meta{display:flex;gap:10px;font-size:.8rem;color:#5a4f3a;margin-top:2px}
   .note.big{width:auto;min-height:0;transform:none;margin:0 0 12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
   .note.big .nt-txt{font-size:1.9rem}
-  .rbar.inline{position:static;animation:none;box-shadow:none;background:#f6f4f0;justify-content:space-between;margin:0 0 6px}
+  .rbar.inline{position:static;animation:none;box-shadow:none;background:#f6f4f0;grid-template-columns:repeat(8,1fr);justify-items:center;margin:0 0 6px}
+  .rbar.mini{position:static;animation:none;margin:6px 0 2px;grid-template-columns:repeat(8,1fr);justify-items:center;max-width:330px}
+  .rbar.mini button{font-size:23px;width:34px;height:36px}
+  .cmt .meta .cr{display:inline-flex;align-items:center;gap:2px;font-size:.85rem;color:#444}
+  .cmt .meta .cr.on{color:#d0304a;font-weight:700}
   .nt-txt{flex:1;font-family:'Nanum Pen Script',cursive;font-size:1.45rem;line-height:1.15;color:#3a3226}
   .note{flex-shrink:0;width:150px;min-height:110px;border-radius:6px;padding:10px;font-size:.92rem;box-shadow:0 2px 6px rgba(0,0,0,.1);position:relative;white-space:pre-wrap}
   .note .x{position:absolute;top:2px;right:2px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;opacity:.5}
@@ -455,6 +459,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=77324551"></script>
+<script src="app.js?v=5a891a0b"></script>
 </body>
 </html>
