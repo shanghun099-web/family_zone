@@ -1491,13 +1491,19 @@ const RECO_TABS = [['family', '💕 가족·사랑'], ['bday', '🎂 생일·축
 /* 이달의 노래 제목 (애플 뮤직처럼 이모지 없이) */
 const monthTitle = (mo = new Date().getMonth() + 1) => [`${mo}월의 노래`, mo === 12 ? '크리스마스에 듣기 좋은 곡' : mo <= 2 ? '겨울에 어울리는 곡' : mo <= 4 ? '봄에 어울리는 곡' : mo === 5 ? '가정의 달, 가족에게 들려주고 싶은 곡' : mo <= 8 ? '여름에 어울리는 곡' : '가을에 어울리는 곡'];
 /* 오늘의 추천: 이달 노래·계절·동요·생일을 뺀 추천곡(가족·찬양·트로트·잔잔한·신나는)에서 날마다 10곡 (그날은 늘 같은 10곡) */
-function todayMix(skip, day = ymd()) {
+/* 날짜를 씨앗으로 섞기 (그날은 식구 모두 같은 순서) */
+function dayShuffle(arr, day = ymd(), salt = 7) {
+  let s = [...day].reduce((n, c) => n * 31 + c.charCodeAt(0) >>> 0, salt);
+  const rnd = () => (s = s * 1103515245 + 12345 >>> 0) / 4294967296;
+  return arr.map(x => [rnd(), x]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+}
+function todayMix(skip, day = ymd(), n = 10) {
   const seen = new Set((MUSIC_RECO[skip] || []).map(x => x[0]));
   const all = Object.entries(MUSIC_RECO).filter(([k]) => k !== skip && !['winter', 'spring', 'summer', 'autumn', 'xmas', 'may', 'kids', 'bday'].includes(k)).flatMap(([, l]) => l).filter(x => !seen.has(x[0]) && seen.add(x[0]));
-  let s = [...day].reduce((n, c) => n * 31 + c.charCodeAt(0) >>> 0, 7);
-  const rnd = () => (s = s * 1103515245 + 12345 >>> 0) / 4294967296;
-  return all.map(x => [rnd(), x]).sort((a, b) => a[0] - b[0]).slice(0, 10).map(x => x[1]);
+  return dayShuffle(all, day).slice(0, n);
 }
+/* 추천곡을 다 보면 이어서: 가수 이름으로 애플에서 찾아 계속 붙인다 (그날 순서로, 한 번에 한 가수) */
+const MUSIC_FEED = ['아이유', '성시경', '이문세', '김광석', '임영웅', '폴킴', '10CM', '악뮤', '볼빨간사춘기', '잔나비', '멜로망스', '이적', '윤종신', '박효신', '거미', '에일리', '이소라', '김동률', '토이 유희열', '신승훈', '조용필', '이선희', '양희은', '송가인', '장윤정', '영탁', '이찬원', '김호중', '뉴진스', '아이브', '방탄소년단', '세븐틴', '데이식스', '마마무', '태연', '백지영', '버즈', '김범수', '나얼', '브라운아이즈', '어노인팅', '마커스워십', '제이어스', '유재하', '김건모', '015B'];
 const recoCache = {};
 async function loadReco(key, given) {
   if (recoCache[key]) return recoCache[key];
@@ -1774,6 +1780,9 @@ function MusicBrowser({
       if (alive) {
         setMonth(a);
         setMix(b);
+        poolAt.current = 10;
+        feedAt.current = 0;
+        setNoMore(false);
       }
     }).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
     return () => {
@@ -1787,6 +1796,55 @@ function MusicBrowser({
       start: 0
     });
   };
+  /* 끝없이 이어 보기: 끝에 닿으면 추천곡 10곡씩 → 다 보면 가수별로 애플에서 찾아 이어 붙인다 */
+  const pool = useMemo(() => todayMix(mk, ymd(), 999), [mk]);
+  const feed = useMemo(() => dayShuffle(MUSIC_FEED, ymd(), 11), []);
+  const poolAt = useRef(10),
+    feedAt = useRef(0),
+    moreLock = useRef(false),
+    endRef = useRef(null);
+  const [moreBusy, setMoreBusy] = useState(false);
+  const [noMore, setNoMore] = useState(false);
+  const loadMore = async () => {
+    if (moreLock.current || noMore) return;
+    moreLock.current = true;
+    setMoreBusy(true);
+    try {
+      let add = [];
+      if (poolAt.current < pool.length) {
+        const part = pool.slice(poolAt.current, poolAt.current + 10);
+        poolAt.current += 10;
+        add = await loadReco(`mix-${ymd()}-${poolAt.current}`, part);
+      } else if (feedAt.current < feed.length) {
+        // 두 가수에서 6곡씩 번갈아 (한 가수만 줄줄이 나오지 않게)
+        const ok = m => !/inst|MR\b|karaoke|cover|remix|ver\.\)/i.test(m.title);
+        const a = (await searchMusic(feed[feedAt.current++])).filter(ok).slice(0, 6);
+        const b = feedAt.current < feed.length ? (await searchMusic(feed[feedAt.current++])).filter(ok).slice(0, 6) : [];
+        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+          if (a[i]) add.push(a[i]);
+          if (b[i]) add.push(b[i]);
+        }
+      } else setNoMore(true);
+      setMix(cur => {
+        const seen = new Set([...(cur || []), ...(month || [])].map(m => m.id));
+        return [...(cur || []), ...add.filter(m => !seen.has(m.id) && seen.add(m.id))];
+      });
+    } catch (e) {/* 애플이 잠깐 막으면(1분에 20번 넘게) 다음에 다시 */}
+    moreLock.current = false;
+    setMoreBusy(false);
+  };
+  useEffect(() => {
+    const el = endRef.current;
+    if (!el || !window.IntersectionObserver || top !== 'reco' || list) return;
+    const io = new IntersectionObserver(es => {
+      if (es[0].isIntersecting) loadMore();
+    }, {
+      root: el.closest('.msheet-bd'),
+      rootMargin: '400px'
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [mix && mix.length, top, !!list, noMore]);
   const stop = () => {
     if (au.current) au.current.pause();
     au.current = null;
@@ -1950,7 +2008,15 @@ function MusicBrowser({
     onClick: () => choose(m)
   }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist))))), /*#__PURE__*/React.createElement("div", {
     className: "msec"
-  }, /*#__PURE__*/React.createElement("b", null, "\uC624\uB298\uC758 \uCD94\uCC9C"), /*#__PURE__*/React.createElement("span", null, "\uB0A0\uB9C8\uB2E4 \uC0C8\uB85C \uACE8\uB77C \uB4DC\uB824\uC694")), mix && rows(mix))), top === 'hot' && (hot.length ? rows(hot) : /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("b", null, "\uC624\uB298\uC758 \uCD94\uCC9C"), /*#__PURE__*/React.createElement("span", null, "\uB0A0\uB9C8\uB2E4 \uC0C8\uB85C \uACE8\uB77C \uB4DC\uB824\uC694")), mix && rows(mix), mix && !noMore && /*#__PURE__*/React.createElement("div", {
+    ref: endRef,
+    className: "mmore"
+  }, moreBusy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: loadMore
+  }, "\uB178\uB798 \uB354 \uBCF4\uAE30")))), top === 'hot' && (hot.length ? rows(hot) : /*#__PURE__*/React.createElement("p", {
     className: "mdim mempty"
   }, "\uC544\uC9C1 \uC2A4\uD1A0\uB9AC\uC5D0 \uC74C\uC545\uC744 \uAE50 \uC2DD\uAD6C\uAC00 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), "\uCCAB \uBC88\uC9F8\uB85C \uAE54\uC544 \uBCF4\uC138\uC694! \uD83C\uDFB5")), top === 'saved' && (saved.length ? rows(saved) : /*#__PURE__*/React.createElement("p", {
     className: "mdim mempty"
