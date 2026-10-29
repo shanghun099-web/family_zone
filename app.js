@@ -1583,6 +1583,18 @@ function MusicTag({
     rel: "noopener"
   }, "Apple Music"));
 }
+/* 재생기 버리기: 먼저 이벤트를 떼야 한다 (주소를 비우면 onerror 가 '주소가 죽었다'며 다시 찾아 틀어 버린다) */
+function dropAudio(a) {
+  if (!a) return;
+  a.onerror = null;
+  a.onended = null;
+  a.onloadedmetadata = null;
+  try {
+    a.pause();
+    a.removeAttribute('src');
+    a.load();
+  } catch (e) {}
+}
 function MusicChip({
   m,
   dark
@@ -1697,6 +1709,14 @@ function MusicTrim({
     cancelAnimationFrame(raf.current);
     if (au.current) au.current.pause();
   }, []);
+  /* 다른 노래로 바뀌면 예전 노래 재생기를 버린다 (안 버리면 새 노래를 눌러도 예전 노래가 나온다) */
+  useEffect(() => {
+    cancelAnimationFrame(raf.current);
+    dropAudio(au.current);
+    au.current = null;
+    setOn(false);
+    setPos(m.start || 0);
+  }, [m.id]);
   useEffect(() => {
     if (!on) setPos(start);
   }, [start]);
@@ -2011,7 +2031,7 @@ function MusicBrowser({
     return () => io.disconnect();
   }, [mix && mix.length, top, !!list, noMore]);
   const stop = () => {
-    if (au.current) au.current.pause();
+    dropAudio(au.current);
     au.current = null;
     setPlaying(null);
   };
@@ -3729,10 +3749,8 @@ function StoryViewer({
     })();
     return () => {
       alive = false;
-      if (au.current) {
-        au.current.pause();
-        au.current = null;
-      }
+      dropAudio(au.current);
+      au.current = null;
     };
   }, [cur && cur.id]);
   const toggleMute = () => {

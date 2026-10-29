@@ -716,6 +716,12 @@ function playMusic(m, { onEnd, onFail } = {}) {
 function MusicTag({ m }) {
   return <span className="s-mtag">{m.art && <img src={m.art} alt=""/>}<span>🎵 <b>{m.title}</b> · {m.artist}</span>{m.link && <a href={m.link} target="_blank" rel="noopener">Apple Music</a>}</span>;
 }
+/* 재생기 버리기: 먼저 이벤트를 떼야 한다 (주소를 비우면 onerror 가 '주소가 죽었다'며 다시 찾아 틀어 버린다) */
+function dropAudio(a) {
+  if (!a) return;
+  a.onerror = null; a.onended = null; a.onloadedmetadata = null;
+  try { a.pause(); a.removeAttribute('src'); a.load(); } catch (e) {}
+}
 function MusicChip({ m, dark }) {
   const [on, setOn] = useState(false); const au = useRef(null);
   useEffect(() => () => { if (au.current) au.current.pause(); }, []);
@@ -755,6 +761,8 @@ function MusicTrim({ m, onStart, onChange }) {
   const bars = useMemo(() => { let s = (m.id || 7) % 2147483647; return Array.from({ length: 46 }, (_, i) => { s = (s * 16807) % 2147483647; const wave = 0.55 + 0.35 * Math.sin(i / 3.1) * Math.sin(i / 7.3); return Math.max(0.18, Math.min(1, wave * (0.55 + (s / 2147483647) * 0.6))); }); }, [m.id]);
   const stop = () => { cancelAnimationFrame(raf.current); if (au.current) au.current.pause(); setOn(false); };
   useEffect(() => () => { cancelAnimationFrame(raf.current); if (au.current) au.current.pause(); }, []);
+  /* 다른 노래로 바뀌면 예전 노래 재생기를 버린다 (안 버리면 새 노래를 눌러도 예전 노래가 나온다) */
+  useEffect(() => { cancelAnimationFrame(raf.current); dropAudio(au.current); au.current = null; setOn(false); setPos(m.start || 0); }, [m.id]);
   useEffect(() => { if (!on) setPos(start); }, [start]);
   const tick = () => { const a = au.current; if (!a) return; setPos(a.currentTime); if (a.currentTime >= MUSIC_SEC - 0.2) { stop(); setPos(start); return; } raf.current = requestAnimationFrame(tick); };
   const play = async (from = start) => {
@@ -862,7 +870,7 @@ function MusicBrowser({ onPick }) {
     const io = new IntersectionObserver(es => { if (es[0].isIntersecting) loadMore(); }, { root: el.closest('.msheet-bd'), rootMargin: '400px' });
     io.observe(el); return () => io.disconnect();
   }, [mix && mix.length, top, !!list, noMore]);
-  const stop = () => { if (au.current) au.current.pause(); au.current = null; setPlaying(null); };
+  const stop = () => { dropAudio(au.current); au.current = null; setPlaying(null); };
   useEffect(() => stop, []);
   const go = async () => { if (!q.trim()) return; stop(); setBusy(true); try { setList(await searchMusic(q.trim())); } catch (e) { setList([]); } setBusy(false); };
   const preview = m => { if (playing === m.id) { stop(); return; } stop(); const a = playMusic(m, { onEnd: stop, onFail: stop }); au.current = a; a.play().then(() => setPlaying(m.id)).catch(stop); };
@@ -1467,7 +1475,7 @@ function StoryViewer({ items, onClose }) {
       au.current = a; a.muted = muted;
       a.play().catch(() => alive && setNeedTap(true));   // 아이폰 등은 한 번 눌러야 소리가 난다
     })();
-    return () => { alive = false; if (au.current) { au.current.pause(); au.current = null; } };
+    return () => { alive = false; dropAudio(au.current); au.current = null; };
   }, [cur && cur.id]);
   const toggleMute = () => { const m = !muted; setMuted(m); store.set('fz_story_mute', m ? '1' : ''); if (au.current) { au.current.muted = m; if (!m) au.current.play().then(() => setNeedTap(false)).catch(() => {}); } };
   useEffect(() => {
