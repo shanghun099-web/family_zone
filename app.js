@@ -2811,7 +2811,7 @@ function Composer({
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "x",
     size: 22
-  })), /*#__PURE__*/React.createElement("span", null, "\uC548 \uBB3C\uC5B4\uBD10\uC694")), others.map(m => /*#__PURE__*/React.createElement("button", {
+  })), /*#__PURE__*/React.createElement("span", null, "\uC5C6\uC74C")), others.map(m => /*#__PURE__*/React.createElement("button", {
     type: "button",
     role: "radio",
     "aria-checked": askTo === m.id,

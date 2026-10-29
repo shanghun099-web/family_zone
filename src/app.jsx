@@ -1141,7 +1141,7 @@ function Composer({ cfg, onClose }) {
             <label>한 사람에게 물어보기 <span className="muted" style={{ fontWeight: 400 }}>(선택)</span></label>
             <p className="small muted" style={{ margin: '0 2px 10px' }}>이 사진을 보고 식구 한 사람에게 묻고 싶은 게 있으면 얼굴을 누르세요. 그 식구에게 알림이 가고, 답이 소식 아래에 남아요.</p>
             <div className="whopick" role="radiogroup" aria-label="물어볼 식구">
-              <button type="button" role="radio" aria-checked={!askTo} className={!askTo ? 'on' : ''} onClick={() => setAskTo('')}><span className="none"><LIcon name="x" size={22}/></span><span>안 물어봐요</span></button>
+              <button type="button" role="radio" aria-checked={!askTo} className={!askTo ? 'on' : ''} onClick={() => setAskTo('')}><span className="none"><LIcon name="x" size={22}/></span><span>없음</span></button>
               {others.map(m => <button type="button" role="radio" aria-checked={askTo === m.id} key={m.id} className={askTo === m.id ? 'on' : ''} onClick={() => setAskTo(m.id)}><Avatar m={m} size={52}/><span>{m.name}</span></button>)}
             </div>
             {askTo && <><input className="input" style={{ marginTop: 10 }} placeholder={`${C.getM(askTo).name}께: 예) 이 사진 속 집, 기억나세요?`} value={askText} onChange={e => setAskText(e.target.value)}/><div style={{ marginTop: 8 }}><MicButton dict={dictQ}/></div></>}

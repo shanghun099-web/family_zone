@@ -133,8 +133,9 @@
   .replying{display:flex;align-items:center;justify-content:space-between;background:#EEF5FF;color:#1d5fa8;border-radius:12px;padding:6px 6px 6px 12px;font-size:.92rem}
   .replying button{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%}
   .whopick{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 4px}
-  .whopick>button{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:70px;padding:8px 4px;border-radius:16px;border:2px solid transparent;background:#faf9f7;font-size:.92rem}
+  .whopick>button{display:flex;flex-direction:column;align-items:center;gap:5px;flex:0 0 76px;width:76px;padding:8px 4px;border-radius:16px;border:2px solid transparent;background:#faf9f7;font-size:.92rem}
   .whopick>button.on{border-color:var(--ink);background:#fff;font-weight:700}
+  .whopick>button>span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .whopick .none{width:52px;height:52px;border-radius:50%;background:#eceae6;color:#8a847c;display:flex;align-items:center;justify-content:center}
   .cmt .meta{font-size:.78rem;color:var(--sub);margin-top:2px;display:flex;gap:10px}
   .tag-ans{display:inline-block;font-size:.72rem;font-weight:700;color:#b2502c;background:#FFE7DC;border-radius:6px;padding:0 6px;margin-right:4px}
@@ -459,6 +460,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=5a891a0b"></script>
+<script src="app.js?v=fe276dc3"></script>
 </body>
 </html>
