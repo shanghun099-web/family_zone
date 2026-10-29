@@ -9931,7 +9931,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: ic,
     size: 23,
-    sw: tab === k ? 2.3 : 1.8
+    sw: tab === k ? 2.1 : 1.6
   })), /*#__PURE__*/React.createElement("span", {
     className: "tb-l"
   }, l))), /*#__PURE__*/React.createElement("button", {
@@ -9942,8 +9942,8 @@ function App() {
     className: "tb-plus"
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "plus",
-    size: 26,
-    sw: 2.6
+    size: 20,
+    sw: 2.4
   })), /*#__PURE__*/React.createElement("span", {
     className: "tb-l"
   }, "\uC0C8 \uC18C\uC2DD")), /*#__PURE__*/React.createElement("button", {
@@ -9955,7 +9955,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "hand-heart",
     size: 23,
-    sw: tab === 'pray' ? 2.3 : 1.8
+    sw: tab === 'pray' ? 2.1 : 1.6
   })), /*#__PURE__*/React.createElement("span", {
     className: "tb-l"
   }, "\uAE30\uB3C4")), /*#__PURE__*/React.createElement("button", {
@@ -9972,7 +9972,7 @@ function App() {
   })) : /*#__PURE__*/React.createElement(LIcon, {
     name: "circle-user-round",
     size: 23,
-    sw: tab === 'me' ? 2.3 : 1.8
+    sw: tab === 'me' ? 2.1 : 1.6
   })), /*#__PURE__*/React.createElement("span", {
     className: "tb-l"
   }, "\uB0B4 \uD504\uB85C\uD544")))), /*#__PURE__*/React.createElement(ProfilePage, {
