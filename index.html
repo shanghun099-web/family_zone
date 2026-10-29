@@ -445,6 +445,16 @@
   .mtabs{display:flex;gap:8px;margin:12px 0 10px;overflow-x:auto;scrollbar-width:none}
   .mtabs button{flex:0 0 auto;background:#30333a;color:#fff;border-radius:12px;padding:0 15px;min-height:42px;font-weight:700;font-size:.98rem}
   .mtabs button.on{background:#fff;color:#111}
+  .msheet-bg{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
+  .msheet{width:100%;max-width:480px;height:92vh;height:92dvh;background:#1f2125;color:#fff;border-radius:22px 22px 0 0;display:flex;flex-direction:column;animation:msUp .22s ease-out}
+  @keyframes msUp{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+  .msheet-hd{position:relative;display:flex;align-items:center;justify-content:center;min-height:56px;padding-top:6px;flex-shrink:0}
+  .msheet-hd b{font-size:1.05rem}
+  .msheet-hd .grab{position:absolute;top:7px;left:50%;transform:translateX(-50%);width:40px;height:4px;border-radius:2px;background:#5a5d64}
+  .msheet-hd button{position:absolute;right:6px;top:8px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#fff}
+  .msheet-bd{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+  .msheet .mpanel{border-radius:0;padding-top:4px;background:transparent}
+  .msheet .mpanel .mlist{max-height:none;overflow:visible}
   .msec{display:flex;flex-direction:column;margin:16px 2px 10px}
   .msec b{font-size:1.15rem;letter-spacing:-.01em}
   .msec span{color:#a9acb3;font-size:.86rem;margin-top:1px}
@@ -521,6 +531,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=efbcc23a"></script>
+<script src="app.js?v=6aed5444"></script>
 </body>
 </html>

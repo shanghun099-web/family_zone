@@ -727,8 +727,36 @@ function MusicChip({ m, dark }) {
   );
 }
 /* 음악 고르기: 검색 → 미리 듣기 → 고르기 → 시작 위치 */
+/* 소식 쓰기 안의 음악 칸: 고른 노래 + 시작 위치. 고르기는 아래에서 올라오는 큰 음악 창(MusicSheet)에서 */
 function MusicPicker({ value, onChange }) {
-  const C = useC();
+  const [open, setOpen] = useState(!value);
+  return (
+    <>
+      {value ? <div>
+        <MusicChip m={value}/>
+        <label className="small" style={{ display: 'block', margin: '10px 2px 4px' }}>어디부터 틀까요? <b>{value.start ? `${value.start}초부터` : '처음부터'}</b></label>
+        <input type="range" min="0" max="20" step="5" value={value.start || 0} onChange={e => onChange({ ...value, start: +e.target.value })} style={{ width: '100%' }} aria-label="시작 위치"/>
+        <div className="row gap" style={{ marginTop: 8 }}><button type="button" className="btn soft sm" onClick={() => setOpen(true)}>다른 노래 고르기</button></div>
+      </div> : <button type="button" className="btn primary block" onClick={() => setOpen(true)}><LIcon name="music" size={20}/>노래 고르기</button>}
+      <MusicSheet open={open} onClose={() => setOpen(false)} onPick={m => { onChange(m); setOpen(false); }}/>
+    </>
+  );
+}
+/* 큰 음악 창: 아래에서 올라와 화면 대부분을 덮고, 창 전체가 위아래로 넘어간다 (인스타 '스토리에 추가' 음악 창처럼) */
+function MusicSheet({ open, onClose, onPick }) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return (
+    <div className="msheet-bg" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="msheet" role="dialog" aria-label="음악 고르기">
+        <div className="msheet-hd"><span className="grab"/><b>음악 추가</b><button type="button" onClick={onClose} aria-label="닫기"><LIcon name="x" size={24}/></button></div>
+        <div className="msheet-bd"><MusicBrowser onPick={onPick}/></div>
+      </div>
+    </div>
+  );
+}
+function MusicBrowser({ onPick }) {
+  const C = useC(); const value = null; const onChange = m => m && onPick(m);
   const [q, setQ] = useState(''); const [list, setList] = useState(null); const [busy, setBusy] = useState(false); const [playing, setPlaying] = useState(null); const au = useRef(null);
   /* 인스타그램 음악 고르기처럼: 검색 · [추천 | 우리 가족 인기 | 저장됨] · 줄을 누르면 고르기, 앨범 그림은 미리 듣기, 오른쪽 책갈피 */
   const [top, setTop] = useState('reco');
@@ -768,14 +796,6 @@ function MusicPicker({ value, onChange }) {
       </button>
       <button type="button" className={'msave' + (isSaved(m.id) ? ' on' : '')} onClick={() => toggleSave(m)} aria-label={isSaved(m.id) ? '저장 빼기' : '저장하기'}><LIcon name="bookmark" size={24} fill={isSaved(m.id) ? 'currentColor' : 'none'}/></button>
     </div>))}</div>;
-  if (value) return (
-    <div>
-      <MusicChip m={value}/>
-      <label className="small" style={{ display: 'block', margin: '10px 2px 4px' }}>어디부터 틀까요? <b>{value.start ? `${value.start}초부터` : '처음부터'}</b></label>
-      <input type="range" min="0" max="20" step="5" value={value.start || 0} onChange={e => onChange({ ...value, start: +e.target.value })} style={{ width: '100%' }} aria-label="시작 위치"/>
-      <div className="row gap" style={{ marginTop: 8 }}><button type="button" className="btn soft sm" onClick={() => onChange(null)}>다른 노래 고르기</button></div>
-    </div>
-  );
   return (
     <div className="mpanel">
       <div className="msearch">

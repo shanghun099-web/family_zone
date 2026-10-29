@@ -1627,11 +1627,99 @@ function MusicChip({
   }, "Apple Music"));
 }
 /* 음악 고르기: 검색 → 미리 듣기 → 고르기 → 시작 위치 */
+/* 소식 쓰기 안의 음악 칸: 고른 노래 + 시작 위치. 고르기는 아래에서 올라오는 큰 음악 창(MusicSheet)에서 */
 function MusicPicker({
   value,
   onChange
 }) {
+  const [open, setOpen] = useState(!value);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, value ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
+    m: value
+  }), /*#__PURE__*/React.createElement("label", {
+    className: "small",
+    style: {
+      display: 'block',
+      margin: '10px 2px 4px'
+    }
+  }, "\uC5B4\uB514\uBD80\uD130 \uD2C0\uAE4C\uC694? ", /*#__PURE__*/React.createElement("b", null, value.start ? `${value.start}초부터` : '처음부터')), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: "0",
+    max: "20",
+    step: "5",
+    value: value.start || 0,
+    onChange: e => onChange({
+      ...value,
+      start: +e.target.value
+    }),
+    style: {
+      width: '100%'
+    },
+    "aria-label": "\uC2DC\uC791 \uC704\uCE58"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft sm",
+    onClick: () => setOpen(true)
+  }, "\uB2E4\uB978 \uB178\uB798 \uACE0\uB974\uAE30"))) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn primary block",
+    onClick: () => setOpen(true)
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "music",
+    size: 20
+  }), "\uB178\uB798 \uACE0\uB974\uAE30"), /*#__PURE__*/React.createElement(MusicSheet, {
+    open: open,
+    onClose: () => setOpen(false),
+    onPick: m => {
+      onChange(m);
+      setOpen(false);
+    }
+  }));
+}
+/* 큰 음악 창: 아래에서 올라와 화면 대부분을 덮고, 창 전체가 위아래로 넘어간다 (인스타 '스토리에 추가' 음악 창처럼) */
+function MusicSheet({
+  open,
+  onClose,
+  onPick
+}) {
+  useLayer(open, onClose);
+  if (!open) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "msheet-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) onClose();
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "msheet",
+    role: "dialog",
+    "aria-label": "\uC74C\uC545 \uACE0\uB974\uAE30"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "msheet-hd"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "grab"
+  }), /*#__PURE__*/React.createElement("b", null, "\uC74C\uC545 \uCD94\uAC00"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onClose,
+    "aria-label": "\uB2EB\uAE30"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "x",
+    size: 24
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "msheet-bd"
+  }, /*#__PURE__*/React.createElement(MusicBrowser, {
+    onPick: onPick
+  }))));
+}
+function MusicBrowser({
+  onPick
+}) {
   const C = useC();
+  const value = null;
+  const onChange = m => m && onPick(m);
   const [q, setQ] = useState('');
   const [list, setList] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1770,38 +1858,6 @@ function MusicPicker({
     size: 24,
     fill: isSaved(m.id) ? 'currentColor' : 'none'
   })))));
-  if (value) return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
-    m: value
-  }), /*#__PURE__*/React.createElement("label", {
-    className: "small",
-    style: {
-      display: 'block',
-      margin: '10px 2px 4px'
-    }
-  }, "\uC5B4\uB514\uBD80\uD130 \uD2C0\uAE4C\uC694? ", /*#__PURE__*/React.createElement("b", null, value.start ? `${value.start}초부터` : '처음부터')), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "0",
-    max: "20",
-    step: "5",
-    value: value.start || 0,
-    onChange: e => onChange({
-      ...value,
-      start: +e.target.value
-    }),
-    style: {
-      width: '100%'
-    },
-    "aria-label": "\uC2DC\uC791 \uC704\uCE58"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "row gap",
-    style: {
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn soft sm",
-    onClick: () => onChange(null)
-  }, "\uB2E4\uB978 \uB178\uB798 \uACE0\uB974\uAE30")));
   return /*#__PURE__*/React.createElement("div", {
     className: "mpanel"
   }, /*#__PURE__*/React.createElement("div", {
