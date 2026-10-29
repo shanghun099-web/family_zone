@@ -3595,12 +3595,21 @@ function App() {
         {tab === 'cal' && <CalendarTab/>}
         {tab === 'pray' && <PrayTab/>}
         {tab === 'me' && <MeTab/>}
-        <nav className="tabbar">
-          <button className={tab === 'home' ? 'on' : ''} onClick={() => { if (tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab('home'); }}><LIcon name="house" size={26} fill={tab === 'home' ? '#1a1a1a' : undefined}/>홈</button>
-          <button className={tab === 'cal' ? 'on' : ''} onClick={() => goTab('cal')}><LIcon name="calendar-days" size={26} sw={tab === 'cal' ? 2.4 : undefined}/>달력</button>
-          <button onClick={() => setComposer({})} aria-label="새 소식 올리기"><LIcon name="square-plus" size={27}/>새 소식</button>
-          <button className={tab === 'pray' ? 'on' : ''} onClick={() => goTab('pray')}><LIcon name="hand-heart" size={26} sw={tab === 'pray' ? 2.4 : undefined}/>기도</button>
-          <button className={tab === 'me' ? 'on' : ''} onClick={() => goTab('me')}>{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={26} sw={tab === 'me' ? 2.4 : undefined}/>}내 프로필</button>
+        {/* 아래 메뉴: 화면 위에 떠 있는 어두운 유리 막대. 가운데 새 소식은 하트 색 동그라미로 살짝 올라와 있다 */}
+        <nav className="tabbar" aria-label="아래 메뉴">
+          {[['home', 'house', '홈'], ['cal', 'calendar-days', '달력']].map(([k, ic, l]) => (
+            <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => { if (k === 'home' && tab === 'home') window.scrollTo({ top: 0, behavior: 'smooth' }); goTab(k); }}>
+              <span className="tb-ic"><LIcon name={ic} size={23} sw={tab === k ? 2.3 : 1.8}/></span><span className="tb-l">{l}</span>
+            </button>))}
+          <button className="tb-add" onClick={() => setComposer({})} aria-label="새 소식 올리기">
+            <span className="tb-plus"><LIcon name="plus" size={26} sw={2.6}/></span><span className="tb-l">새 소식</span>
+          </button>
+          <button className={tab === 'pray' ? 'on' : ''} aria-current={tab === 'pray' ? 'page' : undefined} onClick={() => goTab('pray')}>
+            <span className="tb-ic"><LIcon name="hand-heart" size={23} sw={tab === 'pray' ? 2.3 : 1.8}/></span><span className="tb-l">기도</span>
+          </button>
+          <button className={tab === 'me' ? 'on' : ''} aria-current={tab === 'me' ? 'page' : undefined} onClick={() => goTab('me')}>
+            <span className="tb-ic">{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={23} sw={tab === 'me' ? 2.3 : 1.8}/>}</span><span className="tb-l">내 프로필</span>
+          </button>
         </nav>
       </div>
       <ProfilePage mid={profile} onClose={() => setProfile(null)}/>

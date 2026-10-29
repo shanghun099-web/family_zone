@@ -9913,43 +9913,57 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "app"
   }, tab === 'home' && /*#__PURE__*/React.createElement(HomeTab, null), tab === 'cal' && /*#__PURE__*/React.createElement(CalendarTab, null), tab === 'pray' && /*#__PURE__*/React.createElement(PrayTab, null), tab === 'me' && /*#__PURE__*/React.createElement(MeTab, null), /*#__PURE__*/React.createElement("nav", {
-    className: "tabbar"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: tab === 'home' ? 'on' : '',
+    className: "tabbar",
+    "aria-label": "\uC544\uB798 \uBA54\uB274"
+  }, [['home', 'house', '홈'], ['cal', 'calendar-days', '달력']].map(([k, ic, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: tab === k ? 'on' : '',
+    "aria-current": tab === k ? 'page' : undefined,
     onClick: () => {
-      if (tab === 'home') window.scrollTo({
+      if (k === 'home' && tab === 'home') window.scrollTo({
         top: 0,
         behavior: 'smooth'
       });
-      goTab('home');
+      goTab(k);
     }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tb-ic"
   }, /*#__PURE__*/React.createElement(LIcon, {
-    name: "house",
-    size: 26,
-    fill: tab === 'home' ? '#1a1a1a' : undefined
-  }), "\uD648"), /*#__PURE__*/React.createElement("button", {
-    className: tab === 'cal' ? 'on' : '',
-    onClick: () => goTab('cal')
-  }, /*#__PURE__*/React.createElement(LIcon, {
-    name: "calendar-days",
-    size: 26,
-    sw: tab === 'cal' ? 2.4 : undefined
-  }), "\uB2EC\uB825"), /*#__PURE__*/React.createElement("button", {
+    name: ic,
+    size: 23,
+    sw: tab === k ? 2.3 : 1.8
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "tb-l"
+  }, l))), /*#__PURE__*/React.createElement("button", {
+    className: "tb-add",
     onClick: () => setComposer({}),
     "aria-label": "\uC0C8 \uC18C\uC2DD \uC62C\uB9AC\uAE30"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tb-plus"
   }, /*#__PURE__*/React.createElement(LIcon, {
-    name: "square-plus",
-    size: 27
-  }), "\uC0C8 \uC18C\uC2DD"), /*#__PURE__*/React.createElement("button", {
+    name: "plus",
+    size: 26,
+    sw: 2.6
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "tb-l"
+  }, "\uC0C8 \uC18C\uC2DD")), /*#__PURE__*/React.createElement("button", {
     className: tab === 'pray' ? 'on' : '',
+    "aria-current": tab === 'pray' ? 'page' : undefined,
     onClick: () => goTab('pray')
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tb-ic"
   }, /*#__PURE__*/React.createElement(LIcon, {
     name: "hand-heart",
-    size: 26,
-    sw: tab === 'pray' ? 2.4 : undefined
-  }), "\uAE30\uB3C4"), /*#__PURE__*/React.createElement("button", {
+    size: 23,
+    sw: tab === 'pray' ? 2.3 : 1.8
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "tb-l"
+  }, "\uAE30\uB3C4")), /*#__PURE__*/React.createElement("button", {
     className: tab === 'me' ? 'on' : '',
+    "aria-current": tab === 'me' ? 'page' : undefined,
     onClick: () => goTab('me')
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tb-ic"
   }, me0.avatar ? /*#__PURE__*/React.createElement("span", {
     className: "me-av"
   }, /*#__PURE__*/React.createElement(Avatar, {
@@ -9957,9 +9971,11 @@ function App() {
     size: 24
   })) : /*#__PURE__*/React.createElement(LIcon, {
     name: "circle-user-round",
-    size: 26,
-    sw: tab === 'me' ? 2.4 : undefined
-  }), "\uB0B4 \uD504\uB85C\uD544"))), /*#__PURE__*/React.createElement(ProfilePage, {
+    size: 23,
+    sw: tab === 'me' ? 2.3 : 1.8
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "tb-l"
+  }, "\uB0B4 \uD504\uB85C\uD544")))), /*#__PURE__*/React.createElement(ProfilePage, {
     mid: profile,
     onClose: () => setProfile(null)
   }), /*#__PURE__*/React.createElement(AgoPage, {
