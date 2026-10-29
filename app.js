@@ -1759,14 +1759,16 @@ function EditLine({
 }
 function CommentRow({
   c,
-  onDelete
+  onDelete,
+  onReply,
+  reply
 }) {
   const C = useC();
   const a = C.getM(c.author_id);
   const [editing, setEditing] = useState(false);
   const mine = c.author_id === C.me;
   return /*#__PURE__*/React.createElement("div", {
-    className: "cmt"
+    className: 'cmt' + (reply ? ' reply' : '')
   }, /*#__PURE__*/React.createElement(Avatar, {
     m: a,
     size: 28,
@@ -1793,11 +1795,38 @@ function CommentRow({
     }
   }), !editing && /*#__PURE__*/React.createElement("div", {
     className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), mine && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), onReply && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onReply(c)
+  }, "\uB2F5\uAE00 \uB2EC\uAE30"), mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => setEditing(true)
   }, "\uC218\uC815"), onDelete && mine && /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(c)
   }, "\uC9C0\uC6B0\uAE30"))));
+}
+/* 댓글 하나 + 그 아래 답글들 (답글은 한 단계만, 들여 쓴다) */
+function CommentThread({
+  c,
+  onDelete,
+  onReply,
+  max
+}) {
+  const C = useC();
+  const reps = C.repliesOf(c.id);
+  const shown = max ? reps.slice(-max) : reps;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(CommentRow, {
+    c: c,
+    onDelete: onDelete,
+    onReply: onReply
+  }), max && reps.length > shown.length && /*#__PURE__*/React.createElement("button", {
+    className: "linkbtn reply-more",
+    onClick: () => C.openComments(C.posts.find(p => p.id === c.post_id))
+  }, "\uB2F5\uAE00 ", reps.length, "\uAC1C \uBAA8\uB450 \uBCF4\uAE30"), shown.map(r => /*#__PURE__*/React.createElement(CommentRow, {
+    key: r.id,
+    c: r,
+    reply: true,
+    onDelete: onDelete,
+    onReply: onReply ? () => onReply(c, r) : null
+  })));
 }
 
 /* 동영상: 드라이브는 받은 뒤 재생용으로 다시 만드느라 큰 영상은 몇 분~30분쯤 못 튼다.
@@ -1980,8 +2009,12 @@ function PostCard({
     }
   };
   const comments = C.commentsOf(p.id);
-  const answers = comments.filter(c => c.is_answer);
-  const plain = comments.filter(c => !c.is_answer);
+  const answers = comments.filter(c => c.is_answer && !c.parent_id);
+  const plain = comments.filter(c => !c.is_answer && !c.parent_id); // 답글은 각 댓글 아래에
+  const replyTo = (c, r) => C.openComments(p, '', {
+    c,
+    r
+  });
   const tagged = (p.tagged || []).filter(id => id !== p.author_id).map(C.getM);
   const asked = p.ask_to ? C.getM(p.ask_to) : null;
   const r0 = photos[0] && photos[0].w ? Math.max(0.8, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
@@ -2201,8 +2234,10 @@ function PostCard({
   }, "\u201C", p.ask_text, "\u201D"), answers.map(c => /*#__PURE__*/React.createElement("div", {
     className: "ans",
     key: c.id
-  }, /*#__PURE__*/React.createElement(CommentRow, {
-    c: c
+  }, /*#__PURE__*/React.createElement(CommentThread, {
+    c: c,
+    max: 1,
+    onReply: replyTo
   }))), !answers.length && (p.ask_to === C.me ? /*#__PURE__*/React.createElement("button", {
     className: "btn sm accent",
     onClick: () => C.openComments(p)
@@ -2216,9 +2251,11 @@ function PostCard({
   }, plain.length > 2 && /*#__PURE__*/React.createElement("button", {
     className: "linkbtn",
     onClick: () => C.openComments(p)
-  }, "\uB313\uAE00 ", plain.length, "\uAC1C \uBAA8\uB450 \uBCF4\uAE30"), plain.slice(-2).map(c => /*#__PURE__*/React.createElement(CommentRow, {
+  }, "\uB313\uAE00 ", plain.length, "\uAC1C \uBAA8\uB450 \uBCF4\uAE30"), plain.slice(-2).map(c => /*#__PURE__*/React.createElement(CommentThread, {
     key: c.id,
-    c: c
+    c: c,
+    max: 1,
+    onReply: replyTo
   }))), /*#__PURE__*/React.createElement(Sheet, {
     open: menu,
     onClose: () => setMenu(false),
@@ -2255,40 +2292,67 @@ function PostCard({
 function CommentsSheet({
   post,
   mode,
+  reply,
   onClose
 }) {
   const C = useC();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [to, setTo] = useState(null); // 답글 달 댓글 {c: 맨 위 댓글, r: 누른 답글(있으면)}
   const dict = useDictation(t => setText(s => joinText(s, t)));
+  const inRef = useRef(null);
   const open = !!post;
+  useEffect(() => {
+    setTo(reply || null);
+    if (reply) setTimeout(() => inRef.current && inRef.current.focus(), 300);
+  }, [post && post.id, reply]);
   const p = post ? C.posts.find(x => x.id === post.id) || post : null;
-  const list = p ? C.commentsOf(p.id) : [];
-  const answering = p && p.ask_to === C.me;
+  const list = p ? C.commentsOf(p.id).filter(c => !c.parent_id) : [];
+  const answering = p && p.ask_to === C.me && !list.some(c => c.is_answer && c.author_id === C.me);
+  const toWho = to ? C.getM((to.r || to.c).author_id).name : '';
   const send = async row => {
     setBusy(true);
     const ok = await C.addComment({
       post_id: p.id,
       author_id: C.me,
-      is_answer: !!answering,
+      is_answer: !to && !!answering,
+      ...(to ? {
+        parent_id: to.c.id
+      } : {}),
       ...row
     });
     setBusy(false);
+    if (ok) setTo(null);
     return ok;
+  };
+  const pickReply = (c, r) => {
+    setTo({
+      c,
+      r
+    });
+    setTimeout(() => inRef.current && inRef.current.focus(), 50);
   };
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
     onClose: onClose,
-    title: answering ? '질문에 답하기' : '댓글',
+    title: answering && !to ? '질문에 답하기' : '댓글',
     full: true,
     footer: p && /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'grid',
         gap: 8
       }
-    }, /*#__PURE__*/React.createElement(RecordButton, {
+    }, to && /*#__PURE__*/React.createElement("div", {
+      className: "replying"
+    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, toWho), "\uC5D0\uAC8C \uB2F5\uAE00 \uB2E4\uB294 \uC911"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setTo(null),
+      "aria-label": "\uB2F5\uAE00 \uADF8\uB9CC\uB450\uAE30"
+    }, /*#__PURE__*/React.createElement(LIcon, {
+      name: "x",
+      size: 16
+    }))), /*#__PURE__*/React.createElement(RecordButton, {
       block: true,
-      label: answering ? '목소리로 답하기' : '목소리 댓글 남기기',
+      label: to ? '목소리로 답글 달기' : answering ? '목소리로 답하기' : '목소리 댓글 남기기',
       onDone: async r => {
         const url = await uploadVoice(r.blob, r.sec);
         await send({
@@ -2299,8 +2363,9 @@ function CommentsSheet({
     }), /*#__PURE__*/React.createElement("div", {
       className: "row gap"
     }, /*#__PURE__*/React.createElement("input", {
+      ref: inRef,
       className: "input grow",
-      placeholder: answering ? '글로 답하기…' : '댓글 달기…',
+      placeholder: to ? `${toWho}에게 답글…` : answering ? '글로 답하기…' : '댓글 달기…',
       value: text,
       onChange: e => setText(e.target.value)
     }), /*#__PURE__*/React.createElement("button", {
@@ -2353,10 +2418,11 @@ function CommentsSheet({
     className: "empty"
   }, "\uCCAB \uB313\uAE00\uC744 \uB0A8\uACA8 \uBCF4\uC138\uC694.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
     className: "small"
-  }, "\uD0C0\uC790\uAC00 \uC5B4\uB824\uC6B0\uBA74 \uC544\uB798 \uB9C8\uC774\uD06C\uB97C \uB204\uB974\uC138\uC694.")), list.map(c => /*#__PURE__*/React.createElement(CommentRow, {
+  }, "\uD0C0\uC790\uAC00 \uC5B4\uB824\uC6B0\uBA74 \uC544\uB798 \uB9C8\uC774\uD06C\uB97C \uB204\uB974\uC138\uC694.")), list.map(c => /*#__PURE__*/React.createElement(CommentThread, {
     key: c.id,
     c: c,
-    onDelete: C.deleteComment
+    onDelete: C.deleteComment,
+    onReply: pickReply
   })), mode === 'voice' && !list.length && /*#__PURE__*/React.createElement("p", {
     className: "small muted",
     style: {
@@ -2688,19 +2754,7 @@ function Composer({
     style: {
       margin: '6px 2px 0'
     }
-  }, "\uC61B\uB0A0 \uC0AC\uC9C4\uB3C4 \uADF8\uB0A0 \uB0A0\uC9DC\uB85C \uC62C\uB9AC\uBA74 \"N\uB144 \uC804 \uC624\uB298\"\uC5D0 \uB2E4\uC2DC \uB5A0\uC694.")), /*#__PURE__*/React.createElement("div", {
-    className: "field"
-  }, /*#__PURE__*/React.createElement("label", null, "\uC0AC\uC9C4\uC5D0 \uB204\uAC00 \uB098\uC654\uB098\uC694?"), /*#__PURE__*/React.createElement("div", {
-    className: "chips"
-  }, C.members.map(m => {
-    const on = tagged.includes(m.id);
-    return /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      key: m.id,
-      className: 'chip' + (on ? ' on' : ''),
-      onClick: () => setTagged(t => on ? t.filter(x => x !== m.id) : [...t, m.id])
-    }, m.emoji, " ", m.name);
-  }))), /*#__PURE__*/React.createElement(CapsulePicker, {
+  }, "\uC61B\uB0A0 \uC0AC\uC9C4\uB3C4 \uADF8\uB0A0 \uB0A0\uC9DC\uB85C \uC62C\uB9AC\uBA74 \"N\uB144 \uC804 \uC624\uB298\"\uC5D0 \uB2E4\uC2DC \uB5A0\uC694.")), /*#__PURE__*/React.createElement(CapsulePicker, {
     on: cap,
     setOn: setCap,
     date: openOn,
@@ -2708,28 +2762,47 @@ function Composer({
     member: capMember
   }), /*#__PURE__*/React.createElement("div", {
     className: "field"
-  }, /*#__PURE__*/React.createElement("label", null, "\uC9C8\uBB38\uB3C4 \uBD99\uC77C\uAE4C\uC694? ", /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("label", null, "\uD55C \uC0AC\uB78C\uC5D0\uAC8C \uBB3C\uC5B4\uBCF4\uAE30 ", /*#__PURE__*/React.createElement("span", {
     className: "muted",
     style: {
       fontWeight: 400
     }
-  }, "(\uC120\uD0DD)")), /*#__PURE__*/React.createElement("div", {
-    className: "chips",
+  }, "(\uC120\uD0DD)")), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
     style: {
-      marginBottom: askTo ? 8 : 0
+      margin: '0 2px 10px'
     }
+  }, "\uC774 \uC0AC\uC9C4\uC744 \uBCF4\uACE0 \uC2DD\uAD6C \uD55C \uC0AC\uB78C\uC5D0\uAC8C \uBB3B\uACE0 \uC2F6\uC740 \uAC8C \uC788\uC73C\uBA74 \uC5BC\uAD74\uC744 \uB204\uB974\uC138\uC694. \uADF8 \uC2DD\uAD6C\uC5D0\uAC8C \uC54C\uB9BC\uC774 \uAC00\uACE0, \uB2F5\uC774 \uC18C\uC2DD \uC544\uB798\uC5D0 \uB0A8\uC544\uC694."), /*#__PURE__*/React.createElement("div", {
+    className: "whopick",
+    role: "radiogroup",
+    "aria-label": "\uBB3C\uC5B4\uBCFC \uC2DD\uAD6C"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: 'chip' + (!askTo ? ' on' : ''),
+    role: "radio",
+    "aria-checked": !askTo,
+    className: !askTo ? 'on' : '',
     onClick: () => setAskTo('')
-  }, "\uC548 \uBD99\uC784"), others.map(m => /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "none"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "x",
+    size: 22
+  })), /*#__PURE__*/React.createElement("span", null, "\uC548 \uBB3C\uC5B4\uBD10\uC694")), others.map(m => /*#__PURE__*/React.createElement("button", {
     type: "button",
+    role: "radio",
+    "aria-checked": askTo === m.id,
     key: m.id,
-    className: 'chip' + (askTo === m.id ? ' on' : ''),
+    className: askTo === m.id ? 'on' : '',
     onClick: () => setAskTo(m.id)
-  }, m.emoji, " ", m.name, "\uAED8"))), askTo && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement(Avatar, {
+    m: m,
+    size: 52
+  }), /*#__PURE__*/React.createElement("span", null, m.name)))), askTo && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
     className: "input",
-    placeholder: '예: 엄마도 어릴 때 이거 해 봤어요?',
+    style: {
+      marginTop: 10
+    },
+    placeholder: `${C.getM(askTo).name}께: 예) 이 사진 속 집, 기억나세요?`,
     value: askText,
     onChange: e => setAskText(e.target.value)
   }), /*#__PURE__*/React.createElement("div", {
@@ -6920,7 +6993,7 @@ function ProfileBody({
     className: "empty"
   }, "\uC544\uC9C1 ", m.name, "\uC758 \uC0AC\uC9C4\uC774 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
     className: "small"
-  }, "\uC18C\uC2DD\uC744 \uC62C\uB9B4 \uB54C \"\uC0AC\uC9C4\uC5D0 \uB204\uAC00 \uB098\uC654\uB098\uC694?\"\uC5D0\uC11C ", josa(m.name, '을', '를'), " \uACE0\uB974\uBA74 \uC5EC\uAE30 \uBAA8\uC5EC\uC694.")), years.map(y => {
+  }, josa(m.name, '이', '가'), " \uC62C\uB9B0 \uC0AC\uC9C4\uC774 \uC5EC\uAE30 \uD574\uB9C8\uB2E4 \uBAA8\uC5EC\uC694.")), years.map(y => {
     const ps = byYear[y];
     const last = ps.map(p => p.happened_on).sort().pop();
     const cnt = ps.reduce((n, p) => n + photosOf(p).length, 0);
@@ -7902,6 +7975,7 @@ function App() {
   const [composer, setComposer] = useState(null);
   const [cmtPost, setCmtPost] = useState(null);
   const [cmtMode, setCmtMode] = useState('');
+  const [cmtReply, setCmtReply] = useState(null);
   const [profile, setProfile] = useState(null);
   const [story, setStory] = useState(null);
   const [letterCfg, setLetterCfg] = useState(null);
@@ -8162,12 +8236,27 @@ function App() {
     }));
     D.comments.filter(c => c.author_id !== me && c.created_at > since).forEach(c => {
       const p = posts.find(x => x.id === c.post_id);
-      if (p && (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me))) out.push({
+      if (!p) return;
+      const par = c.parent_id && D.comments.find(x => x.id === c.parent_id);
+      const toMe = par && (par.author_id === me || D.comments.some(x => x.parent_id === par.id && x.author_id === me)); // 내 댓글에 달린 답글, 내가 답글 단 줄
+      if (toMe) out.push({
         key: 'c' + c.id,
         who: c.author_id,
         t: c.created_at,
-        text: `${josa(getM(c.author_id).name, '이', '가')} ${c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`,
-        go: () => setCmtPost(p)
+        text: `${josa(getM(c.author_id).name, '이', '가')} 내 댓글에 답글을 달았어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`,
+        go: () => {
+          setCmtReply(null);
+          setCmtPost(p);
+        }
+      });else if (p.author_id === me || (cmtMap[p.id] || []).some(x => x.author_id === me)) out.push({
+        key: 'c' + c.id,
+        who: c.author_id,
+        t: c.created_at,
+        text: `${josa(getM(c.author_id).name, '이', '가')} ${par ? '답글' : c.audio_url ? '목소리 댓글' : '댓글'}을 남겼어요${c.content ? `: ${c.content.slice(0, 30)}` : ''}`,
+        go: () => {
+          setCmtReply(null);
+          setCmtPost(p);
+        }
       });
     });
     D.reactions.filter(r => r.emoji !== SAVE && r.member_id !== me && r.created_at > since).forEach(r => {
@@ -8445,7 +8534,7 @@ function App() {
     },
     addComment: row => write(() => db.add('comments', row)),
     deleteComment: c => {
-      if (window.confirm('이 댓글을 지울까요?')) {
+      if (window.confirm(D.comments.some(x => x.parent_id === c.id) ? '이 댓글을 지울까요? 달린 답글도 함께 지워져요.' : c.parent_id ? '이 답글을 지울까요?' : '이 댓글을 지울까요?')) {
         write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요');
         const id = driveId(c.audio_url);
         if (id) gw('delete', {
@@ -8523,10 +8612,12 @@ function App() {
     leave: () => leave(),
     changeMe: () => setMe(''),
     openComposer: cfg => setComposer(cfg || {}),
-    openComments: (p, mode) => {
+    openComments: (p, mode, reply) => {
       setCmtMode(mode || '');
+      setCmtReply(reply || null);
       setCmtPost(p);
     },
+    repliesOf: id => D.comments.filter(c => c.parent_id === id),
     openProfile: id => setProfile(id),
     openStory: items => items && items.length && setStory(items),
     openLetterCompose: cfg => setLetterCfg(cfg || {}),
@@ -8878,7 +8969,11 @@ function App() {
   }), /*#__PURE__*/React.createElement(CommentsSheet, {
     post: cmtPost,
     mode: cmtMode,
-    onClose: () => setCmtPost(null)
+    reply: cmtReply,
+    onClose: () => {
+      setCmtPost(null);
+      setCmtReply(null);
+    }
   }), /*#__PURE__*/React.createElement(LetterCompose, {
     cfg: letterCfg,
     onClose: () => setLetterCfg(null)
