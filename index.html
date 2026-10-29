@@ -436,6 +436,28 @@
   .mt b,.mt span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .mt span{font-size:.85rem;color:var(--sub)}
   .mchip a{font-size:.75rem;color:var(--sub);white-space:nowrap}
+  /* 🎵 음악 고르기 판 (인스타그램 스토리 음악 화면 느낌) */
+  .mpanel{background:#1f2125;color:#fff;border-radius:22px;padding:14px 12px 12px}
+  .msearch{display:flex;align-items:center;gap:8px;background:#30333a;border-radius:14px;padding:0 6px 0 14px;color:#a9acb3}
+  .msearch input{flex:1;min-width:0;background:none;border:0;outline:0;color:#fff;font:inherit;font-size:1.02rem;min-height:48px}
+  .msearch input::placeholder{color:#9a9da4}
+  .msearch button{background:#fff;color:#111;border-radius:10px;padding:0 12px;min-height:36px;font-weight:700}
+  .mtabs{display:flex;gap:8px;margin:12px 0 10px;overflow-x:auto;scrollbar-width:none}
+  .mtabs button{flex:0 0 auto;background:#30333a;color:#fff;border-radius:12px;padding:0 15px;min-height:42px;font-weight:700;font-size:.98rem}
+  .mtabs button.on{background:#fff;color:#111}
+  .mpanel .rtabs{margin-bottom:6px}
+  .mpanel .rtabs button{background:transparent;color:#cfd1d6;border-color:#44474e;min-height:34px;font-size:.88rem}
+  .mpanel .rtabs button.on{background:#44474e;color:#fff;border-color:#44474e}
+  .mpanel .mlist{max-height:400px;gap:2px}
+  .mpanel .mrow{background:transparent;padding:6px 0}
+  .mpanel .mprev{width:56px;height:56px;border-radius:8px}
+  .mpick{display:flex;flex-direction:column;align-items:flex-start;text-align:left;background:none;color:#fff;padding:2px 0;min-height:50px;justify-content:center}
+  .mpanel .mt b{font-size:1.02rem}
+  .mpanel .mt span{color:#a9acb3;font-size:.88rem}
+  .msave{width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+  .mdim{color:#a9acb3;font-size:.9rem}
+  .mempty{text-align:center;padding:26px 8px;line-height:1.7}
+  .mback{color:#fff;font-size:.9rem;padding:6px 4px}
   .sub-lab{font-size:.9rem;font-weight:700;color:#555;margin:14px 2px 8px}
   .rtabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
   .rtabs::-webkit-scrollbar{display:none}
@@ -486,6 +508,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=aee61663"></script>
+<script src="app.js?v=326ea285"></script>
 </body>
 </html>

@@ -1464,7 +1464,8 @@ async function searchMusic(q) {
     artist: r.artistName,
     art: (r.artworkUrl100 || '').replace('100x100', '300x300'),
     preview: r.previewUrl,
-    link: r.trackViewUrl
+    link: r.trackViewUrl,
+    dur: Math.round((r.trackTimeMillis || 0) / 1000)
   }));
 }
 /* 추천 노래: [애플 곡 번호, 한글 제목, 가수] — 애플은 제목을 영어로 줄 때가 많아서 이름은 우리가 적어 둔다.
@@ -1503,9 +1504,18 @@ async function loadReco(key) {
     artist,
     art: (by[id].artworkUrl100 || '').replace('100x100', '300x300'),
     preview: by[id].previewUrl,
-    link: by[id].trackViewUrl
+    link: by[id].trackViewUrl,
+    dur: Math.round((by[id].trackTimeMillis || 0) / 1000)
   }));
 }
+/* 저장됨(책갈피): 이 폰에만 적어 둔다 (식구마다 폰이 하나라서) */
+const savedMusic = () => {
+  try {
+    return JSON.parse(store.get('fz_music_saved') || '[]');
+  } catch (e) {
+    return [];
+  }
+};
 async function musicUrl(m) {
   try {
     const j = await (await fetch(`https://itunes.apple.com/lookup?id=${m.id}&country=US`)).json();
@@ -1617,25 +1627,47 @@ function MusicPicker({
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(null);
   const au = useRef(null);
-  /* 추천 코너: 이달의 추천 · 우리 가족이 쓴 노래 · 분위기별 */
+  /* 인스타그램 음악 고르기처럼: 검색 · [추천 | 우리 가족 인기 | 저장됨] · 줄을 누르면 고르기, 앨범 그림은 미리 듣기, 오른쪽 책갈피 */
+  const [top, setTop] = useState('reco');
   const [mk, mLabel] = monthReco();
-  const ours = useMemo(() => {
-    const seen = new Set();
-    return C.posts.filter(p => p.music && p.music.id).map(p => p.music).filter(m => !seen.has(m.id) && seen.add(m.id)).slice(0, 12);
+  const hot = useMemo(() => {
+    // 우리 가족 인기: 스토리에 많이 깐 노래부터 (같으면 최근 것)
+    const by = {};
+    C.posts.forEach(p => {
+      if (!p.music || !p.music.id) return;
+      const x = by[p.music.id] = by[p.music.id] || {
+        m: p.music,
+        n: 0,
+        t: ''
+      };
+      x.n++;
+      if (p.created_at > x.t) x.t = p.created_at;
+    });
+    return Object.values(by).sort((a, b) => b.n - a.n || b.t.localeCompare(a.t)).slice(0, 30).map(x => ({
+      ...x.m,
+      start: 0,
+      uses: x.n
+    }));
   }, [C.posts]);
-  const tabs = [[mk, mLabel], ...(ours.length ? [['ours', '👪 우리 가족이 쓴 노래']] : []), ...RECO_TABS];
+  const [saved, setSavedState] = useState(savedMusic);
+  const isSaved = id => saved.some(m => m.id === id);
+  const toggleSave = m => {
+    // 빨리 연달아 눌러도 앞의 것이 지워지지 않게, 늘 적어 둔 최신 목록에서 고친다
+    const {
+      start,
+      uses,
+      ...clean
+    } = m;
+    const cur = savedMusic();
+    const n = cur.some(x => x.id === m.id) ? cur.filter(x => x.id !== m.id) : [clean, ...cur].slice(0, 60);
+    store.set('fz_music_saved', JSON.stringify(n));
+    setSavedState(n);
+  };
   const [tab, setTab] = useState(mk);
   const [reco, setReco] = useState(null);
   const [recoErr, setRecoErr] = useState('');
   useEffect(() => {
-    if (list || value) return;
-    if (tab === 'ours') {
-      setReco(ours.map(m => ({
-        ...m,
-        start: 0
-      })));
-      return;
-    }
+    if (list || value || top !== 'reco') return;
     let alive = true;
     setReco(null);
     setRecoErr('');
@@ -1643,7 +1675,7 @@ function MusicPicker({
     return () => {
       alive = false;
     };
-  }, [tab, !!list, !!value]);
+  }, [tab, top, !!list, !!value]);
   const stop = () => {
     if (au.current) au.current.pause();
     au.current = null;
@@ -1694,19 +1726,27 @@ function MusicPicker({
     size: 14,
     fill: "#fff",
     stroke: "#fff"
-  }))), /*#__PURE__*/React.createElement("span", {
-    className: "mt grow"
-  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), /*#__PURE__*/React.createElement("button", {
+  }))), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "btn soft sm",
+    className: "mt grow mpick",
     onClick: () => {
       stop();
       onChange({
         ...m,
         start: 0
       });
-    }
-  }, "\uACE0\uB974\uAE30"))));
+    },
+    "aria-label": `${m.title} 고르기`
+  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist, m.dur ? ` • ${fmtSec(m.dur)}` : '', m.uses > 1 ? ` • ${m.uses}번 씀` : '')), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: 'msave' + (isSaved(m.id) ? ' on' : ''),
+    onClick: () => toggleSave(m),
+    "aria-label": isSaved(m.id) ? '저장 빼기' : '저장하기'
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "bookmark",
+    size: 24,
+    fill: isSaved(m.id) ? 'currentColor' : 'none'
+  })))));
   if (value) return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MusicChip, {
     m: value
   }), /*#__PURE__*/React.createElement("label", {
@@ -1739,49 +1779,61 @@ function MusicPicker({
     className: "btn soft sm",
     onClick: () => onChange(null)
   }, "\uB2E4\uB978 \uB178\uB798 \uACE0\uB974\uAE30")));
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "row gap"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input grow",
-    placeholder: "\uB178\uB798 \uC81C\uBAA9\uC774\uB098 \uAC00\uC218 (\uC608: \uBC24\uD3B8\uC9C0, \uC784\uC601\uC6C5)",
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mpanel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "msearch"
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "search",
+    size: 20
+  }), /*#__PURE__*/React.createElement("input", {
+    placeholder: "\uAC80\uC0C9\u2026 (\uB178\uB798 \uC81C\uBAA9\uC774\uB098 \uAC00\uC218)",
     value: q,
     onChange: e => setQ(e.target.value),
     onKeyDown: e => {
       if (e.key === 'Enter') go();
-    }
-  }), /*#__PURE__*/React.createElement("button", {
+    },
+    enterKeyHint: "search"
+  }), q && /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "btn primary sm",
-    disabled: busy || !q.trim(),
-    onClick: go
+    onClick: go,
+    disabled: busy
   }, busy ? /*#__PURE__*/React.createElement("span", {
     className: "spin"
-  }) : '찾기')), list && /*#__PURE__*/React.createElement("div", {
+  }) : '찾기')), list ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "row",
     style: {
       justifyContent: 'space-between',
-      margin: '10px 2px 0'
+      margin: '12px 2px 0'
     }
   }, /*#__PURE__*/React.createElement("span", {
-    className: "small muted"
+    className: "mdim"
   }, "\uCC3E\uC740 \uB178\uB798 ", list.length, "\uACE1"), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "linkbtn",
+    className: "mback",
     onClick: () => {
       stop();
       setList(null);
       setQ('');
     }
-  }, "\u2190 \uCD94\uCC9C \uB178\uB798 \uBCF4\uAE30")), list && !list.length && /*#__PURE__*/React.createElement("p", {
-    className: "small muted",
+  }, "\u2190 \uB3CC\uC544\uAC00\uAE30")), !list.length && /*#__PURE__*/React.createElement("p", {
+    className: "mdim",
     style: {
       margin: '8px 2px 0'
     }
-  }, "\uBABB \uCC3E\uC558\uC5B4\uC694. \uAC00\uC218 \uC774\uB984\uC744 \uAC19\uC774 \uB123\uAC70\uB098 \uC601\uC5B4 \uC81C\uBAA9\uC73C\uB85C \uCC3E\uC544\uBCF4\uC138\uC694."), list && list.length > 0 && rows(list), !list && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "sub-lab"
-  }, "\uD83C\uDFA7 \uC0DD\uAC01\uB098\uB294 \uB178\uB798\uAC00 \uC5C6\uC73C\uBA74 \uACE8\uB77C \uBCF4\uC138\uC694"), /*#__PURE__*/React.createElement("div", {
+  }, "\uBABB \uCC3E\uC558\uC5B4\uC694. \uAC00\uC218 \uC774\uB984\uC744 \uAC19\uC774 \uB123\uAC70\uB098 \uC601\uC5B4 \uC81C\uBAA9\uC73C\uB85C \uCC3E\uC544\uBCF4\uC138\uC694."), list.length > 0 && rows(list)) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "mtabs"
+  }, [['reco', '추천'], ['hot', '우리 가족 인기'], ['saved', '저장됨']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    key: k,
+    className: top === k ? 'on' : '',
+    onClick: () => {
+      stop();
+      setTop(k);
+    }
+  }, l))), top === 'reco' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "rtabs"
-  }, tabs.map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+  }, [[mk, mLabel], ...RECO_TABS].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
     type: "button",
     key: k,
     className: tab === k ? 'on' : '',
@@ -1790,20 +1842,24 @@ function MusicPicker({
       setTab(k);
     }
   }, l))), recoErr ? /*#__PURE__*/React.createElement("p", {
-    className: "small muted",
+    className: "mdim",
     style: {
       margin: '8px 2px 0'
     }
   }, recoErr) : reco ? rows(reco) : /*#__PURE__*/React.createElement("div", {
     className: "empty small"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "spin dark"
-  }))), /*#__PURE__*/React.createElement("p", {
-    className: "tiny muted",
+    className: "spin"
+  }))), top === 'hot' && (hot.length ? rows(hot) : /*#__PURE__*/React.createElement("p", {
+    className: "mdim mempty"
+  }, "\uC544\uC9C1 \uC2A4\uD1A0\uB9AC\uC5D0 \uC74C\uC545\uC744 \uAE50 \uC2DD\uAD6C\uAC00 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), "\uCCAB \uBC88\uC9F8\uB85C \uAE54\uC544 \uBCF4\uC138\uC694! \uD83C\uDFB5")), top === 'saved' && (saved.length ? rows(saved) : /*#__PURE__*/React.createElement("p", {
+    className: "mdim mempty"
+  }, "\uB9C8\uC74C\uC5D0 \uB4DC\uB294 \uB178\uB798 \uC624\uB978\uCABD ", /*#__PURE__*/React.createElement("b", null, "\uCC45\uAC08\uD53C"), "\uB97C \uB204\uB974\uBA74 \uC5EC\uAE30 \uBAA8\uC5EC\uC694."))), /*#__PURE__*/React.createElement("p", {
+    className: "mdim tiny",
     style: {
-      margin: '8px 2px 0'
+      margin: '10px 2px 0'
     }
-  }, "\uC560\uD50C \uBBA4\uC9C1\uC758 30\uCD08 \uBBF8\uB9AC \uB4E3\uAE30\uB85C \uD2C0\uC5B4\uC694. \u25B6\uB97C \uB204\uB974\uBA74 \uBA3C\uC800 \uB4E4\uC5B4 \uBCFC \uC218 \uC788\uC5B4\uC694."));
+  }, "\uB178\uB798\uB97C \uB204\uB974\uBA74 \uACE8\uB77C\uC838\uC694 \xB7 \uC568\uBC94 \uADF8\uB9BC \u25B6\uB294 \uBBF8\uB9AC \uB4E3\uAE30 \xB7 \uC560\uD50C \uBBA4\uC9C1 30\uCD08 \uBBF8\uB9AC \uB4E3\uAE30"));
 }
 
 /* 녹음 단추 → 다 하면 onDone({blob, sec, text}) */

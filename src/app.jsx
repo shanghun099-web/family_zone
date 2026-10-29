@@ -652,7 +652,7 @@ const MUSIC_SEC = 30;
 async function searchMusic(q) {
   const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=US&media=music&entity=song&limit=25`);
   const j = await res.json();
-  return (j.results || []).filter(r => r.previewUrl).map(r => ({ src: 'apple', id: r.trackId, title: r.trackName, artist: r.artistName, art: (r.artworkUrl100 || '').replace('100x100', '300x300'), preview: r.previewUrl, link: r.trackViewUrl }));
+  return (j.results || []).filter(r => r.previewUrl).map(r => ({ src: 'apple', id: r.trackId, title: r.trackName, artist: r.artistName, art: (r.artworkUrl100 || '').replace('100x100', '300x300'), preview: r.previewUrl, link: r.trackViewUrl, dur: Math.round((r.trackTimeMillis || 0) / 1000) }));
 }
 /* 추천 노래: [애플 곡 번호, 한글 제목, 가수] — 애플은 제목을 영어로 줄 때가 많아서 이름은 우리가 적어 둔다.
    번호는 2026-10-29 미국 스토어에서 미리 듣기가 있는 것만 골랐다. 고를 때 한 번에 lookup 해서 미리 듣기·앨범 그림을 받는다 */
@@ -680,8 +680,10 @@ async function loadReco(key) {
   const list = MUSIC_RECO[key] || [];
   const j = await (await fetch(`https://itunes.apple.com/lookup?id=${list.map(x => x[0]).join(',')}&country=US&entity=song`)).json();
   const by = {}; (j.results || []).forEach(r => { if (r.previewUrl) by[r.trackId] = r; });
-  return recoCache[key] = list.filter(([id]) => by[id]).map(([id, title, artist]) => ({ src: 'apple', id, title, artist, art: (by[id].artworkUrl100 || '').replace('100x100', '300x300'), preview: by[id].previewUrl, link: by[id].trackViewUrl }));
+  return recoCache[key] = list.filter(([id]) => by[id]).map(([id, title, artist]) => ({ src: 'apple', id, title, artist, art: (by[id].artworkUrl100 || '').replace('100x100', '300x300'), preview: by[id].previewUrl, link: by[id].trackViewUrl, dur: Math.round((by[id].trackTimeMillis || 0) / 1000) }));
 }
+/* 저장됨(책갈피): 이 폰에만 적어 둔다 (식구마다 폰이 하나라서) */
+const savedMusic = () => { try { return JSON.parse(store.get('fz_music_saved') || '[]'); } catch (e) { return []; } };
 async function musicUrl(m) {
   try { const j = await (await fetch(`https://itunes.apple.com/lookup?id=${m.id}&country=US`)).json(); const r = (j.results || [])[0]; return (r && r.previewUrl) || null; } catch (e) { return null; }
 }
@@ -718,18 +720,27 @@ function MusicChip({ m, dark }) {
 function MusicPicker({ value, onChange }) {
   const C = useC();
   const [q, setQ] = useState(''); const [list, setList] = useState(null); const [busy, setBusy] = useState(false); const [playing, setPlaying] = useState(null); const au = useRef(null);
-  /* 추천 코너: 이달의 추천 · 우리 가족이 쓴 노래 · 분위기별 */
+  /* 인스타그램 음악 고르기처럼: 검색 · [추천 | 우리 가족 인기 | 저장됨] · 줄을 누르면 고르기, 앨범 그림은 미리 듣기, 오른쪽 책갈피 */
+  const [top, setTop] = useState('reco');
   const [mk, mLabel] = monthReco();
-  const ours = useMemo(() => { const seen = new Set(); return C.posts.filter(p => p.music && p.music.id).map(p => p.music).filter(m => !seen.has(m.id) && seen.add(m.id)).slice(0, 12); }, [C.posts]);
-  const tabs = [[mk, mLabel], ...(ours.length ? [['ours', '👪 우리 가족이 쓴 노래']] : []), ...RECO_TABS];
+  const hot = useMemo(() => {   // 우리 가족 인기: 스토리에 많이 깐 노래부터 (같으면 최근 것)
+    const by = {}; C.posts.forEach(p => { if (!p.music || !p.music.id) return; const x = by[p.music.id] = by[p.music.id] || { m: p.music, n: 0, t: '' }; x.n++; if (p.created_at > x.t) x.t = p.created_at; });
+    return Object.values(by).sort((a, b) => b.n - a.n || b.t.localeCompare(a.t)).slice(0, 30).map(x => ({ ...x.m, start: 0, uses: x.n }));
+  }, [C.posts]);
+  const [saved, setSavedState] = useState(savedMusic);
+  const isSaved = id => saved.some(m => m.id === id);
+  const toggleSave = m => {   // 빨리 연달아 눌러도 앞의 것이 지워지지 않게, 늘 적어 둔 최신 목록에서 고친다
+    const { start, uses, ...clean } = m; const cur = savedMusic();
+    const n = cur.some(x => x.id === m.id) ? cur.filter(x => x.id !== m.id) : [clean, ...cur].slice(0, 60);
+    store.set('fz_music_saved', JSON.stringify(n)); setSavedState(n);
+  };
   const [tab, setTab] = useState(mk); const [reco, setReco] = useState(null); const [recoErr, setRecoErr] = useState('');
   useEffect(() => {
-    if (list || value) return;
-    if (tab === 'ours') { setReco(ours.map(m => ({ ...m, start: 0 }))); return; }
+    if (list || value || top !== 'reco') return;
     let alive = true; setReco(null); setRecoErr('');
     loadReco(tab).then(r => alive && setReco(r)).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
     return () => { alive = false; };
-  }, [tab, !!list, !!value]);
+  }, [tab, top, !!list, !!value]);
   const stop = () => { if (au.current) au.current.pause(); au.current = null; setPlaying(null); };
   useEffect(() => stop, []);
   const go = async () => { if (!q.trim()) return; stop(); setBusy(true); try { setList(await searchMusic(q.trim())); } catch (e) { setList([]); } setBusy(false); };
@@ -737,8 +748,10 @@ function MusicPicker({ value, onChange }) {
   const rows = items => <div className="mlist">{items.map(m => (
     <div className="mrow" key={m.id}>
       <button type="button" className="mprev" onClick={() => preview(m)} aria-label={playing === m.id ? '멈추기' : '미리 듣기'}><img src={m.art} alt=""/><span className="mp"><LIcon name={playing === m.id ? 'pause' : 'play'} size={14} fill="#fff" stroke="#fff"/></span></button>
-      <span className="mt grow"><b>{m.title}</b><span>{m.artist}</span></span>
-      <button type="button" className="btn soft sm" onClick={() => { stop(); onChange({ ...m, start: 0 }); }}>고르기</button>
+      <button type="button" className="mt grow mpick" onClick={() => { stop(); onChange({ ...m, start: 0 }); }} aria-label={`${m.title} 고르기`}>
+        <b>{m.title}</b><span>{m.artist}{m.dur ? ` • ${fmtSec(m.dur)}` : ''}{m.uses > 1 ? ` • ${m.uses}번 씀` : ''}</span>
+      </button>
+      <button type="button" className={'msave' + (isSaved(m.id) ? ' on' : '')} onClick={() => toggleSave(m)} aria-label={isSaved(m.id) ? '저장 빼기' : '저장하기'}><LIcon name="bookmark" size={24} fill={isSaved(m.id) ? 'currentColor' : 'none'}/></button>
     </div>))}</div>;
   if (value) return (
     <div>
@@ -749,20 +762,26 @@ function MusicPicker({ value, onChange }) {
     </div>
   );
   return (
-    <div>
-      <div className="row gap">
-        <input className="input grow" placeholder="노래 제목이나 가수 (예: 밤편지, 임영웅)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }}/>
-        <button type="button" className="btn primary sm" disabled={busy || !q.trim()} onClick={go}>{busy ? <span className="spin"/> : '찾기'}</button>
+    <div className="mpanel">
+      <div className="msearch">
+        <LIcon name="search" size={20}/>
+        <input placeholder="검색… (노래 제목이나 가수)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }} enterKeyHint="search"/>
+        {q && <button type="button" onClick={go} disabled={busy}>{busy ? <span className="spin"/> : '찾기'}</button>}
       </div>
-      {list && <div className="row" style={{ justifyContent: 'space-between', margin: '10px 2px 0' }}><span className="small muted">찾은 노래 {list.length}곡</span><button type="button" className="linkbtn" onClick={() => { stop(); setList(null); setQ(''); }}>← 추천 노래 보기</button></div>}
-      {list && !list.length && <p className="small muted" style={{ margin: '8px 2px 0' }}>못 찾았어요. 가수 이름을 같이 넣거나 영어 제목으로 찾아보세요.</p>}
-      {list && list.length > 0 && rows(list)}
-      {!list && <>
-        <div className="sub-lab">🎧 생각나는 노래가 없으면 골라 보세요</div>
-        <div className="rtabs">{tabs.map(([k, l]) => <button type="button" key={k} className={tab === k ? 'on' : ''} onClick={() => { stop(); setTab(k); }}>{l}</button>)}</div>
-        {recoErr ? <p className="small muted" style={{ margin: '8px 2px 0' }}>{recoErr}</p> : reco ? rows(reco) : <div className="empty small"><span className="spin dark"/></div>}
+      {list ? <>
+        <div className="row" style={{ justifyContent: 'space-between', margin: '12px 2px 0' }}><span className="mdim">찾은 노래 {list.length}곡</span><button type="button" className="mback" onClick={() => { stop(); setList(null); setQ(''); }}>← 돌아가기</button></div>
+        {!list.length && <p className="mdim" style={{ margin: '8px 2px 0' }}>못 찾았어요. 가수 이름을 같이 넣거나 영어 제목으로 찾아보세요.</p>}
+        {list.length > 0 && rows(list)}
+      </> : <>
+        <div className="mtabs">{[['reco', '추천'], ['hot', '우리 가족 인기'], ['saved', '저장됨']].map(([k, l]) => <button type="button" key={k} className={top === k ? 'on' : ''} onClick={() => { stop(); setTop(k); }}>{l}</button>)}</div>
+        {top === 'reco' && <>
+          <div className="rtabs">{[[mk, mLabel], ...RECO_TABS].map(([k, l]) => <button type="button" key={k} className={tab === k ? 'on' : ''} onClick={() => { stop(); setTab(k); }}>{l}</button>)}</div>
+          {recoErr ? <p className="mdim" style={{ margin: '8px 2px 0' }}>{recoErr}</p> : reco ? rows(reco) : <div className="empty small"><span className="spin"/></div>}
+        </>}
+        {top === 'hot' && (hot.length ? rows(hot) : <p className="mdim mempty">아직 스토리에 음악을 깐 식구가 없어요.<br/>첫 번째로 깔아 보세요! 🎵</p>)}
+        {top === 'saved' && (saved.length ? rows(saved) : <p className="mdim mempty">마음에 드는 노래 오른쪽 <b>책갈피</b>를 누르면 여기 모여요.</p>)}
       </>}
-      <p className="tiny muted" style={{ margin: '8px 2px 0' }}>애플 뮤직의 30초 미리 듣기로 틀어요. ▶를 누르면 먼저 들어 볼 수 있어요.</p>
+      <p className="mdim tiny" style={{ margin: '10px 2px 0' }}>노래를 누르면 골라져요 · 앨범 그림 ▶는 미리 듣기 · 애플 뮤직 30초 미리 듣기</p>
     </div>
   );
 }
