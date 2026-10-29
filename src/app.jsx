@@ -674,10 +674,20 @@ const MUSIC_RECO = {
 /* 이달의 추천: 달마다 계절 노래 (5월은 가정의 달, 12월은 크리스마스) */
 const monthReco = (mo = new Date().getMonth() + 1) => mo === 12 ? ['xmas', '🎄 12월 · 크리스마스'] : mo <= 2 ? ['winter', `❄️ ${mo}월 · 겨울 노래`] : mo <= 4 ? ['spring', `🌸 ${mo}월 · 봄 노래`] : mo === 5 ? ['may', '💐 5월 · 가정의 달'] : mo <= 8 ? ['summer', `🌊 ${mo}월 · 여름 노래`] : ['autumn', `🍂 ${mo}월 · 가을 노래`];
 const RECO_TABS = [['family', '💕 가족·사랑'], ['bday', '🎂 생일·축하'], ['praise', '🙏 찬양'], ['trot', '🎤 트로트'], ['calm', '🌙 잔잔한'], ['fun', '🎉 신나는'], ['kids', '🧒 동요']];
+/* 이달의 노래 제목 (애플 뮤직처럼 이모지 없이) */
+const monthTitle = (mo = new Date().getMonth() + 1) => [`${mo}월의 노래`, mo === 12 ? '크리스마스에 듣기 좋은 곡' : mo <= 2 ? '겨울에 어울리는 곡' : mo <= 4 ? '봄에 어울리는 곡' : mo === 5 ? '가정의 달, 가족에게 들려주고 싶은 곡' : mo <= 8 ? '여름에 어울리는 곡' : '가을에 어울리는 곡'];
+/* 오늘의 추천: 이달 노래·계절·동요·생일을 뺀 추천곡(가족·찬양·트로트·잔잔한·신나는)에서 날마다 10곡 (그날은 늘 같은 10곡) */
+function todayMix(skip, day = ymd()) {
+  const seen = new Set((MUSIC_RECO[skip] || []).map(x => x[0]));
+  const all = Object.entries(MUSIC_RECO).filter(([k]) => k !== skip && !['winter', 'spring', 'summer', 'autumn', 'xmas', 'may', 'kids', 'bday'].includes(k)).flatMap(([, l]) => l).filter(x => !seen.has(x[0]) && seen.add(x[0]));
+  let s = [...day].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const rnd = () => (s = (s * 1103515245 + 12345) >>> 0) / 4294967296;
+  return all.map(x => [rnd(), x]).sort((a, b) => a[0] - b[0]).slice(0, 10).map(x => x[1]);
+}
 const recoCache = {};
-async function loadReco(key) {
+async function loadReco(key, given) {
   if (recoCache[key]) return recoCache[key];
-  const list = MUSIC_RECO[key] || [];
+  const list = given || MUSIC_RECO[key] || [];
   const j = await (await fetch(`https://itunes.apple.com/lookup?id=${list.map(x => x[0]).join(',')}&country=US&entity=song`)).json();
   const by = {}; (j.results || []).forEach(r => { if (r.previewUrl) by[r.trackId] = r; });
   return recoCache[key] = list.filter(([id]) => by[id]).map(([id, title, artist]) => ({ src: 'apple', id, title, artist, art: (by[id].artworkUrl100 || '').replace('100x100', '300x300'), preview: by[id].previewUrl, link: by[id].trackViewUrl, dur: Math.round((by[id].trackTimeMillis || 0) / 1000) }));
@@ -734,13 +744,18 @@ function MusicPicker({ value, onChange }) {
     const n = cur.some(x => x.id === m.id) ? cur.filter(x => x.id !== m.id) : [clean, ...cur].slice(0, 60);
     store.set('fz_music_saved', JSON.stringify(n)); setSavedState(n);
   };
-  const [tab, setTab] = useState(mk); const [reco, setReco] = useState(null); const [recoErr, setRecoErr] = useState('');
+  /* 추천 = 애플 뮤직처럼 두 줄: 이달의 노래(큰 앨범 그림이 옆으로) + 오늘의 추천(날마다 바뀌는 10곡) */
+  const [mTitle, mSub] = monthTitle();
+  const [month, setMonth] = useState(null); const [mix, setMix] = useState(null); const [recoErr, setRecoErr] = useState('');
   useEffect(() => {
     if (list || value || top !== 'reco') return;
-    let alive = true; setReco(null); setRecoErr('');
-    loadReco(tab).then(r => alive && setReco(r)).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
+    let alive = true; setRecoErr('');
+    Promise.all([loadReco(mk), loadReco('mix-' + ymd(), todayMix(mk))])
+      .then(([a, b]) => { if (alive) { setMonth(a); setMix(b); } })
+      .catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
     return () => { alive = false; };
-  }, [tab, top, !!list, !!value]);
+  }, [top, !!list, !!value]);
+  const choose = m => { stop(); onChange({ ...m, start: 0 }); };
   const stop = () => { if (au.current) au.current.pause(); au.current = null; setPlaying(null); };
   useEffect(() => stop, []);
   const go = async () => { if (!q.trim()) return; stop(); setBusy(true); try { setList(await searchMusic(q.trim())); } catch (e) { setList([]); } setBusy(false); };
@@ -774,10 +789,17 @@ function MusicPicker({ value, onChange }) {
         {list.length > 0 && rows(list)}
       </> : <>
         <div className="mtabs">{[['reco', '추천'], ['hot', '우리 가족 인기'], ['saved', '저장됨']].map(([k, l]) => <button type="button" key={k} className={top === k ? 'on' : ''} onClick={() => { stop(); setTop(k); }}>{l}</button>)}</div>
-        {top === 'reco' && <>
-          <div className="rtabs">{[[mk, mLabel], ...RECO_TABS].map(([k, l]) => <button type="button" key={k} className={tab === k ? 'on' : ''} onClick={() => { stop(); setTab(k); }}>{l}</button>)}</div>
-          {recoErr ? <p className="mdim" style={{ margin: '8px 2px 0' }}>{recoErr}</p> : reco ? rows(reco) : <div className="empty small"><span className="spin"/></div>}
-        </>}
+        {top === 'reco' && (recoErr ? <p className="mdim" style={{ margin: '8px 2px 0' }}>{recoErr}</p> : !month ? <div className="empty small"><span className="spin"/></div> : <>
+          <div className="msec"><b>{mTitle}</b><span>{mSub}</span></div>
+          <div className="mcards">{month.map(m => (
+            <div className="mcard" key={m.id}>
+              <button type="button" className="mcover" onClick={() => choose(m)} aria-label={`${m.title} 고르기`}><img src={m.art} alt=""/></button>
+              <button type="button" className={'mplay' + (playing === m.id ? ' on' : '')} onClick={() => preview(m)} aria-label={playing === m.id ? '멈추기' : '미리 듣기'}><LIcon name={playing === m.id ? 'pause' : 'play'} size={15} fill="#fff" stroke="#fff"/></button>
+              <button type="button" className="mcap" onClick={() => choose(m)}><b>{m.title}</b><span>{m.artist}</span></button>
+            </div>))}</div>
+          <div className="msec"><b>오늘의 추천</b><span>날마다 새로 골라 드려요</span></div>
+          {mix && rows(mix)}
+        </>)}
         {top === 'hot' && (hot.length ? rows(hot) : <p className="mdim mempty">아직 스토리에 음악을 깐 식구가 없어요.<br/>첫 번째로 깔아 보세요! 🎵</p>)}
         {top === 'saved' && (saved.length ? rows(saved) : <p className="mdim mempty">마음에 드는 노래 오른쪽 <b>책갈피</b>를 누르면 여기 모여요.</p>)}
       </>}

@@ -1488,10 +1488,20 @@ const MUSIC_RECO = {
 /* 이달의 추천: 달마다 계절 노래 (5월은 가정의 달, 12월은 크리스마스) */
 const monthReco = (mo = new Date().getMonth() + 1) => mo === 12 ? ['xmas', '🎄 12월 · 크리스마스'] : mo <= 2 ? ['winter', `❄️ ${mo}월 · 겨울 노래`] : mo <= 4 ? ['spring', `🌸 ${mo}월 · 봄 노래`] : mo === 5 ? ['may', '💐 5월 · 가정의 달'] : mo <= 8 ? ['summer', `🌊 ${mo}월 · 여름 노래`] : ['autumn', `🍂 ${mo}월 · 가을 노래`];
 const RECO_TABS = [['family', '💕 가족·사랑'], ['bday', '🎂 생일·축하'], ['praise', '🙏 찬양'], ['trot', '🎤 트로트'], ['calm', '🌙 잔잔한'], ['fun', '🎉 신나는'], ['kids', '🧒 동요']];
+/* 이달의 노래 제목 (애플 뮤직처럼 이모지 없이) */
+const monthTitle = (mo = new Date().getMonth() + 1) => [`${mo}월의 노래`, mo === 12 ? '크리스마스에 듣기 좋은 곡' : mo <= 2 ? '겨울에 어울리는 곡' : mo <= 4 ? '봄에 어울리는 곡' : mo === 5 ? '가정의 달, 가족에게 들려주고 싶은 곡' : mo <= 8 ? '여름에 어울리는 곡' : '가을에 어울리는 곡'];
+/* 오늘의 추천: 이달 노래·계절·동요·생일을 뺀 추천곡(가족·찬양·트로트·잔잔한·신나는)에서 날마다 10곡 (그날은 늘 같은 10곡) */
+function todayMix(skip, day = ymd()) {
+  const seen = new Set((MUSIC_RECO[skip] || []).map(x => x[0]));
+  const all = Object.entries(MUSIC_RECO).filter(([k]) => k !== skip && !['winter', 'spring', 'summer', 'autumn', 'xmas', 'may', 'kids', 'bday'].includes(k)).flatMap(([, l]) => l).filter(x => !seen.has(x[0]) && seen.add(x[0]));
+  let s = [...day].reduce((n, c) => n * 31 + c.charCodeAt(0) >>> 0, 7);
+  const rnd = () => (s = s * 1103515245 + 12345 >>> 0) / 4294967296;
+  return all.map(x => [rnd(), x]).sort((a, b) => a[0] - b[0]).slice(0, 10).map(x => x[1]);
+}
 const recoCache = {};
-async function loadReco(key) {
+async function loadReco(key, given) {
   if (recoCache[key]) return recoCache[key];
-  const list = MUSIC_RECO[key] || [];
+  const list = given || MUSIC_RECO[key] || [];
   const j = await (await fetch(`https://itunes.apple.com/lookup?id=${list.map(x => x[0]).join(',')}&country=US&entity=song`)).json();
   const by = {};
   (j.results || []).forEach(r => {
@@ -1663,19 +1673,32 @@ function MusicPicker({
     store.set('fz_music_saved', JSON.stringify(n));
     setSavedState(n);
   };
-  const [tab, setTab] = useState(mk);
-  const [reco, setReco] = useState(null);
+  /* 추천 = 애플 뮤직처럼 두 줄: 이달의 노래(큰 앨범 그림이 옆으로) + 오늘의 추천(날마다 바뀌는 10곡) */
+  const [mTitle, mSub] = monthTitle();
+  const [month, setMonth] = useState(null);
+  const [mix, setMix] = useState(null);
   const [recoErr, setRecoErr] = useState('');
   useEffect(() => {
     if (list || value || top !== 'reco') return;
     let alive = true;
-    setReco(null);
     setRecoErr('');
-    loadReco(tab).then(r => alive && setReco(r)).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
+    Promise.all([loadReco(mk), loadReco('mix-' + ymd(), todayMix(mk))]).then(([a, b]) => {
+      if (alive) {
+        setMonth(a);
+        setMix(b);
+      }
+    }).catch(() => alive && setRecoErr('추천 노래를 불러오지 못했어요. 위에서 직접 찾아 주세요.'));
     return () => {
       alive = false;
     };
-  }, [tab, top, !!list, !!value]);
+  }, [top, !!list, !!value]);
+  const choose = m => {
+    stop();
+    onChange({
+      ...m,
+      start: 0
+    });
+  };
   const stop = () => {
     if (au.current) au.current.pause();
     au.current = null;
@@ -1831,26 +1854,47 @@ function MusicPicker({
       stop();
       setTop(k);
     }
-  }, l))), top === 'reco' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "rtabs"
-  }, [[mk, mLabel], ...RECO_TABS].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    key: k,
-    className: tab === k ? 'on' : '',
-    onClick: () => {
-      stop();
-      setTab(k);
-    }
-  }, l))), recoErr ? /*#__PURE__*/React.createElement("p", {
+  }, l))), top === 'reco' && (recoErr ? /*#__PURE__*/React.createElement("p", {
     className: "mdim",
     style: {
       margin: '8px 2px 0'
     }
-  }, recoErr) : reco ? rows(reco) : /*#__PURE__*/React.createElement("div", {
+  }, recoErr) : !month ? /*#__PURE__*/React.createElement("div", {
     className: "empty small"
   }, /*#__PURE__*/React.createElement("span", {
     className: "spin"
-  }))), top === 'hot' && (hot.length ? rows(hot) : /*#__PURE__*/React.createElement("p", {
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "msec"
+  }, /*#__PURE__*/React.createElement("b", null, mTitle), /*#__PURE__*/React.createElement("span", null, mSub)), /*#__PURE__*/React.createElement("div", {
+    className: "mcards"
+  }, month.map(m => /*#__PURE__*/React.createElement("div", {
+    className: "mcard",
+    key: m.id
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "mcover",
+    onClick: () => choose(m),
+    "aria-label": `${m.title} 고르기`
+  }, /*#__PURE__*/React.createElement("img", {
+    src: m.art,
+    alt: ""
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: 'mplay' + (playing === m.id ? ' on' : ''),
+    onClick: () => preview(m),
+    "aria-label": playing === m.id ? '멈추기' : '미리 듣기'
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: playing === m.id ? 'pause' : 'play',
+    size: 15,
+    fill: "#fff",
+    stroke: "#fff"
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "mcap",
+    onClick: () => choose(m)
+  }, /*#__PURE__*/React.createElement("b", null, m.title), /*#__PURE__*/React.createElement("span", null, m.artist))))), /*#__PURE__*/React.createElement("div", {
+    className: "msec"
+  }, /*#__PURE__*/React.createElement("b", null, "\uC624\uB298\uC758 \uCD94\uCC9C"), /*#__PURE__*/React.createElement("span", null, "\uB0A0\uB9C8\uB2E4 \uC0C8\uB85C \uACE8\uB77C \uB4DC\uB824\uC694")), mix && rows(mix))), top === 'hot' && (hot.length ? rows(hot) : /*#__PURE__*/React.createElement("p", {
     className: "mdim mempty"
   }, "\uC544\uC9C1 \uC2A4\uD1A0\uB9AC\uC5D0 \uC74C\uC545\uC744 \uAE50 \uC2DD\uAD6C\uAC00 \uC5C6\uC5B4\uC694.", /*#__PURE__*/React.createElement("br", null), "\uCCAB \uBC88\uC9F8\uB85C \uAE54\uC544 \uBCF4\uC138\uC694! \uD83C\uDFB5")), top === 'saved' && (saved.length ? rows(saved) : /*#__PURE__*/React.createElement("p", {
     className: "mdim mempty"
