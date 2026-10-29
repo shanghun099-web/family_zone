@@ -734,6 +734,7 @@ function useLayer(open, close) {
   closeRef.current = close;
   useEffect(() => {
     if (!open) return;
+    stopFeedMusic(); // 창(스토리·댓글·쓰기 등)이 열리면 소식 목록 음악은 멈춘다
     const me = {
       close: () => {
         me.popped = true;
@@ -745,6 +746,7 @@ function useLayer(open, close) {
     return () => {
       const i = layerStack.indexOf(me);
       if (i >= 0) layerStack.splice(i, 1);
+      if (!layerStack.length) setTimeout(() => window.dispatchEvent(new Event('fz-feed-resume')), 350); // 창이 다 닫히면 보이는 소식의 노래를 다시
       if (me.popped) return;
       if (queuedPush > 0) queuedPush--;else histBack();
     };
@@ -1591,12 +1593,20 @@ function MusicTag({
   }, m.art && /*#__PURE__*/React.createElement("img", {
     src: m.art,
     alt: ""
-  }), /*#__PURE__*/React.createElement("span", null, "\uD83C\uDFB5 ", /*#__PURE__*/React.createElement("b", null, m.title), " \xB7 ", m.artist), m.link && /*#__PURE__*/React.createElement("a", {
-    href: m.link,
-    target: "_blank",
-    rel: "noopener"
-  }, "Apple Music"));
+  }), /*#__PURE__*/React.createElement("span", null, "\uD83C\uDFB5 ", /*#__PURE__*/React.createElement("b", null, m.title), " \xB7 ", m.artist));
 }
+/* 소식 목록 음악: 한 번에 한 곡만. 새 곡이 시작되거나 창(스토리·댓글 등)이 열리면 앞의 곡을 멈춘다 */
+let feedMusic = null;
+const stopFeedMusic = () => {
+  if (feedMusic) {
+    const f = feedMusic;
+    feedMusic = null;
+    f();
+  }
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') stopFeedMusic();
+});
 /* 재생기 버리기: 먼저 이벤트를 떼야 한다 (주소를 비우면 onerror 가 '주소가 죽었다'며 다시 찾아 틀어 버린다) */
 function dropAudio(a) {
   if (!a) return;
@@ -1609,33 +1619,114 @@ function dropAudio(a) {
     a.load();
   } catch (e) {}
 }
+/* 소식의 노래 칸: 소식이 화면에 반쯤 보이면 저절로 틀고(인스타처럼), 지나가면 멈춘다.
+   앨범 그림을 누르면 멈춤/다시, 오른쪽 스피커는 소리 끄기(폰에 기억). 폰이 자동 재생을 막으면 그냥 ▶ 로 남는다 */
 function MusicChip({
   m,
-  dark
+  auto = true
 }) {
   const [on, setOn] = useState(false);
   const au = useRef(null);
-  useEffect(() => () => {
+  const box = useRef(null);
+  const held = useRef(false);
+  const [muted, setMuted] = useState(() => store.get('fz_feed_mute') === '1');
+  const haltRef = useRef(null); // 늘 같은 함수여야 '지금 나오는 곡이 나인지' 비교할 수 있다
+  if (!haltRef.current) haltRef.current = () => {
     if (au.current) au.current.pause();
+    setOn(false);
+  };
+  const halt = haltRef.current;
+  const begin = fromStart => {
+    if (!au.current) {
+      const a = au.current = playMusic(m, {
+        onEnd: () => {
+          setOn(false);
+          if (feedMusic === halt) feedMusic = null;
+        },
+        onFail: () => setOn(false)
+      });
+      /* '진짜 소리가 나기 시작했을 때' 기준으로 표시·한 곡만 규칙을 맞춘다 (주소가 죽어 다시 찾아 트는 경우도 잡힌다) */
+      a.addEventListener('playing', () => {
+        if (au.current !== a) return;
+        setOn(true);
+        if (feedMusic !== halt) {
+          stopFeedMusic();
+          feedMusic = halt;
+        }
+      });
+      a.addEventListener('pause', () => {
+        if (au.current === a) setOn(false);
+      });
+    }
+    const a = au.current;
+    a.muted = store.get('fz_feed_mute') === '1';
+    if (fromStart && a.readyState >= 1) {
+      try {
+        a.currentTime = m.start || 0;
+      } catch (e) {}
+    }
+    if (feedMusic !== halt) stopFeedMusic();
+    feedMusic = halt;
+    a.play().catch(e => {
+      if (e && e.name === 'NotAllowedError') {
+        setOn(false);
+        if (feedMusic === halt) feedMusic = null;
+      }
+    }); // 주소 오류는 playMusic 이 다시 찾아 튼다
+  };
+  useEffect(() => () => {
+    if (feedMusic === halt) feedMusic = null;
+    dropAudio(au.current);
+    au.current = null;
   }, []);
+  useEffect(() => {
+    const card = box.current && (box.current.closest('article') || box.current);
+    if (!auto || !card || !window.IntersectionObserver) return;
+    const io = new IntersectionObserver(es => {
+      const vis = es[0].isIntersecting && es[0].intersectionRatio >= 0.5;
+      if (vis && !held.current && !document.querySelector('.sheet-bg, .story, .msheet-bg')) begin(true);
+      if (!vis) {
+        held.current = false;
+        if (feedMusic === halt) stopFeedMusic();else halt();
+      }
+    }, {
+      threshold: [0, 0.5, 0.8]
+    });
+    io.observe(card);
+    const resume = () => {
+      // 창을 닫고 돌아왔을 때 이 소식이 아직 반 넘게 보이면 이어서
+      if (held.current || feedMusic || document.querySelector('.sheet-bg, .story, .msheet-bg')) return;
+      const r = card.getBoundingClientRect();
+      const vis = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+      if (r.height && vis / Math.min(r.height, innerHeight) >= 0.5) begin(false);
+    };
+    window.addEventListener('fz-feed-resume', resume);
+    return () => {
+      io.disconnect();
+      window.removeEventListener('fz-feed-resume', resume);
+    };
+  }, [m.id, auto]);
   const toggle = e => {
     e.stopPropagation();
     if (on) {
-      au.current.pause();
-      setOn(false);
-      return;
+      held.current = true;
+      if (feedMusic === halt) stopFeedMusic();else halt();
+    } else {
+      held.current = false;
+      begin(false);
     }
-    if (!au.current) au.current = playMusic(m, {
-      onEnd: () => setOn(false),
-      onFail: () => {
-        setOn(false);
-        alert('음악을 불러오지 못했어요');
-      }
-    });
-    au.current.play().then(() => setOn(true)).catch(() => setOn(false));
+  };
+  const toggleMute = e => {
+    e.stopPropagation();
+    const n = !muted;
+    setMuted(n);
+    store.set('fz_feed_mute', n ? '1' : '');
+    if (au.current) au.current.muted = n;
+    if (!n && !on) begin(false);
   };
   return /*#__PURE__*/React.createElement("div", {
-    className: 'mchip' + (dark ? ' dark' : '')
+    className: 'mchip' + (on ? ' on' : ''),
+    ref: box
   }, /*#__PURE__*/React.createElement("button", {
     onClick: toggle,
     "aria-label": on ? '음악 멈추기' : '음악 듣기'
@@ -1651,12 +1742,17 @@ function MusicChip({
     stroke: "#fff"
   }))), /*#__PURE__*/React.createElement("span", {
     className: "mt"
-  }, /*#__PURE__*/React.createElement("b", null, "\uD83C\uDFB5 ", m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), m.link && /*#__PURE__*/React.createElement("a", {
-    href: m.link,
-    target: "_blank",
-    rel: "noopener",
-    onClick: e => e.stopPropagation()
-  }, "Apple Music"));
+  }, /*#__PURE__*/React.createElement("b", null, "\uD83C\uDFB5 ", m.title), /*#__PURE__*/React.createElement("span", null, m.artist)), on && !muted && /*#__PURE__*/React.createElement("span", {
+    className: "mbars",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("i", null), /*#__PURE__*/React.createElement("i", null), /*#__PURE__*/React.createElement("i", null)), /*#__PURE__*/React.createElement("button", {
+    className: "mmute",
+    onClick: toggleMute,
+    "aria-label": muted ? '소리 켜기' : '소리 끄기'
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: muted ? 'volume-x' : 'volume-2',
+    size: 20
+  })));
 }
 /* 음악 고르기: 검색 → 미리 듣기 → 고르기 → 시작 위치 */
 /* 소식 쓰기 안의 음악 칸: 고른 노래 + 시작 위치. 고르기는 아래에서 올라오는 큰 음악 창(MusicSheet)에서 */
