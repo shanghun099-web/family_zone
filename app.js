@@ -9986,10 +9986,11 @@ function App() {
     onClick: () => goTab('pray')
   }, /*#__PURE__*/React.createElement("span", {
     className: "tb-ic"
-  }, /*#__PURE__*/React.createElement(LIcon, {
-    name: "hand-heart",
-    size: 23,
-    sw: tab === 'pray' ? 2.1 : 1.6
+  }, /*#__PURE__*/React.createElement(PrayHands, {
+    size: 27,
+    style: {
+      marginTop: -1
+    }
   })), /*#__PURE__*/React.createElement("span", {
     className: "tb-l"
   }, "\uAE30\uB3C4")), /*#__PURE__*/React.createElement("button", {

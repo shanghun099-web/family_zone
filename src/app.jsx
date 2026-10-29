@@ -3608,7 +3608,7 @@ function App() {
             <span className="tb-plus"><LIcon name="plus" size={20} sw={2.4}/></span><span className="tb-l">새 소식</span>
           </button>
           <button className={tab === 'pray' ? 'on' : ''} aria-current={tab === 'pray' ? 'page' : undefined} onClick={() => goTab('pray')}>
-            <span className="tb-ic"><LIcon name="hand-heart" size={23} sw={tab === 'pray' ? 2.1 : 1.6}/></span><span className="tb-l">기도</span>
+            <span className="tb-ic"><PrayHands size={27} style={{ marginTop: -1 }}/></span><span className="tb-l">기도</span>
           </button>
           <button className={tab === 'me' ? 'on' : ''} aria-current={tab === 'me' ? 'page' : undefined} onClick={() => goTab('me')}>
             <span className="tb-ic">{me0.avatar ? <span className="me-av"><Avatar m={me0} size={24}/></span> : <LIcon name="circle-user-round" size={23} sw={tab === 'me' ? 2.1 : 1.6}/>}</span><span className="tb-l">내 프로필</span>
