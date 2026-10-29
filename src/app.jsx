@@ -1793,15 +1793,17 @@ function HomeTab() {
         {stories.map(m => {
           const ring = C.storyRing(m.id) || 'plain'; const bd = C.bdayDays(m.id);
           const mine = m.id === C.me; const has = C.dailyToday(m.id).length > 0;
+          /* 그림·＋·이름 어디를 눌러도 되게 한 칸 전체가 단추 (예전엔 그림만 반응해서 ＋나 이름을 누르면 아무 일도 없었다) */
+          const tap = () => { if (mine && !has) C.openComposer({ mode: 'daily' }); else if (has) C.openStory(C.dailyToday(m.id)); else C.openProfile(m.id); };
           return (
-            <div className="st" key={m.id}>
+            <button type="button" className="st" key={m.id} onClick={tap} aria-label={mine && !has ? '내 스토리 올리기' : mine ? '내 스토리 보기' : `${m.name} ${has ? '스토리 보기' : '프로필'}`}>
               {mine && !has
-                ? <button className="me0" onClick={() => C.openComposer({ mode: 'daily' })} aria-label="내 스토리 올리기">{m.avatar ? <Avatar m={m} size={68}/> : <LIcon name="users" size={30}/>}</button>
-                : <Avatar m={m} size={62} ring={ring} onClick={() => { if (has) C.openStory(C.dailyToday(m.id)); else C.openProfile(m.id); }}/>}
+                ? <span className="me0">{m.avatar ? <Avatar m={m} size={68}/> : <LIcon name="users" size={30}/>}</span>
+                : <Avatar m={m} size={62} ring={ring}/>}
               {mine && !has && <span className="addp"><LIcon name="plus" size={13} sw={3}/></span>}
               {bd !== null && bd <= 7 && !(mine && !has) && <span className="mini">🎂{ddayText(bd)}</span>}
-              <div className="lb">{mine ? '내 스토리' : m.name}</div>
-            </div>
+              <span className="lb">{mine ? '내 스토리' : m.name}</span>
+            </button>
           );
         })}
       </div>

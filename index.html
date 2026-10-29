@@ -75,8 +75,10 @@
   /* 스토리 줄 */
   .stories{display:flex;gap:12px;padding:10px 16px 14px;overflow-x:auto;scrollbar-width:none}
   .stories::-webkit-scrollbar{display:none}
-  .st{width:70px;text-align:center;flex-shrink:0;position:relative}
-  .st .lb{font-size:.82rem;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#262626}
+  .st{width:70px;text-align:center;flex-shrink:0;position:relative;display:block;background:none;border:0;padding:0 0 2px;font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s}
+  .st:active{transform:scale(.94)}
+  .st .av{margin:0 auto}
+  .st .lb{display:block;font-size:.82rem;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#262626}
   .st .me0{width:68px;height:68px;border-radius:50%;background:#EEF0F3;color:#7d8590;display:flex;align-items:center;justify-content:center;margin:0 auto}
   .st .mini{position:absolute;top:50px;left:50%;transform:translateX(-50%);background:#fff;border-radius:9px;font-size:.68rem;font-weight:900;padding:0 5px;color:#7b4bd1;border:1px solid #e3d8f7;white-space:nowrap}
   .st .addp{position:absolute;top:48px;right:0;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center}
@@ -559,6 +561,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=389efebf"></script>
+<script src="app.js?v=a9aac55d"></script>
 </body>
 </html>

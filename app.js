@@ -4631,15 +4631,20 @@ function HomeTab() {
     const bd = C.bdayDays(m.id);
     const mine = m.id === C.me;
     const has = C.dailyToday(m.id).length > 0;
-    return /*#__PURE__*/React.createElement("div", {
-      className: "st",
-      key: m.id
-    }, mine && !has ? /*#__PURE__*/React.createElement("button", {
-      className: "me0",
-      onClick: () => C.openComposer({
+    /* 그림·＋·이름 어디를 눌러도 되게 한 칸 전체가 단추 (예전엔 그림만 반응해서 ＋나 이름을 누르면 아무 일도 없었다) */
+    const tap = () => {
+      if (mine && !has) C.openComposer({
         mode: 'daily'
-      }),
-      "aria-label": "\uB0B4 \uC2A4\uD1A0\uB9AC \uC62C\uB9AC\uAE30"
+      });else if (has) C.openStory(C.dailyToday(m.id));else C.openProfile(m.id);
+    };
+    return /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "st",
+      key: m.id,
+      onClick: tap,
+      "aria-label": mine && !has ? '내 스토리 올리기' : mine ? '내 스토리 보기' : `${m.name} ${has ? '스토리 보기' : '프로필'}`
+    }, mine && !has ? /*#__PURE__*/React.createElement("span", {
+      className: "me0"
     }, m.avatar ? /*#__PURE__*/React.createElement(Avatar, {
       m: m,
       size: 68
@@ -4649,10 +4654,7 @@ function HomeTab() {
     })) : /*#__PURE__*/React.createElement(Avatar, {
       m: m,
       size: 62,
-      ring: ring,
-      onClick: () => {
-        if (has) C.openStory(C.dailyToday(m.id));else C.openProfile(m.id);
-      }
+      ring: ring
     }), mine && !has && /*#__PURE__*/React.createElement("span", {
       className: "addp"
     }, /*#__PURE__*/React.createElement(LIcon, {
@@ -4661,7 +4663,7 @@ function HomeTab() {
       sw: 3
     })), bd !== null && bd <= 7 && !(mine && !has) && /*#__PURE__*/React.createElement("span", {
       className: "mini"
-    }, "\uD83C\uDF82", ddayText(bd)), /*#__PURE__*/React.createElement("div", {
+    }, "\uD83C\uDF82", ddayText(bd)), /*#__PURE__*/React.createElement("span", {
       className: "lb"
     }, mine ? '내 스토리' : m.name));
   })), wq && /*#__PURE__*/React.createElement(QHero, {
