@@ -1890,7 +1890,7 @@ function CalendarTab() {
   const C = useC(); const today = ymd();
   const [mode, setMode] = useState('ev');
   const [cur, setCur] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
-  const [sel, setSel] = useState(today); const [who, setWho] = useState('all'); const [adding, setAdding] = useState(false);
+  const [sel, setSel] = useState(today); const [who, setWho] = useState('all'); const [adding, setAdding] = useState(false); const [editing, setEditing] = useState(null);
   const Y = cur.getFullYear(), M = cur.getMonth();
   const allEvents = C.allEvents;
   const byDay = useMemo(() => {
@@ -1962,7 +1962,7 @@ function CalendarTab() {
         </>
       )}
       {mode === 'ph' && <p className="small muted pad" style={{ marginTop: 12 }}>날짜를 누르면 그날의 한 장을 크게 봐요. 홈 맨 위 내 동그라미의 ＋로 오늘의 한 장을 올려요.</p>}
-      <EventSheet open={adding} onClose={() => setAdding(false)} day={sel}/>
+      <EventSheet open={adding || !!editing} onClose={() => { setAdding(false); setEditing(null); }} day={sel} ev={editing}/>
     </>
   );
   function EventRow({ ev, d, showDday }) {
@@ -1975,27 +1975,34 @@ function CalendarTab() {
           <span className="small muted" style={{ display: 'block' }}>{fmtDate(d)} ({WD[parseYmd(d).getDay()]}){ev.calendar === 'lunar' ? ` · 음력 ${ev.lunar_month}월 ${ev.lunar_day}일` : ''}{ev.yearly ? ' · 매년' : ''}{m ? ` · ${m.name}` : ''}</span>
         </div>
         {showDday && <span className={'dday' + (n <= 7 ? ' near' : '')}>{ddayText(n)}</span>}
+        {!ev.virtual && <button className="iconbtn" onClick={() => setEditing(ev)} aria-label="일정 고치기"><LIcon name="pencil" size={18}/></button>}
         {!ev.virtual && <button className="iconbtn" onClick={() => C.deleteEvent(ev)} aria-label="일정 지우기"><LIcon name="trash-2" size={18}/></button>}
       </div>
     );
   }
 }
 
-function EventSheet({ open, onClose, day }) {
+/* 일정 넣기 · 고치기 (ev 가 있으면 그 일정을 고친다) */
+function EventSheet({ open, onClose, day, ev }) {
   const C = useC();
   const [title, setTitle] = useState(''); const [kind, setKind] = useState('event'); const [cal, setCal] = useState('solar');
   const [date, setDate] = useState(day || ymd()); const [lm, setLm] = useState(1); const [ld, setLd] = useState(1);
   const [yearly, setYearly] = useState(false); const [mid, setMid] = useState('');
-  useEffect(() => { if (open) { setTitle(''); setKind('event'); setCal('solar'); setDate(day || ymd()); setYearly(false); setMid(''); const l = lunarOf(parseYmd(day || ymd())); if (l) { setLm(l.m); setLd(l.d); } } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    if (ev) { setTitle(ev.title || ''); setKind(ev.kind || 'event'); setCal(ev.calendar === 'lunar' ? 'lunar' : 'solar'); setDate(ev.event_date || day || ymd()); setYearly(!!ev.yearly); setMid(ev.member_id || ''); if (ev.calendar === 'lunar') { setLm(ev.lunar_month || 1); setLd(ev.lunar_day || 1); return; } }
+    else { setTitle(''); setKind('event'); setCal('solar'); setDate(day || ymd()); setYearly(false); setMid(''); }
+    const l = lunarOf(parseYmd((ev && ev.event_date) || day || ymd())); if (l) { setLm(l.m); setLd(l.d); }
+  }, [open, ev]);
   const kinds = [['event', '📌 일정'], ['birthday', '🎂 생일'], ['anniversary', '💍 기념일'], ['memorial', '🕯️ 기일']];
   const save = async () => {
     if (!title.trim()) { C.toast('이름을 적어 주세요'); return; }
     const row = { title: title.trim(), kind, member_id: mid || null, calendar: cal, yearly: cal === 'lunar' ? true : yearly,
       event_date: cal === 'solar' ? date : null, lunar_month: cal === 'lunar' ? +lm : null, lunar_day: cal === 'lunar' ? +ld : null };
-    if (await C.write(() => db.add('events', row), '달력에 넣었어요')) onClose();
+    if (await C.write(() => ev ? db.patch('events', ev.id, row) : db.add('events', row), ev ? '일정을 고쳤어요' : '달력에 넣었어요')) onClose();
   };
   return (
-    <Sheet open={open} onClose={onClose} title="일정 넣기" right={<button className="hdbtn" onClick={save}>저장</button>}>
+    <Sheet open={open} onClose={onClose} title={ev ? '일정 고치기' : '일정 넣기'} right={<button className="hdbtn" onClick={save}>저장</button>}>
       <div className="field"><label>무슨 날인가요?</label><input className="input" placeholder="예: 할아버지 기일, 결혼기념일" value={title} onChange={e => setTitle(e.target.value)}/></div>
       <div className="field"><label>종류</label><div className="chips">{kinds.map(([k, l]) => <button key={k} type="button" className={'chip' + (kind === k ? ' on' : '')} onClick={() => { setKind(k); if (k !== 'event') setYearly(true); }}>{l}</button>)}</div></div>
       <div className="field"><label>양력 / 음력</label><div className="seg"><button type="button" className={cal === 'solar' ? 'on' : ''} onClick={() => setCal('solar')}>양력</button><button type="button" className={cal === 'lunar' ? 'on' : ''} onClick={() => setCal('lunar')}>음력 (매년 자동 계산)</button></div></div>

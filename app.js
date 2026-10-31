@@ -4877,6 +4877,7 @@ function CalendarTab() {
   const [sel, setSel] = useState(today);
   const [who, setWho] = useState('all');
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const Y = cur.getFullYear(),
     M = cur.getMonth();
   const allEvents = C.allEvents;
@@ -5082,9 +5083,13 @@ function CalendarTab() {
       marginTop: 12
     }
   }, "\uB0A0\uC9DC\uB97C \uB204\uB974\uBA74 \uADF8\uB0A0\uC758 \uD55C \uC7A5\uC744 \uD06C\uAC8C \uBD10\uC694. \uD648 \uB9E8 \uC704 \uB0B4 \uB3D9\uADF8\uB77C\uBBF8\uC758 \uFF0B\uB85C \uC624\uB298\uC758 \uD55C \uC7A5\uC744 \uC62C\uB824\uC694."), /*#__PURE__*/React.createElement(EventSheet, {
-    open: adding,
-    onClose: () => setAdding(false),
-    day: sel
+    open: adding || !!editing,
+    onClose: () => {
+      setAdding(false);
+      setEditing(null);
+    },
+    day: sel,
+    ev: editing
   }));
   function EventRow({
     ev,
@@ -5110,6 +5115,13 @@ function CalendarTab() {
       className: 'dday' + (n <= 7 ? ' near' : '')
     }, ddayText(n)), !ev.virtual && /*#__PURE__*/React.createElement("button", {
       className: "iconbtn",
+      onClick: () => setEditing(ev),
+      "aria-label": "\uC77C\uC815 \uACE0\uCE58\uAE30"
+    }, /*#__PURE__*/React.createElement(LIcon, {
+      name: "pencil",
+      size: 18
+    })), !ev.virtual && /*#__PURE__*/React.createElement("button", {
+      className: "iconbtn",
       onClick: () => C.deleteEvent(ev),
       "aria-label": "\uC77C\uC815 \uC9C0\uC6B0\uAE30"
     }, /*#__PURE__*/React.createElement(LIcon, {
@@ -5118,10 +5130,13 @@ function CalendarTab() {
     })));
   }
 }
+
+/* 일정 넣기 · 고치기 (ev 가 있으면 그 일정을 고친다) */
 function EventSheet({
   open,
   onClose,
-  day
+  day,
+  ev
 }) {
   const C = useC();
   const [title, setTitle] = useState('');
@@ -5133,20 +5148,33 @@ function EventSheet({
   const [yearly, setYearly] = useState(false);
   const [mid, setMid] = useState('');
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (ev) {
+      setTitle(ev.title || '');
+      setKind(ev.kind || 'event');
+      setCal(ev.calendar === 'lunar' ? 'lunar' : 'solar');
+      setDate(ev.event_date || day || ymd());
+      setYearly(!!ev.yearly);
+      setMid(ev.member_id || '');
+      if (ev.calendar === 'lunar') {
+        setLm(ev.lunar_month || 1);
+        setLd(ev.lunar_day || 1);
+        return;
+      }
+    } else {
       setTitle('');
       setKind('event');
       setCal('solar');
       setDate(day || ymd());
       setYearly(false);
       setMid('');
-      const l = lunarOf(parseYmd(day || ymd()));
-      if (l) {
-        setLm(l.m);
-        setLd(l.d);
-      }
     }
-  }, [open]);
+    const l = lunarOf(parseYmd(ev && ev.event_date || day || ymd()));
+    if (l) {
+      setLm(l.m);
+      setLd(l.d);
+    }
+  }, [open, ev]);
   const kinds = [['event', '📌 일정'], ['birthday', '🎂 생일'], ['anniversary', '💍 기념일'], ['memorial', '🕯️ 기일']];
   const save = async () => {
     if (!title.trim()) {
@@ -5163,12 +5191,12 @@ function EventSheet({
       lunar_month: cal === 'lunar' ? +lm : null,
       lunar_day: cal === 'lunar' ? +ld : null
     };
-    if (await C.write(() => db.add('events', row), '달력에 넣었어요')) onClose();
+    if (await C.write(() => ev ? db.patch('events', ev.id, row) : db.add('events', row), ev ? '일정을 고쳤어요' : '달력에 넣었어요')) onClose();
   };
   return /*#__PURE__*/React.createElement(Sheet, {
     open: open,
     onClose: onClose,
-    title: "\uC77C\uC815 \uB123\uAE30",
+    title: ev ? '일정 고치기' : '일정 넣기',
     right: /*#__PURE__*/React.createElement("button", {
       className: "hdbtn",
       onClick: save
