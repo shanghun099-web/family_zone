@@ -466,7 +466,7 @@ function InstallCard({ inSettings }) {
 /* ── 폰 알림 (Web Push) ──
    "알림 받기"를 누르면 이 폰의 알림 주소를 push_subs 표에 적는다. 식구가 무언가 올리면
    Supabase 의 notify 함수가 그 주소로 알림을 보내고, sw.js 가 폰 알림으로 띄운다.
-   밤 10시~아침 8시 것은 서버가 모아 두었다가 아침에 보낸다. */
+   밤 12시~아침 8시 것은 서버가 모아 두었다가 아침에 보낸다. */
 const VAPID_PUB = 'BCXSOfWZ11rtXk2VdgjbGEs_-sR8G4lKgN9w7Rqkd0VPSsF2WYaPEHfy7MYPVIRDTVkvd3cm23Pa_FDVG0r3RLY';
 const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 const swReady = PUSH_OK ? navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).catch(() => null) : Promise.resolve(null);
@@ -493,12 +493,12 @@ const ensurePush = member => ensuring || (ensuring = (async () => {
       if (rows && !rows.length && store.get('fz_push_ep') === sub.endpoint) { await sub.unsubscribe().catch(() => {}); sub = null; }   // 서버가 만료로 지운 주소
     }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUB) });
-    await savePushSub(member, sub); store.set('fz_push_ep', sub.endpoint);
+    await savePushSub(member, sub); store.set('fz_push_ep', sub.endpoint); store.set('fz_push_was', '1');
     dispatchEvent(new Event('fz-push'));
     return true;
   } catch (e) { return false; } finally { ensuring = null; }
 })());
-const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 남긴 마음 (❤️😂👍 …)'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 10시~아침 8시는 조용히 (아침에 모아서)']];
+const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 남긴 마음 (❤️😂👍 …)'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 12시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
   const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
@@ -544,20 +544,29 @@ function usePush() {
   };
   return { ...st, supported: PUSH_OK, needsInstall: IS_IOS && !isStandalone(), on, off, setPref, sample };
 }
-/* 홈 위쪽 "알림 받기" 카드 (앱 설치 카드가 먼저 보일 땐 숨김) */
+/* 홈 위쪽 "알림 받기" 카드 (앱 설치 카드가 먼저 보일 땐 숨김)
+   한 번 켰던 폰인데 허락이 풀린 경우(크롬이 오래 안 쓴 사이트 알림을 저절로 끄기도 함)는 빨간 "다시 켜기"로,
+   "나중에"를 눌러도 다음 날 다시 보인다 */
 function PushCard() {
   const P = usePush(); const I = useInstall();
-  const [hide, setHide] = useState(() => store.get('fz_push_hide') > ymd());
-  if (!P.ready || !P.supported || P.needsInstall || P.row || P.perm !== 'default' || hide || I.can) return null;
+  const lost = !!(store.get('fz_push_was') || store.get('fz_push_ep')) && !store.get('fz_push_off');
+  const key = lost ? 'fz_push_lost_hide' : 'fz_push_hide';
+  const [hide, setHide] = useState(() => store.get(key) > ymd());
+  if (!P.ready || !P.supported || P.needsInstall || P.row || hide || I.can) return null;
+  if (P.perm !== 'default' && !(lost && P.perm === 'denied')) return null;
+  const later = () => { store.set(key, ymd(addDays(new Date(), lost ? 1 : 14))); setHide(true); };
   return (
-    <div className="banner" style={{ alignItems: 'flex-start' }}>
-      <div className="bic" style={{ background: '#FFEDEE', color: '#ED4956' }}><LIcon name="bell-ring"/></div>
+    <div className="banner" style={{ alignItems: 'flex-start', ...(lost ? { background: '#FFF4F4', borderColor: '#F5C2C7' } : {}) }}>
+      <div className="bic" style={{ background: '#FFEDEE', color: '#ED4956' }}><LIcon name={lost ? 'bell-off' : 'bell-ring'}/></div>
       <div className="grow">
-        <b>새 소식 알림 받기</b>
-        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>식구가 소식·댓글·편지를 남기면 폰에 알려 드려요. 앱 아이콘에 숫자도 떠요.</span>
+        <b>{lost ? '알림이 꺼졌어요' : '새 소식 알림 받기'}</b>
+        <span style={{ display: 'block', fontSize: '.9rem', color: 'var(--sub)', margin: '2px 0 8px' }}>{
+          !lost ? '식구가 소식·댓글·편지를 남기면 폰에 알려 드려요. 앱 아이콘에 숫자도 떠요.'
+          : P.perm === 'denied' ? '폰이 이 앱의 알림을 막았어요. 폰 설정 → 애플리케이션 → Familygram(또는 크롬) → 알림을 켜 주세요.'
+          : '폰(크롬)이 알림 허락을 풀었어요. 아래 단추를 누르고 "허용"을 골라 주세요.'}</span>
         <div className="row gap">
-          <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}알림 받기</button>
-          <button className="btn sm soft" onClick={() => { store.set('fz_push_hide', ymd(addDays(new Date(), 14))); setHide(true); }}>나중에</button>
+          {P.perm === 'default' && <button className="btn sm primary" disabled={P.busy} onClick={P.on}>{P.busy ? <span className="spin"/> : <LIcon name="bell" size={18}/>}{lost ? '다시 켜기' : '알림 받기'}</button>}
+          <button className="btn sm soft" onClick={later}>나중에</button>
         </div>
       </div>
     </div>
