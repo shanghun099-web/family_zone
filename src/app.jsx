@@ -481,9 +481,10 @@ const savePushSub = async (member, sub) => {
 const pushSub = async () => { const reg = await swReady; return reg ? reg.pushManager.getSubscription() : null; };
 /* 알림 주소 저절로 고치기: 한 번 허용한 폰이면 앱을 열 때마다 확인해서, 주소가 없거나 서버가 만료로 지운 주소면
    묻지 않고 새 주소를 받아 적는다. (안드로이드 크롬은 앱 설치·업데이트 때 알림 주소를 가끔 바꾼다)
-   "이 폰 알림 끄기"를 누른 폰(fz_push_off)은 건드리지 않는다 */
+   "이 폰 알림 끄기"를 누른 폰(fz_push_off)은 건드리지 않는다.
+   중간에 멈춰도(앱이 뒤로 갔을 때 등) 25초 뒤 포기하고 다음에 다시 한다 — 10/31 아빠 폰에서 멈춘 채 굳어 새 주소를 못 받았음 */
 let ensuring = null;
-const ensurePush = member => ensuring || (ensuring = (async () => {
+const ensurePush = member => ensuring || (ensuring = Promise.race([(async () => {
   try {
     if (!PUSH_OK || !member || store.get('fz_push_off')) return false;
     const reg = await swReady; if (!reg) return false;
@@ -497,8 +498,8 @@ const ensurePush = member => ensuring || (ensuring = (async () => {
     await savePushSub(member, sub); store.set('fz_push_ep', sub.endpoint); store.set('fz_push_was', '1');
     dispatchEvent(new Event('fz-push'));
     return true;
-  } catch (e) { return false; } finally { ensuring = null; }
-})());
+  } catch (e) { return false; }
+})(), new Promise(r => setTimeout(() => r(false), 25000))]).finally(() => { ensuring = null; }));
 const PUSH_PREFS = [['post', '새 소식 · 새 댓글 · 오늘의 한 장'], ['react', '내 소식에 남긴 마음 (❤️😂👍 …)'], ['letter', '편지 · 나에게 온 질문'], ['day', '생일 · 행사 하루 전 (아침 8시)'], ['pray', '함께 기도해요 (기도 제목 · 기도했어요 · 응답)'], ['quiet', '밤 12시~아침 8시는 조용히 (아침에 모아서)']];
 function usePush() {
   const C = useC();
