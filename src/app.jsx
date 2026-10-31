@@ -485,8 +485,9 @@ const pushSub = async () => { const reg = await swReady; return reg ? reg.pushMa
 let ensuring = null;
 const ensurePush = member => ensuring || (ensuring = (async () => {
   try {
-    if (!PUSH_OK || !member || Notification.permission !== 'granted' || store.get('fz_push_off')) return false;
+    if (!PUSH_OK || !member || store.get('fz_push_off')) return false;
     const reg = await swReady; if (!reg) return false;
+    if (Notification.permission !== 'granted' && (await reg.pushManager.permissionState({ userVisibleOnly: true }).catch(() => '')) !== 'granted') return false;
     let sub = await reg.pushManager.getSubscription();
     if (sub) {
       const rows = await db.list('push_subs', `select=id&endpoint=eq.${encodeURIComponent(sub.endpoint)}&order=id`).catch(() => null);
@@ -504,9 +505,12 @@ function usePush() {
   const [st, setSt] = useState({ ready: false, perm: PUSH_OK ? Notification.permission : 'unsupported', row: null, busy: false });
   const load = async () => {
     if (!PUSH_OK) { setSt(x => ({ ...x, ready: true })); return; }
-    const sub = await pushSub(); let row = null;
+    const sub = await pushSub(); let row = null; let perm = Notification.permission;
     if (sub) { try { row = (await db.list('push_subs', `select=*&endpoint=eq.${encodeURIComponent(sub.endpoint)}&order=id`))[0] || null; } catch (e) {} }
-    setSt(x => ({ ...x, ready: true, perm: Notification.permission, row }));
+    /* 설치한 앱(WebAPK)에선 Notification.permission 이 'default' 로 잘못 읽힐 때가 있어 알림 칸(pushManager)에도 묻는다.
+       살아 있는 알림 주소가 있으면 허락된 것 */
+    if (perm !== 'granted') { try { const reg = await swReady; if (sub || (reg && await reg.pushManager.permissionState({ userVisibleOnly: true })) === 'granted') perm = 'granted'; } catch (e) {} }
+    setSt(x => ({ ...x, ready: true, perm, row, hasSub: !!sub }));
   };
   useEffect(() => { load(); const f = () => load(); addEventListener('fz-push', f); return () => removeEventListener('fz-push', f); }, []);
   const on = async () => {
@@ -552,7 +556,7 @@ function PushCard() {
   const lost = !!(store.get('fz_push_was') || store.get('fz_push_ep')) && !store.get('fz_push_off');
   const key = lost ? 'fz_push_lost_hide' : 'fz_push_hide';
   const [hide, setHide] = useState(() => store.get(key) > ymd());
-  if (!P.ready || !P.supported || P.needsInstall || P.row || hide || I.can) return null;
+  if (!P.ready || !P.supported || P.needsInstall || P.row || P.hasSub || hide || I.can) return null;
   if (P.perm !== 'default' && !(lost && P.perm === 'denied')) return null;
   const later = () => { store.set(key, ymd(addDays(new Date(), lost ? 1 : 14))); setHide(true); };
   return (
