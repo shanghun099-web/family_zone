@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef, useMemo, useContext, createContext } = React;
+const { useState, useEffect, useLayoutEffect, useRef, useMemo, useContext, createContext } = React;
 
 /* ── 아이콘 (lucide 0.460 고정) ── */
 const LIcon = ({ name, size = 24, fill, stroke, sw }) => {
@@ -1903,7 +1903,7 @@ function HomeTab() {
           );
         })}
       </div>
-      {wq && <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>}
+      {wq && <QHeroReplay wq={wq}/>}
       <InstallCard/>
       <PushCard/>
       {askedMe.length > 0 && (
@@ -2231,6 +2231,69 @@ function QHero({ q, onOpen, inline }) {
   );
 }
 
+/* 홈 질문 카드 + 지난 질문 다시 보기: 첫 장은 늘 이번 주 질문, 옆으로 밀면 답이 열린 지난 질문 5개, 끝 장은 "모두 보기"
+   - 앱을 열 때마다 무작위 5개 (답한 식구 2명 이상 먼저, 바로 전에 보여 준 것은 빼고)
+   - 지난 질문 장은 이번 주 카드와 같은 높이: 넘치는 답은 숨기고 "+N명 더"
+   - 이번 주 질문이 가려지면 안 되니 자동으로 넘기지 않는다. "옆으로 밀면" 안내는 한 번 넘겨 보면 다시 안 나온다 */
+const QR_PICK = 5;
+function QHeroReplay({ wq }) {
+  const C = useC();
+  const past = C.questions.filter(q => q.text && q.id !== wq.id && q.week_start < wq.week_start);
+  const ansOf = q => { const seen = new Set(); return C.answers.filter(a => a.question_id === q.id && (a.content || a.audio_url)).sort((a, b) => a.created_at.localeCompare(b.created_at)).filter(a => !seen.has(a.member_id) && seen.add(a.member_id)); };
+  const [ids, setIds] = useState(null);
+  useEffect(() => {
+    const withAns = past.filter(q => ansOf(q).length > 0);
+    if (!withAns.length || (ids && ids.length >= Math.min(QR_PICK, withAns.length))) return;   // 이미 골랐으면 그대로 (자료가 늦게 와서 모자랄 때만 다시)
+    const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    let last = []; try { last = JSON.parse(store.get('fz_qr_last') || '[]'); } catch (e) {}
+    const fresh = withAns.filter(q => !last.includes(q.id));
+    let out = [...shuffle(fresh.filter(q => ansOf(q).length >= 2)), ...shuffle(fresh.filter(q => ansOf(q).length < 2))].slice(0, QR_PICK);
+    if (out.length < QR_PICK) out = [...out, ...shuffle(withAns.filter(q => !out.includes(q)))].slice(0, QR_PICK);
+    store.set('fz_qr_last', JSON.stringify(out.map(q => q.id)));
+    setIds(out.map(q => q.id));
+  }, [past.length, C.answers.length]);
+  const shown = (ids || []).map(id => past.find(q => q.id === id)).filter(Boolean);
+  const [idx, setIdx] = useState(0); const [hint, setHint] = useState(() => !store.get('fz_qr_hint'));
+  const car = useRef(null);
+  /* 지난 질문 장 높이를 이번 주 카드에 맞추고, 넘치는 답은 숨긴다 */
+  const fit = () => {
+    const el = car.current; if (!el) return;
+    const h = el.firstChild && el.firstChild.offsetHeight; if (!h) return;
+    el.querySelectorAll('.qr-s').forEach(s => {
+      s.style.height = h + 'px';
+      const list = s.querySelector('.qr-list'); if (!list) return;
+      const rows = [...list.children]; rows.forEach(r => { r.style.display = ''; });
+      let n = rows.length; while (n > 1 && list.scrollHeight > list.clientHeight + 1) rows[--n].style.display = 'none';
+      const cnt = s.querySelector('.qr-cnt'); if (cnt) cnt.textContent = n < rows.length ? `+${rows.length - n}명 더` : `답 ${rows.length}명`;
+    });
+  };
+  useLayoutEffect(fit);
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, []);
+  if (!shown.length) return <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>;
+  const onScroll = e => { const el = e.currentTarget; const i = Math.round(el.scrollLeft / el.clientWidth); if (i !== idx) setIdx(i); if (i > 0 && hint) { setHint(false); store.set('fz_qr_hint', '1'); } };
+  const n = shown.length + 2;
+  return (
+    <div className="qr">
+      <div className="qr-car" ref={car} onScroll={onScroll}>
+        <QHero q={wq} onOpen={() => C.openQuestion(wq)}/>
+        {shown.map(q => { const as = ansOf(q); const by = C.getM(q.asker_id); return (
+          <button key={q.id} className="qr-s" onClick={() => C.openQuestion(q)}>
+            <span className="qr-pill">📖 지난 질문 · {fmtDate(q.week_start)} 주{q.asker_id ? ` · ${by.name}` : ''}</span>
+            <span className="qr-q">“{q.text}”</span>
+            <span className="qr-list">{as.map(a => { const m = C.getM(a.member_id); return (
+              <span className="qr-a" key={a.id}><Avatar m={m} size={26}/><span className="qr-t"><b>{m.name}</b>{a.audio_url && <span className="qr-v">▶ {fmtSec(voiceSec(a.audio_url))}</span>}{a.content || (a.audio_url ? '목소리로 답했어요' : '')}</span></span>); })}</span>
+            <span className="qr-ft"><span className="qr-cnt">답 {as.length}명</span><span>눌러서 모두 보기 ›</span></span>
+          </button>); })}
+        <button className="qr-s qr-end" onClick={() => C.openQuestion({ ...wq, _past: true })}>
+          <span className="qr-big">📚</span><b>지난 질문 {past.length}개</b><span className="qr-sub">우리 가족이 함께 답한 질문을 모두 볼 수 있어요</span><span className="qr-go">지난 질문 모두 보기 ›</span>
+        </button>
+      </div>
+      {hint && <span className="qr-hint">옆으로 밀면 지난 질문 ›</span>}
+      <div className="qr-dots">{Array.from({ length: n }, (_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div>
+    </div>
+  );
+}
+
 /* 순서표: 지난주 · 이번 주 · 다음 주들 */
 function QTurns({ cur, onOrder }) {
   const C = useC(); const order = C.members;
@@ -2472,7 +2535,10 @@ function MyAnswer({ q, S }) {
 function QuestionSheet({ q, onClose }) {
   const C = useC(); const [view, setView] = useState(null);
   const [editing, setEditing] = useState(false); const [orderOpen, setOrderOpen] = useState(false); const [showPast, setShowPast] = useState(false);
-  useEffect(() => { setView(q); setEditing(false); setShowPast(false); }, [q]);
+  useEffect(() => {
+    setView(q); setEditing(false); setShowPast(!!(q && q._past));
+    if (q && q._past) setTimeout(() => { const el = document.querySelector('.qpast-hd'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 250);   // 홈 "지난 질문 모두 보기"에서 왔으면 목록을 펼쳐 그 자리로
+  }, [q]);
   const cur = view ? (C.questions.find(x => x.id === view.id) || view) : null;
   const S = cur ? qState(C, cur) : null;
   const iAsk = cur && cur.asker_id === C.me;
@@ -2520,7 +2586,7 @@ function QuestionSheet({ q, onClose }) {
           {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
           <QBox/>
           {past.length > 0 && <>
-            <button className="sec-t" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setShowPast(s => !s)}>
+            <button className="sec-t qpast-hd" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setShowPast(s => !s)}>
               <span>지난 질문과 답 <span className="small muted" style={{ fontWeight: 400 }}>· {past.length}개</span></span><LIcon name={showPast ? 'chevron-up' : 'chevron-down'} size={20}/>
             </button>
             {showPast && past.map(x => { const n = new Set(C.answers.filter(a => a.question_id === x.id).map(a => a.member_id)).size; const am = C.getM(x.asker_id); return (

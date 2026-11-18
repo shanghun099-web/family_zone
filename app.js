@@ -2,6 +2,7 @@
 const {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useMemo,
   useContext,
@@ -4899,9 +4900,8 @@ function HomeTab() {
     }, "\uD83C\uDF82", ddayText(bd)), /*#__PURE__*/React.createElement("span", {
       className: "lb"
     }, mine ? '내 스토리' : m.name));
-  })), wq && /*#__PURE__*/React.createElement(QHero, {
-    q: wq,
-    onOpen: () => C.openQuestion(wq)
+  })), wq && /*#__PURE__*/React.createElement(QHeroReplay, {
+    wq: wq
   }), /*#__PURE__*/React.createElement(InstallCard, null), /*#__PURE__*/React.createElement(PushCard, null), askedMe.length > 0 && /*#__PURE__*/React.createElement("button", {
     className: "banner",
     onClick: () => C.openComments(askedMe[0])
@@ -5865,6 +5865,149 @@ function QHero({
   }), "\uC77D\uC5B4 \uC8FC\uAE30")));
 }
 
+/* 홈 질문 카드 + 지난 질문 다시 보기: 첫 장은 늘 이번 주 질문, 옆으로 밀면 답이 열린 지난 질문 5개, 끝 장은 "모두 보기"
+   - 앱을 열 때마다 무작위 5개 (답한 식구 2명 이상 먼저, 바로 전에 보여 준 것은 빼고)
+   - 지난 질문 장은 이번 주 카드와 같은 높이: 넘치는 답은 숨기고 "+N명 더"
+   - 이번 주 질문이 가려지면 안 되니 자동으로 넘기지 않는다. "옆으로 밀면" 안내는 한 번 넘겨 보면 다시 안 나온다 */
+const QR_PICK = 5;
+function QHeroReplay({
+  wq
+}) {
+  const C = useC();
+  const past = C.questions.filter(q => q.text && q.id !== wq.id && q.week_start < wq.week_start);
+  const ansOf = q => {
+    const seen = new Set();
+    return C.answers.filter(a => a.question_id === q.id && (a.content || a.audio_url)).sort((a, b) => a.created_at.localeCompare(b.created_at)).filter(a => !seen.has(a.member_id) && seen.add(a.member_id));
+  };
+  const [ids, setIds] = useState(null);
+  useEffect(() => {
+    const withAns = past.filter(q => ansOf(q).length > 0);
+    if (!withAns.length || ids && ids.length >= Math.min(QR_PICK, withAns.length)) return; // 이미 골랐으면 그대로 (자료가 늦게 와서 모자랄 때만 다시)
+    const shuffle = a => {
+      a = a.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+    let last = [];
+    try {
+      last = JSON.parse(store.get('fz_qr_last') || '[]');
+    } catch (e) {}
+    const fresh = withAns.filter(q => !last.includes(q.id));
+    let out = [...shuffle(fresh.filter(q => ansOf(q).length >= 2)), ...shuffle(fresh.filter(q => ansOf(q).length < 2))].slice(0, QR_PICK);
+    if (out.length < QR_PICK) out = [...out, ...shuffle(withAns.filter(q => !out.includes(q)))].slice(0, QR_PICK);
+    store.set('fz_qr_last', JSON.stringify(out.map(q => q.id)));
+    setIds(out.map(q => q.id));
+  }, [past.length, C.answers.length]);
+  const shown = (ids || []).map(id => past.find(q => q.id === id)).filter(Boolean);
+  const [idx, setIdx] = useState(0);
+  const [hint, setHint] = useState(() => !store.get('fz_qr_hint'));
+  const car = useRef(null);
+  /* 지난 질문 장 높이를 이번 주 카드에 맞추고, 넘치는 답은 숨긴다 */
+  const fit = () => {
+    const el = car.current;
+    if (!el) return;
+    const h = el.firstChild && el.firstChild.offsetHeight;
+    if (!h) return;
+    el.querySelectorAll('.qr-s').forEach(s => {
+      s.style.height = h + 'px';
+      const list = s.querySelector('.qr-list');
+      if (!list) return;
+      const rows = [...list.children];
+      rows.forEach(r => {
+        r.style.display = '';
+      });
+      let n = rows.length;
+      while (n > 1 && list.scrollHeight > list.clientHeight + 1) rows[--n].style.display = 'none';
+      const cnt = s.querySelector('.qr-cnt');
+      if (cnt) cnt.textContent = n < rows.length ? `+${rows.length - n}명 더` : `답 ${rows.length}명`;
+    });
+  };
+  useLayoutEffect(fit);
+  useEffect(() => {
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
+  if (!shown.length) return /*#__PURE__*/React.createElement(QHero, {
+    q: wq,
+    onOpen: () => C.openQuestion(wq)
+  });
+  const onScroll = e => {
+    const el = e.currentTarget;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== idx) setIdx(i);
+    if (i > 0 && hint) {
+      setHint(false);
+      store.set('fz_qr_hint', '1');
+    }
+  };
+  const n = shown.length + 2;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "qr"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "qr-car",
+    ref: car,
+    onScroll: onScroll
+  }, /*#__PURE__*/React.createElement(QHero, {
+    q: wq,
+    onOpen: () => C.openQuestion(wq)
+  }), shown.map(q => {
+    const as = ansOf(q);
+    const by = C.getM(q.asker_id);
+    return /*#__PURE__*/React.createElement("button", {
+      key: q.id,
+      className: "qr-s",
+      onClick: () => C.openQuestion(q)
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "qr-pill"
+    }, "\uD83D\uDCD6 \uC9C0\uB09C \uC9C8\uBB38 \xB7 ", fmtDate(q.week_start), " \uC8FC", q.asker_id ? ` · ${by.name}` : ''), /*#__PURE__*/React.createElement("span", {
+      className: "qr-q"
+    }, "\u201C", q.text, "\u201D"), /*#__PURE__*/React.createElement("span", {
+      className: "qr-list"
+    }, as.map(a => {
+      const m = C.getM(a.member_id);
+      return /*#__PURE__*/React.createElement("span", {
+        className: "qr-a",
+        key: a.id
+      }, /*#__PURE__*/React.createElement(Avatar, {
+        m: m,
+        size: 26
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "qr-t"
+      }, /*#__PURE__*/React.createElement("b", null, m.name), a.audio_url && /*#__PURE__*/React.createElement("span", {
+        className: "qr-v"
+      }, "\u25B6 ", fmtSec(voiceSec(a.audio_url))), a.content || (a.audio_url ? '목소리로 답했어요' : '')));
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "qr-ft"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "qr-cnt"
+    }, "\uB2F5 ", as.length, "\uBA85"), /*#__PURE__*/React.createElement("span", null, "\uB20C\uB7EC\uC11C \uBAA8\uB450 \uBCF4\uAE30 \u203A")));
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "qr-s qr-end",
+    onClick: () => C.openQuestion({
+      ...wq,
+      _past: true
+    })
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "qr-big"
+  }, "\uD83D\uDCDA"), /*#__PURE__*/React.createElement("b", null, "\uC9C0\uB09C \uC9C8\uBB38 ", past.length, "\uAC1C"), /*#__PURE__*/React.createElement("span", {
+    className: "qr-sub"
+  }, "\uC6B0\uB9AC \uAC00\uC871\uC774 \uD568\uAED8 \uB2F5\uD55C \uC9C8\uBB38\uC744 \uBAA8\uB450 \uBCFC \uC218 \uC788\uC5B4\uC694"), /*#__PURE__*/React.createElement("span", {
+    className: "qr-go"
+  }, "\uC9C0\uB09C \uC9C8\uBB38 \uBAA8\uB450 \uBCF4\uAE30 \u203A"))), hint && /*#__PURE__*/React.createElement("span", {
+    className: "qr-hint"
+  }, "\uC606\uC73C\uB85C \uBC00\uBA74 \uC9C0\uB09C \uC9C8\uBB38 \u203A"), /*#__PURE__*/React.createElement("div", {
+    className: "qr-dots"
+  }, Array.from({
+    length: n
+  }, (_, i) => /*#__PURE__*/React.createElement("i", {
+    key: i,
+    className: i === idx ? 'on' : ''
+  }))));
+}
+
 /* 순서표: 지난주 · 이번 주 · 다음 주들 */
 function QTurns({
   cur,
@@ -6539,7 +6682,14 @@ function QuestionSheet({
   useEffect(() => {
     setView(q);
     setEditing(false);
-    setShowPast(false);
+    setShowPast(!!(q && q._past));
+    if (q && q._past) setTimeout(() => {
+      const el = document.querySelector('.qpast-hd');
+      if (el) el.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, 250); // 홈 "지난 질문 모두 보기"에서 왔으면 목록을 펼쳐 그 자리로
   }, [q]);
   const cur = view ? C.questions.find(x => x.id === view.id) || view : null;
   const S = cur ? qState(C, cur) : null;
@@ -6640,7 +6790,7 @@ function QuestionSheet({
     cur: cur,
     onOrder: () => setOrderOpen(true)
   }), /*#__PURE__*/React.createElement(QBox, null), past.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
-    className: "sec-t",
+    className: "sec-t qpast-hd",
     style: {
       width: '100%',
       padding: '18px 0 6px'
