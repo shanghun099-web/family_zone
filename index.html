@@ -207,7 +207,7 @@
   .vplay .vwait b{font-size:1.05rem}
   .vplay .vwait>span:last-child{font-size:.85rem;line-height:1.45;opacity:.9}
   .vplay .vd{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.6);color:#fff;font-size:.78rem;border-radius:10px;padding:2px 8px}
-  .thumbs .t .x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center}
+  .thumbs .t .x{position:absolute;top:2px;right:2px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center}
   .thumbs .add{width:84px;height:84px;border-radius:12px;border:2px dashed #ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#999;font-size:.8rem;flex-shrink:0}
 
   /* 시트·페이지 */
@@ -310,6 +310,11 @@
   .qitem.on{border-color:#F0603A;background:#FFF1EA;font-weight:700}
   .qpreview{background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-weight:700;border:1px dashed #F0B49A}
   .qans{margin-bottom:6px}
+  .myans{background:#FFF8F3;border:1.5px solid #F2D9CC;border-radius:18px;padding:14px;margin:0 0 16px}
+  .myans.done{background:#F2FAF4;border-color:#CBE8D3}
+  .myans-t{font-size:1.1rem;font-weight:800}
+  .myans-a{background:#fff;border-radius:12px;padding:10px 12px;margin-top:8px;font-size:1rem;line-height:1.5}
+  .myans textarea{font-size:1.05rem;line-height:1.5}
   .qlock{background:#F3EEFF;color:#5b4a86;border-radius:12px;padding:10px 12px;font-size:.92rem;margin-bottom:8px}
   .qcard .rec{background:#fff;border-radius:20px;padding:6px 13px;font-weight:700;color:#d2502c;display:flex;align-items:center;gap:5px;white-space:nowrap}
   .fil{display:flex;gap:7px;padding:8px 14px 4px}
@@ -581,6 +586,6 @@
   /* 10초가 지나도 화면이 안 뜨면 (인터넷 끊김·느림) 안내 */
   setTimeout(function () { var h = document.getElementById('boot-hint'); if (h) h.innerHTML = '화면이 안 열려요. <b>인터넷 연결</b>을 확인한 뒤<br><button onclick="location.reload()" style="margin-top:10px;padding:10px 18px;border-radius:12px;border:0;background:#1a1a1a;color:#fff;font-size:1rem">다시 열기</button>'; }, 10000);
 </script>
-<script src="app.js?v=02a24f3e"></script>
+<script src="app.js?v=60b5366d"></script>
 </body>
 </html>

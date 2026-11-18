@@ -2302,12 +2302,14 @@ function QBox() {
       <button className="sec-t" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setOpen(o => !o)}>
         <span>📦 우리 가족 질문 상자 <span className="small muted" style={{ fontWeight: 400 }}>· 남은 질문 {left.length}개</span></span><LIcon name={open ? 'chevron-up' : 'chevron-down'} size={20}/>
       </button>
-      <p className="small muted" style={{ margin: '0 0 8px' }}>언젠가 온 가족에게 묻고 싶은 질문을 넣어 두세요. 질문자가 고를 때 맨 위에 보이고, 아무도 안 고르면 이것부터 자동으로 나와요.</p>
+      {open && <div>
+      <p className="small muted" style={{ margin: '0 0 8px' }}>여기는 <b>답하는 곳이 아니에요.</b> 다음에 온 가족에게 묻고 싶은 질문을 넣어 두는 상자예요. 질문자가 고를 때 맨 위에 보이고, 아무도 안 고르면 이것부터 자동으로 나와요.</p>
       <div className="row gap">
         <input className="input grow" placeholder="예: 할머니가 처음 받은 선물은?" value={t} onChange={e => setT(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }}/>
         <button className="iconbtn" style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
         <button className="btn sm blue" disabled={!t.trim()} onClick={add}>넣기</button>
       </div>
+      </div>}
       {open && <div style={{ marginTop: 10 }}>
         {!mine.length && <p className="small muted">아직 식구가 넣은 질문이 없어요. 기본 질문 {C.bank.length}개가 들어 있어요.</p>}
         {mine.map(b => (
@@ -2321,35 +2323,130 @@ function QBox() {
   );
 }
 
-function QuestionSheet({ q, onClose }) {
-  const C = useC(); const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [view, setView] = useState(null);
-  const [editing, setEditing] = useState(false); const [orderOpen, setOrderOpen] = useState(false);
+/* 답 한 줄 (목소리면 재생 + 받아쓴 글) */
+function AnsBody({ a }) {
+  return a.audio_url
+    ? <><VoicePlayer src={a.audio_url}/>{a.content && <div className="small" style={{ color: '#5b4a86', marginTop: 4 }}>“{a.content}”</div>}</>
+    : <div style={{ whiteSpace: 'pre-wrap' }}>{a.content}</div>;
+}
+
+/* 내 답 남기기: 질문 바로 아래. 한 사람 한 답 (이미 남겼으면 "내 답" + 고치기·지우기)
+   - 글로 적기: 여러 줄 칸 + "말로 쓰기"(말하면 글자로 적힘) → [이 답 보내기]
+   - 목소리로 남기기: 녹음 → 들어 보기 → [이 목소리로 보내기] (보내기 전에 다시 녹음할 수 있다)
+   질문마다 key 로 새로 만들어져서, 쓰던 글이 다른 질문으로 따라가지 않는다 */
+function MyAnswer({ q, S }) {
+  const C = useC();
+  const mine = S.ans.filter(a => a.member_id === C.me);
+  const has = mine.length > 0; const first = mine[0];
+  const [edit, setEdit] = useState(false); const [late, setLate] = useState(false);
+  const [mode, setMode] = useState(first && first.audio_url ? 'voice' : 'text');
+  const [text, setText] = useState(''); const [busy, setBusy] = useState(false);
+  const [rec, setRec] = useState(null);   // 녹음해 둔 것 {blob, sec, text, url}
+  const R = useRecorder();
   const dict = useDictation(t => setText(s => joinText(s, t)));
-  useEffect(() => { setView(q); setText(''); setEditing(false); }, [q]);
+  useEffect(() => () => { if (rec) URL.revokeObjectURL(rec.url); }, [rec]);
+  const later = S.revealed ? '가족 답과 함께 보여요.' : '가족에게는 모두 답하거나 토요일 밤 9시에 함께 보여요.';
+
+  const save = async row => {
+    setBusy(true);
+    const old = edit && first ? first : null;
+    const ok = await C.write(() => old ? db.patch('answers', old.id, row) : db.add('answers', { question_id: q.id, member_id: C.me, ...row }), old ? '답을 고쳤어요' : '답을 보냈어요 ✓');
+    if (ok && old && old.audio_url && old.audio_url !== row.audio_url) { const id = driveId(old.audio_url); if (id) gw('delete', { id }).catch(() => {}); }
+    setBusy(false);
+    if (ok) { setEdit(false); setText(''); setRec(null); }
+  };
+  const sendText = () => { const v = text.trim(); if (!v) { C.toast('답을 적어 주세요'); return; } save({ content: v, audio_url: null }); };
+  const sendVoice = async () => {
+    if (!rec) return;
+    setBusy(true);
+    let url;
+    try { url = await uploadVoice(rec.blob, rec.sec); }
+    catch (e) { setBusy(false); C.toast('목소리를 올리지 못했어요. 다시 보내기를 눌러 주세요: ' + e.message); return; }   // 녹음은 그대로 남아 있다
+    await save({ audio_url: url, content: rec.text || '' });
+  };
+  const startRec = () => R.start().catch(e => alert('마이크를 쓸 수 없어요: ' + e.message));
+  const stopRec = async () => { const r = await R.stop(); if (r) setRec({ ...r, url: URL.createObjectURL(r.blob) }); };
+  const del = () => { if (!window.confirm('내 답을 지울까요?')) return;
+    C.write(() => Promise.all(mine.map(a => db.del('answers', `id=eq.${a.id}`))), '답을 지웠어요').then(ok => { if (ok) mine.forEach(a => { const id = driveId(a.audio_url); if (id) gw('delete', { id }).catch(() => {}); }); }); };
+  const startEdit = () => { setText(first && !first.audio_url ? first.content || '' : ''); setMode(first && first.audio_url ? 'voice' : 'text'); setRec(null); setEdit(true); };
+
+  /* 지난 질문: 기본은 읽기만. 늦게라도 답하려면 단추를 눌러 연다 */
+  if (!S.isCur && !has && !late) return <button className="btn soft block" style={{ marginBottom: 14 }} onClick={() => setLate(true)}><LIcon name="pencil" size={18}/>늦었지만 이 질문에 답하기</button>;
+
+  if (has && !edit) return (
+    <div className="myans done">
+      <div className="myans-t">✅ 내 답을 남겼어요</div>
+      <div className="myans-a"><AnsBody a={first}/></div>
+      {mine.slice(1).map(a => <div className="myans-a" key={a.id}><AnsBody a={a}/></div>)}
+      <p className="small muted" style={{ margin: '8px 0 0' }}>{later}</p>
+      <div className="row gap" style={{ marginTop: 10 }}>
+        <button className="btn soft sm grow" onClick={startEdit}><LIcon name="pencil" size={16}/>내 답 고치기</button>
+        <button className="btn soft sm danger" onClick={del}><LIcon name="trash-2" size={16}/>지우기</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="myans">
+      <div className="myans-t">{edit ? '내 답 고치기' : '내 답 남기기'}</div>
+      <p className="small muted" style={{ margin: '2px 0 10px' }}>짧게 한마디만 남겨도 좋아요. {later}</p>
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button className={mode === 'text' ? 'on' : ''} disabled={busy || R.on} onClick={() => setMode('text')}>✏️ 글로 적기</button>
+        <button className={mode === 'voice' ? 'on' : ''} disabled={busy} onClick={() => { if (dict.on) dict.toggle(); setMode('voice'); }}>🎙 목소리로 남기기</button>
+      </div>
+      {mode === 'text' && <>
+        <textarea className="input" rows={4} placeholder="여기에 내 답을 적어 주세요" value={text} onChange={e => setText(e.target.value)} disabled={busy}/>
+        <div className="row gap" style={{ marginTop: 8, alignItems: 'center' }}><MicButton dict={dict}/><span className="small muted">말하면 위 칸에 글자로 적혀요</span></div>
+        <button className="btn primary block" style={{ marginTop: 12 }} disabled={busy || !text.trim()} onClick={sendText}>{busy ? <span className="spin"/> : <LIcon name="send" size={18}/>}이 답 보내기</button>
+      </>}
+      {mode === 'voice' && <>
+        {R.on ? (
+          <div className="recbox">
+            <div className="row gap"><span className="recdot"/><b>{fmtSec(R.sec)}</b><span className="small muted">녹음 중 · 편하게 말씀하세요</span></div>
+            {R.live && <div className="live">{R.live}</div>}
+            <div className="row gap">
+              <button type="button" className="btn soft grow" onClick={R.cancel}>취소</button>
+              <button type="button" className="btn accent grow" onClick={stopRec}>녹음 마치기</button>
+            </div>
+          </div>
+        ) : rec ? (
+          <div className="recbox">
+            <b>내 목소리 들어 보기 ({fmtSec(rec.sec)})</b>
+            <audio controls src={rec.url} style={{ width: '100%' }}/>
+            {rec.text && <div className="small" style={{ color: '#5b4a86' }}>“{rec.text}”</div>}
+            <div className="row gap">
+              <button type="button" className="btn soft grow" disabled={busy} onClick={() => setRec(null)}>다시 녹음</button>
+              <button type="button" className="btn accent grow" disabled={busy} onClick={sendVoice}>{busy ? <span className="spin"/> : <LIcon name="send" size={18}/>}이 목소리로 보내기</button>
+            </div>
+          </div>
+        ) : (
+          <><button type="button" className="btn accent block" onClick={startRec}><LIcon name="mic" size={20}/>눌러서 녹음 시작</button>
+            <p className="small muted" style={{ margin: '6px 2px 0' }}>녹음을 마치면 들어 보고 보낼 수 있어요. 식구들이 내 목소리로 답을 들어요.</p></>
+        )}
+      </>}
+      {edit && <button className="linkbtn" disabled={busy} onClick={() => { setEdit(false); setRec(null); if (R.on) R.cancel(); }}>고치기 그만두기</button>}
+    </div>
+  );
+}
+
+function QuestionSheet({ q, onClose }) {
+  const C = useC(); const [view, setView] = useState(null);
+  const [editing, setEditing] = useState(false); const [orderOpen, setOrderOpen] = useState(false); const [showPast, setShowPast] = useState(false);
+  useEffect(() => { setView(q); setEditing(false); setShowPast(false); }, [q]);
   const cur = view ? (C.questions.find(x => x.id === view.id) || view) : null;
   const S = cur ? qState(C, cur) : null;
-  const asker = cur ? C.getM(cur.asker_id) : null;
   const iAsk = cur && cur.asker_id === C.me;
-  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text);
-  const answer = async row => { setBusy(true); const ok = await C.write(() => db.add('answers', { question_id: cur.id, member_id: C.me, ...row }), '답을 남겼어요'); setBusy(false); return ok; };
+  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text).sort((a, b) => b.week_start.localeCompare(a.week_start));
   const showPicker = cur && S.isCur && iAsk && (S.picking || editing);
-  const shownAns = cur ? (S.revealed ? S.ans : S.ans.filter(a => a.member_id === C.me)) : [];
+  const others = cur ? C.members.filter(m => m.id !== C.me) : [];
   const passTo = cur && C.members.length > 1 ? nextOf(C.members, cur.asker_id) : null;
+  const open = x => { setView(x); setEditing(false); setShowPast(false); const el = document.querySelector('.sheet.full .sheet-bd'); if (el) el.scrollTop = 0; };
+  const weekQ = C.questions.find(x => x.week_start === weekStart());
   return (
-    <Sheet open={!!q} onClose={onClose} full title="이번 주의 질문"
-      footer={cur && !S.picking && !showPicker && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <RecordButton block label="목소리로 답하기" onDone={async r => { const url = await uploadVoice(r.blob, r.sec); await answer({ audio_url: url, content: r.text || '' }); }}/>
-          <div className="row gap">
-            <input className="input grow" placeholder="글로 답하기…" value={text} onChange={e => setText(e.target.value)}/>
-            <button className="iconbtn" style={{ background: dict.on ? 'var(--accent)' : '#f0f0f0', color: dict.on ? '#fff' : 'inherit' }} onClick={dict.toggle} aria-label="말로 쓰기"><LIcon name="mic"/></button>
-            <button className="btn blue sm" disabled={!text.trim() || busy} onClick={async () => { if (await answer({ content: text.trim() })) setText(''); }}>올리기</button>
-          </div>
-        </div>
-      )}>
+    <Sheet open={!!q} onClose={onClose} full title={!cur || S.isCur ? '이번 주의 질문' : `지난 질문 · ${fmtDate(cur.week_start)} 주`}>
       {cur && (
         <>
-          {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
+          {!S.isCur && weekQ && <button className="linkbtn" style={{ marginTop: -6 }} onClick={() => open(weekQ)}>‹ 이번 주 질문으로 돌아가기</button>}
           <QHero q={cur} inline/>
 
           {showPicker && <QPicker key={cur.id + (editing ? 'e' : '')} cur={cur} onDone={() => setEditing(false)}/>}
@@ -2358,31 +2455,37 @@ function QuestionSheet({ q, onClose }) {
           )}
           {S.isCur && iAsk && !S.picking && !editing && !S.ans.length && <button className="linkbtn" onClick={() => setEditing(true)}>✏️ 질문 다시 고르기</button>}
           {editing && <button className="linkbtn" onClick={() => setEditing(false)}>고치기 그만두기</button>}
+          {S.picking && !iAsk && <div className="qlock">질문이 정해지면 여기에서 답할 수 있어요. 알림으로 알려 드릴게요.</div>}
+
+          {!S.picking && !showPicker && <MyAnswer key={cur.id} q={cur} S={S}/>}
 
           {!S.picking && (
             <div className="qans">
-              <div className="row gap" style={{ marginBottom: 6 }}>
-                <b className="grow">답 {S.done.length}/{C.members.length}</b>
-                <span className="faces">{C.members.map(m => <span key={m.id} style={{ opacity: S.done.includes(m.id) ? 1 : .3 }}><Avatar m={m} size={26}/></span>)}</span>
+              <div className="row gap" style={{ margin: '4px 0 8px' }}>
+                <b className="grow">식구들의 답 <span className="small muted" style={{ fontWeight: 400 }}>· {S.done.length}/{C.members.length}명 답함</span></b>
               </div>
-              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>토요일 밤 9시</b>가 되면 한꺼번에 열려요.{S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'}</div>}
-              {S.revealed && !S.ans.length && <p className="empty" style={{ padding: 20 }}>아직 답이 없어요. 아래에서 말로 답해 보세요.</p>}
-              {shownAns.map(a => (
-                <div className="cmt" key={a.id}>
-                  <Avatar m={C.getM(a.member_id)} size={32}/>
-                  <div className="body"><b>{C.getM(a.member_id).name}</b>{a.audio_url ? <><VoicePlayer src={a.audio_url}/>{a.content && <div className="small" style={{ color: '#5b4a86' }}>“{a.content}”</div>}</> : <div>{a.content}</div>}
-                    <div className="meta"><span>{relTime(a.created_at)}</span>{a.member_id === C.me && <button onClick={() => C.write(() => db.del('answers', `id=eq.${a.id}`), '답을 지웠어요')}>지우기</button>}</div></div>
-                </div>
-              ))}
+              {!S.revealed && <div className="qlock">🎁 다 같이 공개 · 모두 답하거나 <b>토요일 밤 9시</b>가 되면 한꺼번에 열려요.</div>}
+              {others.map(m => { const as = S.ans.filter(a => a.member_id === m.id); return (
+                <div className="cmt" key={m.id}>
+                  <Avatar m={m} size={32}/>
+                  <div className="body"><b>{m.name}</b>
+                    {!as.length ? <div className="small muted">⏳ 아직 답하지 않았어요</div>
+                      : !S.revealed ? <div className="small" style={{ color: '#5b4a86' }}>🔒 답을 남겼어요 · 열리면 보여요</div>
+                      : as.map(a => <div key={a.id} style={{ marginTop: 2 }}><AnsBody a={a}/><div className="meta"><span>{relTime(a.created_at)}</span></div></div>)}
+                  </div>
+                </div>); })}
             </div>
           )}
 
+          {S.isCur && <QTurns cur={cur} onOrder={() => setOrderOpen(true)}/>}
           <QBox/>
           {past.length > 0 && <>
-            <div className="sec-t" style={{ padding: '18px 0 6px' }}>지난 질문들</div>
-            {past.map(x => { const n = C.answers.filter(a => a.question_id === x.id).length; const am = C.getM(x.asker_id); return (
-              <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => { setView(x); setEditing(false); }}>
-                {x.asker_id ? <Avatar m={am} size={36}/> : <div className="bic" style={{ width: 36, height: 36, background: '#F3EEFF', color: '#6a3fc8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>❓</div>}<div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {x.asker_id ? `${am.name}의 질문` : '예전 방식 질문'} · 답 {n}개</span></div>
+            <button className="sec-t" style={{ width: '100%', padding: '18px 0 6px' }} onClick={() => setShowPast(s => !s)}>
+              <span>지난 질문과 답 <span className="small muted" style={{ fontWeight: 400 }}>· {past.length}개</span></span><LIcon name={showPast ? 'chevron-up' : 'chevron-down'} size={20}/>
+            </button>
+            {showPast && past.map(x => { const n = new Set(C.answers.filter(a => a.question_id === x.id).map(a => a.member_id)).size; const am = C.getM(x.asker_id); return (
+              <button key={x.id} className="lt" style={{ padding: '10px 0' }} onClick={() => open(x)}>
+                {x.asker_id ? <Avatar m={am} size={36}/> : <div className="bic" style={{ width: 36, height: 36, background: '#F3EEFF', color: '#6a3fc8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>❓</div>}<div className="grow"><b style={{ fontSize: '.95rem' }}>{x.text}</b><span>{fmtDate(x.week_start)} 주 · {x.asker_id ? `${am.name}의 질문` : '예전 방식 질문'} · 답 {n}명</span></div>
               </button>); })}
           </>}
         </>
@@ -2437,7 +2540,7 @@ function PrayCard({ p, focus, feed }) {
           <button className="btn soft block" onClick={() => { setMenu(false); setEditing(true); }}><LIcon name="pencil" size={18}/>글 고치기</button>
           {!voice && !p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); setAns(true); }}>✨ 응답됐어요 (감사 나누기)</button>}
           {p.answered_at && <button className="btn soft block" onClick={() => { setMenu(false); C.write(() => db.patch('prayers', p.id, { answered_at: null, answer_note: null }), '다시 기도 중으로 옮겼어요'); }}>다시 기도 중으로 옮기기</button>}
-          <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 기도를 지울까요?')) { C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요'); const id = driveId(p.audio_url); if (id) gw('delete', { id }).catch(() => {}); } }}><LIcon name="trash-2" size={18}/>지우기</button>
+          <button className="btn soft block danger" onClick={() => { setMenu(false); if (window.confirm('이 기도를 지울까요?')) { C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요').then(ok => { const id = ok && driveId(p.audio_url); if (id) gw('delete', { id }).catch(() => {}); }); } }}><LIcon name="trash-2" size={18}/>지우기</button>
         </div>
       </Sheet>
       <PrayAnswer p={ans ? p : null} onClose={() => setAns(false)}/>
@@ -3395,9 +3498,14 @@ function App() {
     try {
       if ((await gwVersion()) < 2) { if (manual) toast('사진 창구 스크립트를 새 버전으로 배포해야 해요'); return false; }
       const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes', 'comment_reacts'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'comment_reacts' ? 'select=*&order=comment_id,member_id' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'comment_reacts' ? 'select=*&order=comment_id,member_id' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => null)));
+      /* 표를 못 읽었는데 빈 칸으로 저장하면, 그날의 멀쩡한 백업을 빈 백업으로 덮어쓴다 → 중요한 표를 하나라도 못 읽으면 이번 백업은 건너뛴다 */
+      const CORE = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers'];
+      const failed = tables.filter((t, i) => all[i] === null);
+      if (failed.some(t => CORE.includes(t))) throw new Error('가족 기록 일부를 읽지 못했어요 (' + failed.join(', ') + '). 나중에 다시 해 주세요');
       const data = { app: 'THE FAMILY ZONE', saved_at: new Date().toISOString(), by: me };
-      tables.forEach((t, i) => data[t] = all[i]);
+      tables.forEach((t, i) => data[t] = all[i] || []);
+      if (failed.length) data._failed = failed;   // 덜 중요한 표만 못 읽은 경우: 백업은 하되 무엇이 빠졌는지 적어 둔다
       await gw('backup', { day: ymd(), data: JSON.stringify(data) });
       store.set('fz_bk', ymd());
       if (manual) toast('드라이브에 백업했어요');
@@ -3524,7 +3632,7 @@ function App() {
       } catch (e) { if (e && e.name !== 'AbortError') toast('보내지 못했어요'); }
     },
     addComment: row => write(() => db.add('comments', row)),
-    deleteComment: c => { if (window.confirm(D.comments.some(x => x.parent_id === c.id) ? '이 댓글을 지울까요? 달린 답글도 함께 지워져요.' : c.parent_id ? '이 답글을 지울까요?' : '이 댓글을 지울까요?')) { write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요'); const id = driveId(c.audio_url); if (id) gw('delete', { id }).catch(() => {}); } },
+    deleteComment: c => { if (window.confirm(D.comments.some(x => x.parent_id === c.id) ? '이 댓글을 지울까요? 달린 답글도 함께 지워져요.' : c.parent_id ? '이 답글을 지울까요?' : '이 댓글을 지울까요?')) { write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요').then(ok => { const id = ok && driveId(c.audio_url); if (id) gw('delete', { id }).catch(() => {}); }); } },   // 글이 지워진 뒤에만 목소리 파일을 지운다
     deletePost: async p => {
       if (!window.confirm('이 소식을 지울까요? 댓글도 함께 지워져요. (사진은 구글 드라이브에 그대로 남아요)')) return;
       const files = (cmtMap[p.id] || []).map(c => driveId(c.audio_url)).filter(Boolean);   // 사진(줄인 것·원본)은 드라이브에 남긴다 (사용자 요청) · 목소리 댓글만 정리

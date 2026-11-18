@@ -6080,12 +6080,12 @@ function QBox() {
   }, "\xB7 \uB0A8\uC740 \uC9C8\uBB38 ", left.length, "\uAC1C")), /*#__PURE__*/React.createElement(LIcon, {
     name: open ? 'chevron-up' : 'chevron-down',
     size: 20
-  })), /*#__PURE__*/React.createElement("p", {
+  })), open && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     className: "small muted",
     style: {
       margin: '0 0 8px'
     }
-  }, "\uC5B8\uC820\uAC00 \uC628 \uAC00\uC871\uC5D0\uAC8C \uBB3B\uACE0 \uC2F6\uC740 \uC9C8\uBB38\uC744 \uB123\uC5B4 \uB450\uC138\uC694. \uC9C8\uBB38\uC790\uAC00 \uACE0\uB97C \uB54C \uB9E8 \uC704\uC5D0 \uBCF4\uC774\uACE0, \uC544\uBB34\uB3C4 \uC548 \uACE0\uB974\uBA74 \uC774\uAC83\uBD80\uD130 \uC790\uB3D9\uC73C\uB85C \uB098\uC640\uC694."), /*#__PURE__*/React.createElement("div", {
+  }, "\uC5EC\uAE30\uB294 ", /*#__PURE__*/React.createElement("b", null, "\uB2F5\uD558\uB294 \uACF3\uC774 \uC544\uB2C8\uC5D0\uC694."), " \uB2E4\uC74C\uC5D0 \uC628 \uAC00\uC871\uC5D0\uAC8C \uBB3B\uACE0 \uC2F6\uC740 \uC9C8\uBB38\uC744 \uB123\uC5B4 \uB450\uB294 \uC0C1\uC790\uC608\uC694. \uC9C8\uBB38\uC790\uAC00 \uACE0\uB97C \uB54C \uB9E8 \uC704\uC5D0 \uBCF4\uC774\uACE0, \uC544\uBB34\uB3C4 \uC548 \uACE0\uB974\uBA74 \uC774\uAC83\uBD80\uD130 \uC790\uB3D9\uC73C\uB85C \uB098\uC640\uC694."), /*#__PURE__*/React.createElement("div", {
     className: "row gap"
   }, /*#__PURE__*/React.createElement("input", {
     className: "input grow",
@@ -6109,7 +6109,7 @@ function QBox() {
     className: "btn sm blue",
     disabled: !t.trim(),
     onClick: add
-  }, "\uB123\uAE30")), open && /*#__PURE__*/React.createElement("div", {
+  }, "\uB123\uAE30"))), open && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10
     }
@@ -6140,90 +6140,338 @@ function QBox() {
     onClick: () => C.write(() => db.del('question_bank', `id=eq.${b.id}`), '상자에서 뺐어요')
   }, "\uBE7C\uAE30")))));
 }
+
+/* 답 한 줄 (목소리면 재생 + 받아쓴 글) */
+function AnsBody({
+  a
+}) {
+  return a.audio_url ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(VoicePlayer, {
+    src: a.audio_url
+  }), a.content && /*#__PURE__*/React.createElement("div", {
+    className: "small",
+    style: {
+      color: '#5b4a86',
+      marginTop: 4
+    }
+  }, "\u201C", a.content, "\u201D")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      whiteSpace: 'pre-wrap'
+    }
+  }, a.content);
+}
+
+/* 내 답 남기기: 질문 바로 아래. 한 사람 한 답 (이미 남겼으면 "내 답" + 고치기·지우기)
+   - 글로 적기: 여러 줄 칸 + "말로 쓰기"(말하면 글자로 적힘) → [이 답 보내기]
+   - 목소리로 남기기: 녹음 → 들어 보기 → [이 목소리로 보내기] (보내기 전에 다시 녹음할 수 있다)
+   질문마다 key 로 새로 만들어져서, 쓰던 글이 다른 질문으로 따라가지 않는다 */
+function MyAnswer({
+  q,
+  S
+}) {
+  const C = useC();
+  const mine = S.ans.filter(a => a.member_id === C.me);
+  const has = mine.length > 0;
+  const first = mine[0];
+  const [edit, setEdit] = useState(false);
+  const [late, setLate] = useState(false);
+  const [mode, setMode] = useState(first && first.audio_url ? 'voice' : 'text');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [rec, setRec] = useState(null); // 녹음해 둔 것 {blob, sec, text, url}
+  const R = useRecorder();
+  const dict = useDictation(t => setText(s => joinText(s, t)));
+  useEffect(() => () => {
+    if (rec) URL.revokeObjectURL(rec.url);
+  }, [rec]);
+  const later = S.revealed ? '가족 답과 함께 보여요.' : '가족에게는 모두 답하거나 토요일 밤 9시에 함께 보여요.';
+  const save = async row => {
+    setBusy(true);
+    const old = edit && first ? first : null;
+    const ok = await C.write(() => old ? db.patch('answers', old.id, row) : db.add('answers', {
+      question_id: q.id,
+      member_id: C.me,
+      ...row
+    }), old ? '답을 고쳤어요' : '답을 보냈어요 ✓');
+    if (ok && old && old.audio_url && old.audio_url !== row.audio_url) {
+      const id = driveId(old.audio_url);
+      if (id) gw('delete', {
+        id
+      }).catch(() => {});
+    }
+    setBusy(false);
+    if (ok) {
+      setEdit(false);
+      setText('');
+      setRec(null);
+    }
+  };
+  const sendText = () => {
+    const v = text.trim();
+    if (!v) {
+      C.toast('답을 적어 주세요');
+      return;
+    }
+    save({
+      content: v,
+      audio_url: null
+    });
+  };
+  const sendVoice = async () => {
+    if (!rec) return;
+    setBusy(true);
+    let url;
+    try {
+      url = await uploadVoice(rec.blob, rec.sec);
+    } catch (e) {
+      setBusy(false);
+      C.toast('목소리를 올리지 못했어요. 다시 보내기를 눌러 주세요: ' + e.message);
+      return;
+    } // 녹음은 그대로 남아 있다
+    await save({
+      audio_url: url,
+      content: rec.text || ''
+    });
+  };
+  const startRec = () => R.start().catch(e => alert('마이크를 쓸 수 없어요: ' + e.message));
+  const stopRec = async () => {
+    const r = await R.stop();
+    if (r) setRec({
+      ...r,
+      url: URL.createObjectURL(r.blob)
+    });
+  };
+  const del = () => {
+    if (!window.confirm('내 답을 지울까요?')) return;
+    C.write(() => Promise.all(mine.map(a => db.del('answers', `id=eq.${a.id}`))), '답을 지웠어요').then(ok => {
+      if (ok) mine.forEach(a => {
+        const id = driveId(a.audio_url);
+        if (id) gw('delete', {
+          id
+        }).catch(() => {});
+      });
+    });
+  };
+  const startEdit = () => {
+    setText(first && !first.audio_url ? first.content || '' : '');
+    setMode(first && first.audio_url ? 'voice' : 'text');
+    setRec(null);
+    setEdit(true);
+  };
+
+  /* 지난 질문: 기본은 읽기만. 늦게라도 답하려면 단추를 눌러 연다 */
+  if (!S.isCur && !has && !late) return /*#__PURE__*/React.createElement("button", {
+    className: "btn soft block",
+    style: {
+      marginBottom: 14
+    },
+    onClick: () => setLate(true)
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "pencil",
+    size: 18
+  }), "\uB2A6\uC5C8\uC9C0\uB9CC \uC774 \uC9C8\uBB38\uC5D0 \uB2F5\uD558\uAE30");
+  if (has && !edit) return /*#__PURE__*/React.createElement("div", {
+    className: "myans done"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "myans-t"
+  }, "\u2705 \uB0B4 \uB2F5\uC744 \uB0A8\uACBC\uC5B4\uC694"), /*#__PURE__*/React.createElement("div", {
+    className: "myans-a"
+  }, /*#__PURE__*/React.createElement(AnsBody, {
+    a: first
+  })), mine.slice(1).map(a => /*#__PURE__*/React.createElement("div", {
+    className: "myans-a",
+    key: a.id
+  }, /*#__PURE__*/React.createElement(AnsBody, {
+    a: a
+  }))), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '8px 0 0'
+    }
+  }, later), /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn soft sm grow",
+    onClick: startEdit
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "pencil",
+    size: 16
+  }), "\uB0B4 \uB2F5 \uACE0\uCE58\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: "btn soft sm danger",
+    onClick: del
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "trash-2",
+    size: 16
+  }), "\uC9C0\uC6B0\uAE30")));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "myans"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "myans-t"
+  }, edit ? '내 답 고치기' : '내 답 남기기'), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '2px 0 10px'
+    }
+  }, "\uC9E7\uAC8C \uD55C\uB9C8\uB514\uB9CC \uB0A8\uACA8\uB3C4 \uC88B\uC544\uC694. ", later), /*#__PURE__*/React.createElement("div", {
+    className: "seg",
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: mode === 'text' ? 'on' : '',
+    disabled: busy || R.on,
+    onClick: () => setMode('text')
+  }, "\u270F\uFE0F \uAE00\uB85C \uC801\uAE30"), /*#__PURE__*/React.createElement("button", {
+    className: mode === 'voice' ? 'on' : '',
+    disabled: busy,
+    onClick: () => {
+      if (dict.on) dict.toggle();
+      setMode('voice');
+    }
+  }, "\uD83C\uDF99 \uBAA9\uC18C\uB9AC\uB85C \uB0A8\uAE30\uAE30")), mode === 'text' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("textarea", {
+    className: "input",
+    rows: 4,
+    placeholder: "\uC5EC\uAE30\uC5D0 \uB0B4 \uB2F5\uC744 \uC801\uC5B4 \uC8FC\uC138\uC694",
+    value: text,
+    onChange: e => setText(e.target.value),
+    disabled: busy
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "row gap",
+    style: {
+      marginTop: 8,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement(MicButton, {
+    dict: dict
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, "\uB9D0\uD558\uBA74 \uC704 \uCE78\uC5D0 \uAE00\uC790\uB85C \uC801\uD600\uC694")), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary block",
+    style: {
+      marginTop: 12
+    },
+    disabled: busy || !text.trim(),
+    onClick: sendText
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : /*#__PURE__*/React.createElement(LIcon, {
+    name: "send",
+    size: 18
+  }), "\uC774 \uB2F5 \uBCF4\uB0B4\uAE30")), mode === 'voice' && /*#__PURE__*/React.createElement(React.Fragment, null, R.on ? /*#__PURE__*/React.createElement("div", {
+    className: "recbox"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "recdot"
+  }), /*#__PURE__*/React.createElement("b", null, fmtSec(R.sec)), /*#__PURE__*/React.createElement("span", {
+    className: "small muted"
+  }, "\uB179\uC74C \uC911 \xB7 \uD3B8\uD558\uAC8C \uB9D0\uC500\uD558\uC138\uC694")), R.live && /*#__PURE__*/React.createElement("div", {
+    className: "live"
+  }, R.live), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft grow",
+    onClick: R.cancel
+  }, "\uCDE8\uC18C"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn accent grow",
+    onClick: stopRec
+  }, "\uB179\uC74C \uB9C8\uCE58\uAE30"))) : rec ? /*#__PURE__*/React.createElement("div", {
+    className: "recbox"
+  }, /*#__PURE__*/React.createElement("b", null, "\uB0B4 \uBAA9\uC18C\uB9AC \uB4E4\uC5B4 \uBCF4\uAE30 (", fmtSec(rec.sec), ")"), /*#__PURE__*/React.createElement("audio", {
+    controls: true,
+    src: rec.url,
+    style: {
+      width: '100%'
+    }
+  }), rec.text && /*#__PURE__*/React.createElement("div", {
+    className: "small",
+    style: {
+      color: '#5b4a86'
+    }
+  }, "\u201C", rec.text, "\u201D"), /*#__PURE__*/React.createElement("div", {
+    className: "row gap"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn soft grow",
+    disabled: busy,
+    onClick: () => setRec(null)
+  }, "\uB2E4\uC2DC \uB179\uC74C"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn accent grow",
+    disabled: busy,
+    onClick: sendVoice
+  }, busy ? /*#__PURE__*/React.createElement("span", {
+    className: "spin"
+  }) : /*#__PURE__*/React.createElement(LIcon, {
+    name: "send",
+    size: 18
+  }), "\uC774 \uBAA9\uC18C\uB9AC\uB85C \uBCF4\uB0B4\uAE30"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn accent block",
+    onClick: startRec
+  }, /*#__PURE__*/React.createElement(LIcon, {
+    name: "mic",
+    size: 20
+  }), "\uB20C\uB7EC\uC11C \uB179\uC74C \uC2DC\uC791"), /*#__PURE__*/React.createElement("p", {
+    className: "small muted",
+    style: {
+      margin: '6px 2px 0'
+    }
+  }, "\uB179\uC74C\uC744 \uB9C8\uCE58\uBA74 \uB4E4\uC5B4 \uBCF4\uACE0 \uBCF4\uB0BC \uC218 \uC788\uC5B4\uC694. \uC2DD\uAD6C\uB4E4\uC774 \uB0B4 \uBAA9\uC18C\uB9AC\uB85C \uB2F5\uC744 \uB4E4\uC5B4\uC694."))), edit && /*#__PURE__*/React.createElement("button", {
+    className: "linkbtn",
+    disabled: busy,
+    onClick: () => {
+      setEdit(false);
+      setRec(null);
+      if (R.on) R.cancel();
+    }
+  }, "\uACE0\uCE58\uAE30 \uADF8\uB9CC\uB450\uAE30"));
+}
 function QuestionSheet({
   q,
   onClose
 }) {
   const C = useC();
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);
   const [editing, setEditing] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
-  const dict = useDictation(t => setText(s => joinText(s, t)));
+  const [showPast, setShowPast] = useState(false);
   useEffect(() => {
     setView(q);
-    setText('');
     setEditing(false);
+    setShowPast(false);
   }, [q]);
   const cur = view ? C.questions.find(x => x.id === view.id) || view : null;
   const S = cur ? qState(C, cur) : null;
-  const asker = cur ? C.getM(cur.asker_id) : null;
   const iAsk = cur && cur.asker_id === C.me;
-  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text);
-  const answer = async row => {
-    setBusy(true);
-    const ok = await C.write(() => db.add('answers', {
-      question_id: cur.id,
-      member_id: C.me,
-      ...row
-    }), '답을 남겼어요');
-    setBusy(false);
-    return ok;
-  };
+  const past = C.questions.filter(x => !cur || x.id !== cur.id).filter(x => x.text).sort((a, b) => b.week_start.localeCompare(a.week_start));
   const showPicker = cur && S.isCur && iAsk && (S.picking || editing);
-  const shownAns = cur ? S.revealed ? S.ans : S.ans.filter(a => a.member_id === C.me) : [];
+  const others = cur ? C.members.filter(m => m.id !== C.me) : [];
   const passTo = cur && C.members.length > 1 ? nextOf(C.members, cur.asker_id) : null;
+  const open = x => {
+    setView(x);
+    setEditing(false);
+    setShowPast(false);
+    const el = document.querySelector('.sheet.full .sheet-bd');
+    if (el) el.scrollTop = 0;
+  };
+  const weekQ = C.questions.find(x => x.week_start === weekStart());
   return /*#__PURE__*/React.createElement(Sheet, {
     open: !!q,
     onClose: onClose,
     full: true,
-    title: "\uC774\uBC88 \uC8FC\uC758 \uC9C8\uBB38",
-    footer: cur && !S.picking && !showPicker && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'grid',
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement(RecordButton, {
-      block: true,
-      label: "\uBAA9\uC18C\uB9AC\uB85C \uB2F5\uD558\uAE30",
-      onDone: async r => {
-        const url = await uploadVoice(r.blob, r.sec);
-        await answer({
-          audio_url: url,
-          content: r.text || ''
-        });
-      }
-    }), /*#__PURE__*/React.createElement("div", {
-      className: "row gap"
-    }, /*#__PURE__*/React.createElement("input", {
-      className: "input grow",
-      placeholder: "\uAE00\uB85C \uB2F5\uD558\uAE30\u2026",
-      value: text,
-      onChange: e => setText(e.target.value)
-    }), /*#__PURE__*/React.createElement("button", {
-      className: "iconbtn",
-      style: {
-        background: dict.on ? 'var(--accent)' : '#f0f0f0',
-        color: dict.on ? '#fff' : 'inherit'
-      },
-      onClick: dict.toggle,
-      "aria-label": "\uB9D0\uB85C \uC4F0\uAE30"
-    }, /*#__PURE__*/React.createElement(LIcon, {
-      name: "mic"
-    })), /*#__PURE__*/React.createElement("button", {
-      className: "btn blue sm",
-      disabled: !text.trim() || busy,
-      onClick: async () => {
-        if (await answer({
-          content: text.trim()
-        })) setText('');
-      }
-    }, "\uC62C\uB9AC\uAE30")))
-  }, cur && /*#__PURE__*/React.createElement(React.Fragment, null, S.isCur && /*#__PURE__*/React.createElement(QTurns, {
-    cur: cur,
-    onOrder: () => setOrderOpen(true)
-  }), /*#__PURE__*/React.createElement(QHero, {
+    title: !cur || S.isCur ? '이번 주의 질문' : `지난 질문 · ${fmtDate(cur.week_start)} 주`
+  }, cur && /*#__PURE__*/React.createElement(React.Fragment, null, !S.isCur && weekQ && /*#__PURE__*/React.createElement("button", {
+    className: "linkbtn",
+    style: {
+      marginTop: -6
+    },
+    onClick: () => open(weekQ)
+  }, "\u2039 \uC774\uBC88 \uC8FC \uC9C8\uBB38\uC73C\uB85C \uB3CC\uC544\uAC00\uAE30"), /*#__PURE__*/React.createElement(QHero, {
     q: cur,
     inline: true
   }), showPicker && /*#__PURE__*/React.createElement(QPicker, {
@@ -6243,58 +6491,75 @@ function QuestionSheet({
   }, "\u270F\uFE0F \uC9C8\uBB38 \uB2E4\uC2DC \uACE0\uB974\uAE30"), editing && /*#__PURE__*/React.createElement("button", {
     className: "linkbtn",
     onClick: () => setEditing(false)
-  }, "\uACE0\uCE58\uAE30 \uADF8\uB9CC\uB450\uAE30"), !S.picking && /*#__PURE__*/React.createElement("div", {
+  }, "\uACE0\uCE58\uAE30 \uADF8\uB9CC\uB450\uAE30"), S.picking && !iAsk && /*#__PURE__*/React.createElement("div", {
+    className: "qlock"
+  }, "\uC9C8\uBB38\uC774 \uC815\uD574\uC9C0\uBA74 \uC5EC\uAE30\uC5D0\uC11C \uB2F5\uD560 \uC218 \uC788\uC5B4\uC694. \uC54C\uB9BC\uC73C\uB85C \uC54C\uB824 \uB4DC\uB9B4\uAC8C\uC694."), !S.picking && !showPicker && /*#__PURE__*/React.createElement(MyAnswer, {
+    key: cur.id,
+    q: cur,
+    S: S
+  }), !S.picking && /*#__PURE__*/React.createElement("div", {
     className: "qans"
   }, /*#__PURE__*/React.createElement("div", {
     className: "row gap",
     style: {
-      marginBottom: 6
+      margin: '4px 0 8px'
     }
   }, /*#__PURE__*/React.createElement("b", {
     className: "grow"
-  }, "\uB2F5 ", S.done.length, "/", C.members.length), /*#__PURE__*/React.createElement("span", {
-    className: "faces"
-  }, C.members.map(m => /*#__PURE__*/React.createElement("span", {
-    key: m.id,
+  }, "\uC2DD\uAD6C\uB4E4\uC758 \uB2F5 ", /*#__PURE__*/React.createElement("span", {
+    className: "small muted",
     style: {
-      opacity: S.done.includes(m.id) ? 1 : .3
+      fontWeight: 400
     }
-  }, /*#__PURE__*/React.createElement(Avatar, {
-    m: m,
-    size: 26
-  }))))), !S.revealed && /*#__PURE__*/React.createElement("div", {
+  }, "\xB7 ", S.done.length, "/", C.members.length, "\uBA85 \uB2F5\uD568"))), !S.revealed && /*#__PURE__*/React.createElement("div", {
     className: "qlock"
-  }, "\uD83C\uDF81 \uB2E4 \uAC19\uC774 \uACF5\uAC1C \xB7 \uBAA8\uB450 \uB2F5\uD558\uAC70\uB098 ", /*#__PURE__*/React.createElement("b", null, "\uD1A0\uC694\uC77C \uBC24 9\uC2DC"), "\uAC00 \uB418\uBA74 \uD55C\uAEBC\uBC88\uC5D0 \uC5F4\uB824\uC694.", S.done.includes(C.me) ? ' 내 답만 먼저 보여요.' : ' 내 답을 남겨 보세요.'), S.revealed && !S.ans.length && /*#__PURE__*/React.createElement("p", {
-    className: "empty",
-    style: {
-      padding: 20
-    }
-  }, "\uC544\uC9C1 \uB2F5\uC774 \uC5C6\uC5B4\uC694. \uC544\uB798\uC5D0\uC11C \uB9D0\uB85C \uB2F5\uD574 \uBCF4\uC138\uC694."), shownAns.map(a => /*#__PURE__*/React.createElement("div", {
-    className: "cmt",
-    key: a.id
-  }, /*#__PURE__*/React.createElement(Avatar, {
-    m: C.getM(a.member_id),
-    size: 32
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "body"
-  }, /*#__PURE__*/React.createElement("b", null, C.getM(a.member_id).name), a.audio_url ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(VoicePlayer, {
-    src: a.audio_url
-  }), a.content && /*#__PURE__*/React.createElement("div", {
-    className: "small",
-    style: {
-      color: '#5b4a86'
-    }
-  }, "\u201C", a.content, "\u201D")) : /*#__PURE__*/React.createElement("div", null, a.content), /*#__PURE__*/React.createElement("div", {
-    className: "meta"
-  }, /*#__PURE__*/React.createElement("span", null, relTime(a.created_at)), a.member_id === C.me && /*#__PURE__*/React.createElement("button", {
-    onClick: () => C.write(() => db.del('answers', `id=eq.${a.id}`), '답을 지웠어요')
-  }, "\uC9C0\uC6B0\uAE30")))))), /*#__PURE__*/React.createElement(QBox, null), past.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "\uD83C\uDF81 \uB2E4 \uAC19\uC774 \uACF5\uAC1C \xB7 \uBAA8\uB450 \uB2F5\uD558\uAC70\uB098 ", /*#__PURE__*/React.createElement("b", null, "\uD1A0\uC694\uC77C \uBC24 9\uC2DC"), "\uAC00 \uB418\uBA74 \uD55C\uAEBC\uBC88\uC5D0 \uC5F4\uB824\uC694."), others.map(m => {
+    const as = S.ans.filter(a => a.member_id === m.id);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cmt",
+      key: m.id
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      m: m,
+      size: 32
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "body"
+    }, /*#__PURE__*/React.createElement("b", null, m.name), !as.length ? /*#__PURE__*/React.createElement("div", {
+      className: "small muted"
+    }, "\u23F3 \uC544\uC9C1 \uB2F5\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694") : !S.revealed ? /*#__PURE__*/React.createElement("div", {
+      className: "small",
+      style: {
+        color: '#5b4a86'
+      }
+    }, "\uD83D\uDD12 \uB2F5\uC744 \uB0A8\uACBC\uC5B4\uC694 \xB7 \uC5F4\uB9AC\uBA74 \uBCF4\uC5EC\uC694") : as.map(a => /*#__PURE__*/React.createElement("div", {
+      key: a.id,
+      style: {
+        marginTop: 2
+      }
+    }, /*#__PURE__*/React.createElement(AnsBody, {
+      a: a
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "meta"
+    }, /*#__PURE__*/React.createElement("span", null, relTime(a.created_at)))))));
+  })), S.isCur && /*#__PURE__*/React.createElement(QTurns, {
+    cur: cur,
+    onOrder: () => setOrderOpen(true)
+  }), /*#__PURE__*/React.createElement(QBox, null), past.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     className: "sec-t",
     style: {
+      width: '100%',
       padding: '18px 0 6px'
+    },
+    onClick: () => setShowPast(s => !s)
+  }, /*#__PURE__*/React.createElement("span", null, "\uC9C0\uB09C \uC9C8\uBB38\uACFC \uB2F5 ", /*#__PURE__*/React.createElement("span", {
+    className: "small muted",
+    style: {
+      fontWeight: 400
     }
-  }, "\uC9C0\uB09C \uC9C8\uBB38\uB4E4"), past.map(x => {
-    const n = C.answers.filter(a => a.question_id === x.id).length;
+  }, "\xB7 ", past.length, "\uAC1C")), /*#__PURE__*/React.createElement(LIcon, {
+    name: showPast ? 'chevron-up' : 'chevron-down',
+    size: 20
+  })), showPast && past.map(x => {
+    const n = new Set(C.answers.filter(a => a.question_id === x.id).map(a => a.member_id)).size;
     const am = C.getM(x.asker_id);
     return /*#__PURE__*/React.createElement("button", {
       key: x.id,
@@ -6302,10 +6567,7 @@ function QuestionSheet({
       style: {
         padding: '10px 0'
       },
-      onClick: () => {
-        setView(x);
-        setEditing(false);
-      }
+      onClick: () => open(x)
     }, x.asker_id ? /*#__PURE__*/React.createElement(Avatar, {
       m: am,
       size: 36
@@ -6327,7 +6589,7 @@ function QuestionSheet({
       style: {
         fontSize: '.95rem'
       }
-    }, x.text), /*#__PURE__*/React.createElement("span", null, fmtDate(x.week_start), " \uC8FC \xB7 ", x.asker_id ? `${am.name}의 질문` : '예전 방식 질문', " \xB7 \uB2F5 ", n, "\uAC1C")));
+    }, x.text), /*#__PURE__*/React.createElement("span", null, fmtDate(x.week_start), " \uC8FC \xB7 ", x.asker_id ? `${am.name}의 질문` : '예전 방식 질문', " \xB7 \uB2F5 ", n, "\uBA85")));
   }))), /*#__PURE__*/React.createElement(TurnOrder, {
     open: orderOpen,
     onClose: () => setOrderOpen(false)
@@ -6470,11 +6732,12 @@ function PrayCard({
     onClick: () => {
       setMenu(false);
       if (window.confirm('이 기도를 지울까요?')) {
-        C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요');
-        const id = driveId(p.audio_url);
-        if (id) gw('delete', {
-          id
-        }).catch(() => {});
+        C.write(() => db.del('prayers', `id=eq.${p.id}`), '지웠어요').then(ok => {
+          const id = ok && driveId(p.audio_url);
+          if (id) gw('delete', {
+            id
+          }).catch(() => {});
+        });
       }
     }
   }, /*#__PURE__*/React.createElement(LIcon, {
@@ -9224,13 +9487,18 @@ function App() {
         return false;
       }
       const tables = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers', 'prayer_marks', 'memories', 'wishes', 'event_tasks', 'visits', 'views', 'app_settings', 'note_reacts', 'note_replies', 'polls', 'poll_votes', 'comment_reacts'];
-      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'comment_reacts' ? 'select=*&order=comment_id,member_id' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => [])));
+      const all = await Promise.all(tables.map(t => db.list(t, t === 'reactions' ? 'select=*&order=post_id,member_id,emoji' : t === 'prayer_marks' ? 'select=*&order=prayer_id,member_id,day' : t === 'poll_votes' ? 'select=*&order=poll_id,member_id,opt' : t === 'comment_reacts' ? 'select=*&order=comment_id,member_id' : t === 'visits' ? 'select=*&order=member_id,day' : t === 'views' ? 'select=*&order=item_id,member_id' : t === 'app_settings' ? 'select=*&order=k' : t === 'note_reacts' ? 'select=*&order=note_id,member_id' : undefined).catch(() => null)));
+      /* 표를 못 읽었는데 빈 칸으로 저장하면, 그날의 멀쩡한 백업을 빈 백업으로 덮어쓴다 → 중요한 표를 하나라도 못 읽으면 이번 백업은 건너뛴다 */
+      const CORE = ['members', 'posts', 'reactions', 'comments', 'notes', 'events', 'letters', 'questions', 'answers', 'question_bank', 'prayers'];
+      const failed = tables.filter((t, i) => all[i] === null);
+      if (failed.some(t => CORE.includes(t))) throw new Error('가족 기록 일부를 읽지 못했어요 (' + failed.join(', ') + '). 나중에 다시 해 주세요');
       const data = {
         app: 'THE FAMILY ZONE',
         saved_at: new Date().toISOString(),
         by: me
       };
-      tables.forEach((t, i) => data[t] = all[i]);
+      tables.forEach((t, i) => data[t] = all[i] || []);
+      if (failed.length) data._failed = failed; // 덜 중요한 표만 못 읽은 경우: 백업은 하되 무엇이 빠졌는지 적어 둔다
       await gw('backup', {
         day: ymd(),
         data: JSON.stringify(data)
@@ -9696,13 +9964,15 @@ function App() {
     addComment: row => write(() => db.add('comments', row)),
     deleteComment: c => {
       if (window.confirm(D.comments.some(x => x.parent_id === c.id) ? '이 댓글을 지울까요? 달린 답글도 함께 지워져요.' : c.parent_id ? '이 답글을 지울까요?' : '이 댓글을 지울까요?')) {
-        write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요');
-        const id = driveId(c.audio_url);
-        if (id) gw('delete', {
-          id
-        }).catch(() => {});
+        write(() => db.del('comments', `id=eq.${c.id}`), '댓글을 지웠어요').then(ok => {
+          const id = ok && driveId(c.audio_url);
+          if (id) gw('delete', {
+            id
+          }).catch(() => {});
+        });
       }
     },
+    // 글이 지워진 뒤에만 목소리 파일을 지운다
     deletePost: async p => {
       if (!window.confirm('이 소식을 지울까요? 댓글도 함께 지워져요. (사진은 구글 드라이브에 그대로 남아요)')) return;
       const files = (cmtMap[p.id] || []).map(c => driveId(c.audio_url)).filter(Boolean); // 사진(줄인 것·원본)은 드라이브에 남긴다 (사용자 요청) · 목소리 댓글만 정리
