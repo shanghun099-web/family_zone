@@ -1197,14 +1197,45 @@ function VideoSlide({ ph, at, playing, onPlay }) {
   );
 }
 
+/* 소식 카드 사진 한 장: 틀과 모양이 같으면 꽉 채우고, 다르면 자르지 않고 전체를 보여 준다
+   (남는 곳은 같은 사진을 흐리게 깔아 채움 — 인스타그램 "섞기"처럼, 단 고르지 않아도 늘 이렇게) */
+function PhotoSlide({ ph, frame, i }) {
+  const r = ph.w && ph.h ? ph.w / ph.h : 0;
+  if (r && Math.abs(r - frame) / frame < 0.04) return <img src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>;
+  return (
+    <div className="pslide">
+      <img className="bg" src={ph.thumb || ph.url} alt="" aria-hidden="true" loading="lazy"/>
+      <img className="fg" src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>
+    </div>
+  );
+}
+
+/* 사진 크게 보기: 검은 화면에 사진 전체, 옆으로 넘기기, 두 손가락으로 확대 (뒤로 가기·✕로 닫기) */
+function PhotoViewer({ photos, start, onClose }) {
+  const open = !!photos; useLayer(open, onClose);
+  const ref = useRef(null); const [i, setI] = useState(start || 0);
+  useEffect(() => { if (open && ref.current) { ref.current.scrollLeft = (start || 0) * ref.current.clientWidth; setI(start || 0); } }, [open, start]);
+  if (!open) return null;
+  return (
+    <div className="pview" role="dialog" aria-label="사진 크게 보기">
+      <div className="pview-car" ref={ref} onScroll={e => { const el = e.currentTarget; setI(Math.round(el.scrollLeft / el.clientWidth)); }}>
+        {photos.map((ph, k) => <div className="pview-s" key={k}><img src={ph.url} alt={`사진 ${k + 1}`}/></div>)}
+      </div>
+      <button className="pview-x" onClick={onClose} aria-label="닫기"><LIcon name="x" size={28} stroke="#fff"/></button>
+      {photos.length > 1 && <span className="pview-n">{i + 1} / {photos.length}</span>}
+      <span className="pview-h">두 손가락으로 벌리면 더 커져요{photos.length > 1 ? ' · 옆으로 넘겨 보세요' : ''}</span>
+    </div>
+  );
+}
+
 function PostCard({ p }) {
   const C = useC(); const a = C.getM(p.author_id);
   const [idx, setIdx] = useState(0); const [pop, setPop] = useState(0); const [more, setMore] = useState(false);
   const [peek, setPeek] = useState(false); const [menu, setMenu] = useState(false); const [playing, setPlaying] = useState(-1);
   const [bar, setBar] = useState(false); const barT = useRef(0); const press = useRef(null);
-  const lastTap = useRef(0); const vref = useRef(null);
+  const lastTap = useRef(0); const tapT = useRef(0); const vref = useRef(null); const [view, setView] = useState(-1);
   useViewed(vref, isLocked(p) ? null : p.id, 'post', p.author_id);
-  useEffect(() => () => { clearTimeout(barT.current); clearTimeout(press.current); }, []);
+  useEffect(() => () => { clearTimeout(barT.current); clearTimeout(press.current); clearTimeout(tapT.current); }, []);
   if (isLocked(p) && !peek) return <LockedCard p={p} onPeek={p.author_id === C.me ? () => setPeek(true) : null}/>;
   const photos = photosOf(p);
   const likes = C.likesOf(p.id); const iLike = likes.includes(C.me); const iSaved = C.isSaved(p.id);
@@ -1221,8 +1252,16 @@ function PostCard({ p }) {
   const replyTo = (c, r) => C.openComments(p, '', { c, r });
   const tagged = (p.tagged || []).filter(id => id !== p.author_id).map(C.getM);
   const asked = p.ask_to ? C.getM(p.ask_to) : null;
-  const r0 = photos[0] && photos[0].w ? Math.max(0.8, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
-  const tapImg = () => { const t = Date.now(); if (t - lastTap.current < 320) { if (!mine) C.react(p, '❤️'); setPop(x => x + 1); } lastTap.current = t; };
+  /* 틀: 첫 사진 모양 (세로는 폰 기본 3:4 까지, 가로는 1.91:1 까지). 이 범위를 넘거나 다른 모양의 사진은 PhotoSlide 가 자르지 않고 보여 준다 */
+  const r0 = photos[0] && photos[0].w ? Math.max(0.75, Math.min(1.91, photos[0].w / photos[0].h)) : 1;
+  const stills = photos.filter(ph => !isVideo(ph));
+  /* 사진 한 번 누르기 = 크게 보기, 두 번 빨리 누르기 = 하트 (한 번인지 두 번인지 0.3초 기다렸다 정한다) */
+  const tapImg = () => {
+    const t = Date.now(); clearTimeout(tapT.current);
+    if (t - lastTap.current < 320) { lastTap.current = 0; if (!mine) C.react(p, '❤️'); setPop(x => x + 1); return; }
+    lastTap.current = t;
+    tapT.current = setTimeout(() => { const cur = photos[idx]; if (!cur || isVideo(cur) || !stills.length) return; setView(Math.max(0, stills.indexOf(cur))); }, 320);
+  };
   /* 글 끝에 몰아 쓴 #태그는 참고 화면처럼 아래 줄로 따로 뺀다 */
   const tm = (p.content || '').match(/(?:\s*#[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ_]+)+\s*$/);
   const body = tm ? p.content.slice(0, tm.index).trim() : (p.content || '');
@@ -1247,13 +1286,14 @@ function PostCard({ p }) {
           <div className="car" style={{ height: '100%' }} onScroll={e => { const el = e.currentTarget; setIdx(Math.round(el.scrollLeft / el.clientWidth)); }}>
             {photos.map((ph, i) => isVideo(ph)
               ? <VideoSlide key={i} ph={ph} at={p.created_at} playing={playing === i} onPlay={() => setPlaying(i)}/>
-              : <img key={i} src={ph.url} alt={`사진 ${i + 1}`} loading="lazy"/>)}
+              : <PhotoSlide key={i} ph={ph} frame={r0} i={i}/>)}
           </div>
           {photos.length > 1 && <><span className="pcount">{idx + 1}/{photos.length}</span><div className="dots">{photos.map((_, i) => <i key={i} className={i === idx ? 'on' : ''}/>)}</div></>}
           {p.title && idx === 0 && <span className="ovl">{p.title}</span>}
           {pop > 0 && <span key={pop} className="bigheart"><LIcon name="heart" size={96} fill="#fff" stroke="#fff"/></span>}
         </div>
       )}
+      <PhotoViewer photos={view >= 0 ? stills : null} start={view} onClose={() => setView(-1)}/>
       {p.music && <div style={{ padding: '10px 14px 0' }}><MusicChip m={p.music}/></div>}
       {!p.music && p.audio_url && <div style={{ padding: '10px 14px 0' }}><VoicePlayer src={p.audio_url}/></div>}
       <div className="acts">
